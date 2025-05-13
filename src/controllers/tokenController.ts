@@ -1,0 +1,921 @@
+
+// import { Request, Response } from 'express';
+// import { User } from '../models/models';
+// import { Business } from '../models/businessModel';
+// import { ethers } from 'ethers';
+// import { africastalking } from '../services/auth';
+// import { sendToken } from '../services/token';
+// import { Chain } from '../types/token';
+// import { getAllTokenTransferEvents } from '../services/token';
+
+// // export const send = async (req: Request, res: Response) => {
+// //     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
+// //     if (!recipientIdentifier || !amount || !senderAddress || !chain) {
+// //         return res.status(400).send({ message: "Required parameters are missing!" });
+// //     }
+// //     console.log(`${amount}, ${senderAddress}, ${recipientIdentifier}, ${chain}`)
+// //     let recipientAddress = recipientIdentifier;
+// //     let recipientPhone = '';
+// //     if (!ethers.utils.isAddress(recipientIdentifier)) {
+// //         const user = await User.findOne({ phoneNumber: recipientIdentifier });
+// //         if (!user) {
+// //             return res.status(404).send({ message: "Recipient not found!" });
+// //         }
+// //         if (chain === 'celo' || chain == "arbitrum") {
+// //             recipientAddress = user.walletAddress;
+// //         } else {
+// //             return res.status(400).send({ message: "Unsupported chain!" });
+// //         }
+// //         recipientPhone = user.phoneNumber;
+// //     }
+
+// //     let sender
+
+// //     try {
+// //         if (chain === 'celo' || chain == 'arbitrum') {
+// //             sender = await User.findOne({ walletAddress: senderAddress });
+// //         }
+// //         else {
+// //             return res.status(400).send({ message: "Unsupported chain!" });
+// //         }
+// //         console.log("sender: ", sender)
+// //         await sendToken(recipientAddress, amount, chain, sender?.privateKey as string);
+// //         // Retrieve the sender's phone number from the database
+// //         const senderPhone = sender ? sender.phoneNumber : '';
+
+// //         // Generate the current date and time in Kenyan timezone
+// //         const formatter = new Intl.DateTimeFormat('en-KE', {
+// //             month: 'numeric',
+// //             day: 'numeric',
+// //             year: '2-digit',
+// //             hour: 'numeric',
+// //             minute: 'numeric',
+// //             second: 'numeric',
+// //             hour12: true,
+// //             timeZone: 'Africa/Nairobi'
+// //         });
+// //         const currentDateTime = formatter.format(new Date());
+
+// //         // Generate a pseudo-unique transaction code
+// //         const transactionCode = Math.random().toString(36).substring(2, 12);
+
+// //         // Format the amount for display
+// //         const amountDisplay = `${amount} USDC`;
+
+// //         // Compose SMS messages following the requested structure
+// //         const recipientMessage = `${transactionCode} Confirmed. ${amountDisplay} Received from ${senderPhone} on ${currentDateTime}.`;
+// //         const senderMessage = `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone} on ${currentDateTime}.`;
+
+// //         // Send SMS messages to both sender and recipient
+// //         if (senderPhone) {
+// //             await africastalking.SMS.send({
+// //                 to: senderPhone,
+// //                 message: senderMessage,
+// //                 from: 'NEXUSPAY'
+// //             });
+// //             console.log("sending to sender phone: ", senderPhone)
+// //         }
+
+// //         if (recipientPhone) {
+// //             await africastalking.SMS.send({
+// //                 to: recipientPhone,
+// //                 message: recipientMessage,
+// //                 from: 'NEXUSPAY'
+// //             });
+// //         }
+
+// //         res.send({ message: 'Token sent successfully and SMS notifications delivered!' });
+// //     } catch (error) {
+// //         console.error("Error in send API:", error);
+// //         res.status(500).send({ message: 'Failed to send token or SMS notifications.', error: error });
+// //     }
+// // };
+
+
+// export const send = async (req: Request, res: Response) => {
+//     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
+//     if (!recipientIdentifier || !amount || !senderAddress || !chain) {
+//         return res.status(400).send({ message: "Required parameters are missing!" });
+//     }
+    
+//     console.log("Received request:", { amount, senderAddress, recipientIdentifier, chain });
+
+//     let recipientAddress = recipientIdentifier;
+//     let recipientPhone = '';
+
+//     try {
+//         // Find sender first
+//         const sender = await User.findOne({ walletAddress: senderAddress });
+//         if (!sender) {
+//             console.error("Sender not found for address:", senderAddress);
+//             return res.status(404).send({ message: "Sender wallet not found!" });
+//         }
+
+//         // If recipient is a phone number, get their wallet address
+//         if (!ethers.utils.isAddress(recipientIdentifier)) {
+//             const recipient = await User.findOne({ phoneNumber: recipientIdentifier });
+//             if (!recipient) {
+//                 return res.status(404).send({ message: "Recipient not found!" });
+//             }
+//             recipientAddress = recipient.walletAddress;
+//             recipientPhone = recipient.phoneNumber;
+//         }
+
+//         // Validate chain
+//         if (chain !== 'celo' && chain !== 'arbitrum') {
+//             return res.status(400).send({ message: "Unsupported chain!" });
+//         }
+
+//         console.log("Sending token with params:", {
+//             recipientAddress,
+//             amount,
+//             chain,
+//             senderPrivateKey: sender.privateKey ? "exists" : "missing"
+//         });
+
+//         // Send the token
+//         await sendToken(recipientAddress, amount, chain, sender.privateKey);
+
+//         // Send SMS notifications
+//         const currentDateTime = new Date().toLocaleString('en-KE', {
+//             timeZone: 'Africa/Nairobi'
+//         });
+//         const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase();
+//         const amountDisplay = `${amount} USDC`;
+
+//         // Send SMS to recipient if we have their phone number
+//         if (recipientPhone) {
+//             await africastalking.SMS.send({
+//                 to: recipientPhone,
+//                 message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber} on ${currentDateTime}`,
+//                 from: 'NEXUSPAY'
+//             });
+//         }
+
+//         // Send SMS to sender
+//         await africastalking.SMS.send({
+//             to: sender.phoneNumber,
+//             message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone || recipientAddress} on ${currentDateTime}`,
+//             from: 'NEXUSPAY'
+//         });
+
+//         res.send({ 
+//             message: 'Token sent successfully!',
+//             transactionCode,
+//             amount: amountDisplay,
+//             recipient: recipientPhone || recipientAddress,
+//             timestamp: currentDateTime
+//         });
+
+//     } catch (error: any) { // Type the error as any
+//         console.error("Error in send API:", error);
+//         res.status(500).send({ 
+//             message: 'Failed to send token.', 
+//             error: error?.message || 'Unknown error occurred'
+//         });
+//     }
+// };
+
+
+// export const pay = async (req: Request, res: Response) => {
+//     const { senderAddress, businessUniqueCode, amount, confirm, chainName } = req.body;
+//     if (!businessUniqueCode || !amount || !senderAddress) {
+//         return res.status(400).send({ message: "Required parameters are missing!" });
+//     }
+
+//     let sender = await User.findOne({ walletAddress: senderAddress });
+//     const business = await Business.findOne({ uniqueCode: businessUniqueCode });
+//     if (!business) {
+//         return res.status(404).send({ message: "Business not found!" });
+//     }
+
+//     if (!confirm) {
+//         return res.status(200).send({
+//             message: "Please confirm the payment to the business.",
+//             businessName: business.businessName
+//         });
+//     }
+
+//     try {
+//         await sendToken(business.walletAddress, amount, chainName, sender?.privateKey as string)
+//         res.send({ message: 'Token sent successfully to the business!', paid: true });
+//     } catch (error) {
+//         console.error("Error in pay API:", error);
+//         res.status(500).send({ message: 'Failed to send token.', error: error });
+//     }
+// };
+
+
+// export const tokenTransferEvents = async (req: Request, res: Response) => {
+//     const { address, chain } = req.query;
+
+//     if (!address) {
+//         return res.status(400).send('Address is required as a query parameter.');
+//     }
+
+//     if (!chain) {
+//         return res.status(400).send('Chain is required as a query parameter.');
+//     }
+
+//     if (!['arbitrum', 'celo'].includes(chain as string)) {
+//         return res.status(400).send('Invalid chain parameter. Supported chains are arbitrum and celo.');
+//     }
+
+//     try {
+//         const events = await getAllTokenTransferEvents(chain as Chain, address as string);
+//         res.json(events);
+//     } catch (error) {
+//         console.error('Error fetching token transfer events:', error);
+//         res.status(500).send({ message: 'Internal server error', error: error });
+//     }
+// };
+
+//################ old Code #####################
+
+// import { Request, Response } from 'express';
+// import { User } from '../models/models';
+// import { Business } from '../models/businessModel';
+// import { ethers } from 'ethers';
+// import { africastalking } from '../services/auth';
+// import { sendToken, getAllTokenTransferEvents } from '../services/token';
+// import { Chain } from '../types/token';
+
+// export const send = async (req: Request, res: Response) => {
+//     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
+//     if (!recipientIdentifier || !amount || !senderAddress || !chain) {
+//         return res.status(400).send({ message: "Required parameters are missing!" });
+//     }
+    
+//     console.log("Received request:", { amount, senderAddress, recipientIdentifier, chain });
+
+//     let recipientAddress = recipientIdentifier;
+//     let recipientPhone = '';
+
+//     try {
+//         const sender = await User.findOne({ walletAddress: senderAddress });
+//         if (!sender) {
+//             console.error("Sender not found for address:", senderAddress);
+//             return res.status(404).send({ message: "Sender wallet not found!" });
+//         }
+
+//         if (!ethers.utils.isAddress(recipientIdentifier)) {
+//             const recipient = await User.findOne({ phoneNumber: recipientIdentifier });
+//             if (!recipient) {
+//                 return res.status(404).send({ message: "Recipient not found!" });
+//             }
+//             recipientAddress = recipient.walletAddress;
+//             recipientPhone = recipient.phoneNumber;
+//         }
+
+//         if (chain !== 'celo' && chain !== 'arbitrum') {
+//             return res.status(400).send({ message: "Unsupported chain!" });
+//         }
+
+//         console.log("Sending token with params:", {
+//             recipientAddress,
+//             amount,
+//             chain,
+//             senderPrivateKey: sender.privateKey ? "exists" : "missing"
+//         });
+
+//         if (!sender.privateKey) {
+//             return res.status(400).send({ message: "Sender private key not found in database!" });
+//         }
+
+//         const result = await sendToken(recipientAddress, amount, chain, sender.privateKey);
+
+//         const currentDateTime = new Date().toLocaleString('en-KE', {
+//             timeZone: 'Africa/Nairobi'
+//         });
+//         const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase();
+//         const amountDisplay = `${amount} USDC`;
+
+//         if (recipientPhone) {
+//             await africastalking.SMS.send({
+//                 to: recipientPhone,
+//                 message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber} on ${currentDateTime}`,
+//                 from: 'NEXUSPAY'
+//             });
+//         }
+
+//         await africastalking.SMS.send({
+//             to: sender.phoneNumber,
+//             message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone || recipientAddress} on ${currentDateTime}`,
+//             from: 'NEXUSPAY'
+//         });
+
+//         res.send({ 
+//             message: 'Token sent successfully!',
+//             transactionCode,
+//             amount: amountDisplay,
+//             recipient: recipientPhone || recipientAddress,
+//             timestamp: currentDateTime,
+//             transactionHash: result.transactionHash
+//         });
+
+//     } catch (error: any) {
+//         console.error("Error in send API:", error);
+//         res.status(500).send({ 
+//             message: 'Failed to send token.', 
+//             error: error.message || 'Unknown error occurred'
+//         });
+//     }
+// };
+
+// export const pay = async (req: Request, res: Response) => {
+//     const { senderAddress, businessUniqueCode, amount, confirm, chain } = req.body;
+//     if (!businessUniqueCode || !amount || !senderAddress) {
+//         return res.status(400).send({ message: "Required parameters are missing!" });
+//     }
+
+//     const sender = await User.findOne({ walletAddress: senderAddress });
+//     const business = await Business.findOne({ uniqueCode: businessUniqueCode });
+//     if (!business) {
+//         return res.status(404).send({ message: "Business not found!" });
+//     }
+//     if (!sender) {
+//         return res.status(404).send({ message: "Sender not found!" });
+//     }
+
+//     if (!confirm) {
+//         return res.status(200).send({
+//             message: "Please confirm the payment to the business.",
+//             businessName: business.businessName
+//         });
+//     }
+
+//     try {
+//         if (!sender.privateKey) {
+//             return res.status(400).send({ message: "Sender private key not found in database!" });
+//         }
+
+//         const result = await sendToken(business.walletAddress, amount, chain || 'celo', sender.privateKey);
+//         res.send({ 
+//             message: 'Token sent successfully to the business!', 
+//             paid: true, 
+//             transactionHash: result.transactionHash 
+//         });
+//     } catch (error: any) {
+//         console.error("Error in pay API:", error);
+//         res.status(500).send({ 
+//             message: 'Failed to send token.', 
+//             error: error.message || 'Unknown error occurred' 
+//         });
+//     }
+// };
+
+// export const tokenTransferEvents = async (req: Request, res: Response) => {
+//     const { address, chain } = req.query;
+
+//     if (!address) {
+//         return res.status(400).send('Address is required as a query parameter.');
+//     }
+
+//     if (!chain) {
+//         return res.status(400).send('Chain is required as a query parameter.');
+//     }
+
+//     if (!['arbitrum', 'celo'].includes(chain as string)) {
+//         return res.status(400).send('Invalid chain parameter. Supported chains are arbitrum and celo.');
+//     }
+
+//     try {
+//         const events = await getAllTokenTransferEvents(chain as Chain, address as string);
+//         res.json(events);
+//     } catch (error: any) {
+//         console.error('Error fetching token transfer events:', error);
+//         res.status(500).send({ 
+//             message: 'Internal server error', 
+//             error: error.message || 'Unknown error occurred' 
+//         });
+//     }
+// };
+
+
+//################ new Code for Migrations #####################
+
+import { Request, Response } from 'express';
+import { User } from '../models/models';
+import { Business } from '../models/businessModel';
+import { ethers } from 'ethers';
+import { africastalking, client } from '../services/auth';
+import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets } from '../services/token';
+import { Chain } from '../types/token';
+import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
+import { defineChain, getContract, readContract } from "thirdweb";
+import config from '../config/env';
+import * as bcrypt from 'bcrypt';
+
+export const send = async (req: Request, res: Response) => {
+    const { recipientIdentifier, amount, senderAddress, chain } = req.body;
+    if (!recipientIdentifier || !amount || !senderAddress || !chain) {
+        console.log("Send request failed: Missing required parameters");
+        return res.status(400).send({ message: "Required parameters are missing!" });
+    }
+    
+    console.log("Received send request:", { amount, senderAddress, recipientIdentifier, chain });
+
+    let recipientAddress = recipientIdentifier;
+    let recipientPhone = '';
+
+    try {
+        const sender = await User.findOne({ walletAddress: senderAddress });
+        if (!sender) {
+            console.error("Sender not found for address:", senderAddress);
+            return res.status(404).send({ message: "Sender wallet not found!" });
+        }
+
+        if (!ethers.utils.isAddress(recipientIdentifier)) {
+            const recipient = await User.findOne({ phoneNumber: recipientIdentifier });
+            if (!recipient) {
+                console.log("Recipient not found for phoneNumber:", recipientIdentifier);
+                return res.status(404).send({ message: "Recipient not found!" });
+            }
+            recipientAddress = recipient.walletAddress;
+            recipientPhone = recipient.phoneNumber;
+        }
+
+        if (chain !== 'celo' && chain !== 'arbitrum') {
+            console.log("Invalid chain:", chain);
+            return res.status(400).send({ message: "Unsupported chain!" });
+        }
+
+        console.log("Sending token with params:", {
+            recipientAddress,
+            amount,
+            chain,
+            senderPrivateKey: sender.privateKey ? "exists" : "missing"
+        });
+
+        if (!sender.privateKey) {
+            console.log("Sender private key missing for:", senderAddress);
+            return res.status(400).send({ message: "Sender private key not found in database!" });
+        }
+
+        const result = await sendToken(recipientAddress, amount, chain, sender.privateKey);
+
+        const currentDateTime = new Date().toLocaleString('en-KE', {
+            timeZone: 'Africa/Nairobi'
+        });
+        const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase();
+        const amountDisplay = `${amount} USDC`;
+
+        if (recipientPhone) {
+            await africastalking.SMS.send({
+                to: recipientPhone,
+                message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber} on ${currentDateTime}`,
+                from: 'NEXUSPAY'
+            });
+            console.log(`SMS sent to recipient: ${recipientPhone}`);
+        }
+
+        await africastalking.SMS.send({
+            to: sender.phoneNumber,
+            message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone || recipientAddress} on ${currentDateTime}`,
+            from: 'NEXUSPAY'
+        });
+        console.log(`SMS sent to sender: ${sender.phoneNumber}`);
+
+        res.send({ 
+            message: 'Token sent successfully!',
+            transactionCode,
+            amount: amountDisplay,
+            recipient: recipientPhone || recipientAddress,
+            timestamp: currentDateTime,
+            transactionHash: result.transactionHash
+        });
+
+    } catch (error: any) {
+        console.error("Error in send API:", error);
+        res.status(500).send({ 
+            message: 'Failed to send token.', 
+            error: error.message || 'Unknown error occurred'
+        });
+    }
+};
+
+export const pay = async (req: Request, res: Response) => {
+    const { senderAddress, businessUniqueCode, amount, confirm, chain } = req.body;
+    if (!businessUniqueCode || !amount || !senderAddress) {
+        console.log("Pay request failed: Missing required parameters");
+        return res.status(400).send({ message: "Required parameters are missing!" });
+    }
+
+    const sender = await User.findOne({ walletAddress: senderAddress });
+    const business = await Business.findOne({ uniqueCode: businessUniqueCode });
+    if (!business) {
+        console.log("Business not found for uniqueCode:", businessUniqueCode);
+        return res.status(404).send({ message: "Business not found!" });
+    }
+    if (!sender) {
+        console.log("Sender not found for address:", senderAddress);
+        return res.status(404).send({ message: "Sender not found!" });
+    }
+
+    if (!confirm) {
+        console.log("Payment confirmation required for:", businessUniqueCode);
+        return res.status(200).send({
+            message: "Please confirm the payment to the business.",
+            businessName: business.businessName
+        });
+    }
+
+    try {
+        if (!sender.privateKey) {
+            console.log("Sender private key missing for:", senderAddress);
+            return res.status(400).send({ message: "Sender private key not found in database!" });
+        }
+
+        const result = await sendToken(business.walletAddress, amount, chain || 'celo', sender.privateKey);
+        console.log(`Payment successful to ${business.walletAddress}: ${result.transactionHash}`);
+        res.send({ 
+            message: 'Token sent successfully to the business!', 
+            paid: true, 
+            transactionHash: result.transactionHash 
+        });
+    } catch (error: any) {
+        console.error("Error in pay API:", error);
+        res.status(500).send({ 
+            message: 'Failed to send token.', 
+            error: error.message || 'Unknown error occurred' 
+        });
+    }
+};
+
+export const tokenTransferEvents = async (req: Request, res: Response) => {
+    const { address, chain } = req.query;
+
+    if (!address) {
+        console.log("Token transfer events request failed: Address missing");
+        return res.status(400).send('Address is required as a query parameter.');
+    }
+
+    if (!chain) {
+        console.log("Token transfer events request failed: Chain missing");
+        return res.status(400).send('Chain is required as a query parameter.');
+    }
+
+    if (!['arbitrum', 'celo'].includes(chain as string)) {
+        console.log("Invalid chain for token transfer events:", chain);
+        return res.status(400).send('Invalid chain parameter. Supported chains are arbitrum and celo.');
+    }
+
+    try {
+        const events = await getAllTokenTransferEvents(chain as Chain, address as string);
+        console.log(`Fetched token transfer events for ${address} on ${chain}`);
+        res.json(events);
+    } catch (error: any) {
+        console.error('Error fetching token transfer events:', error);
+        res.status(500).send({ 
+            message: 'Internal server error', 
+            error: error.message || 'Unknown error occurred' 
+        });
+    }
+};
+
+export const unify = async (req: Request, res: Response) => {
+    const { phoneNumber, password, otp } = req.body;
+
+    if (!phoneNumber) {
+        console.log("Unify request failed: Phone number missing");
+        return res.status(400).send({ message: "Phone number is required." });
+    }
+
+    try {
+        console.log(`Unifying wallets for phoneNumber: ${phoneNumber}`);
+
+        const user = await User.findOne({ phoneNumber });
+        if (!user) {
+            console.log(`User not found for phoneNumber: ${phoneNumber}`);
+            return res.status(404).send({ message: "Phone number not registered." });
+        }
+
+        const status = {
+            phoneNumberExists: true,
+            isLocked: user.lockoutUntil && Date.now() < user.lockoutUntil,
+            failedAttempts: user.failedPasswordAttempts,
+            isUnified: user.isUnified,
+        };
+        console.log(`User status for ${phoneNumber}:`, status);
+
+        if (user.isUnified) {
+            console.log(`Wallets already unified for ${phoneNumber}. Current wallet: ${user.walletAddress}`);
+            return res.status(200).send({
+                message: "Wallets have already been unified.",
+                unifiedWalletAddress: user.walletAddress,
+            });
+        }
+
+        if (status.isLocked) {
+            const timeLeft = Math.ceil((user.lockoutUntil! - Date.now()) / (1000 * 60));
+            console.log(`User locked out until: ${new Date(user.lockoutUntil!).toISOString()}`);
+            return res.status(429).send({
+                message: `Too many failed attempts. Please try again in ${timeLeft} minutes using OTP or password.`,
+            });
+        }
+
+        if (!otp) {
+            if (!password) {
+                console.log(`No password provided for ${phoneNumber}, prompting OTP`);
+                const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
+
+                try {
+                    const smsResponse = await africastalking.SMS.send({
+                        to: phoneNumber,
+                        message: `Your unification OTP is ${generatedOtp}. Valid for 5 minutes.`,
+                        from: 'NEXUSPAY'
+                    });
+                    console.log(`SMS sent successfully to ${phoneNumber}:`, smsResponse);
+                } catch (smsError) {
+                    console.error(`Failed to send SMS to ${phoneNumber}:`, smsError);
+                    return res.status(500).send({ message: "Failed to send OTP. Please try again." });
+                }
+
+                user.tempOtp = generatedOtp;
+                user.otpExpires = Date.now() + 5 * 60 * 1000;
+                await user.save();
+                console.log(`OTP saved for ${phoneNumber}, expires at: ${new Date(user.otpExpires!).toISOString()}`);
+                return res.status(200).send({ message: "OTP sent to your phone. Please provide it to proceed." });
+            }
+
+            const isPasswordValid = await bcrypt.compare(password, user.password);
+            if (!isPasswordValid) {
+                user.failedPasswordAttempts += 1;
+                console.log(`Incorrect password for ${phoneNumber}. Attempts: ${user.failedPasswordAttempts}`);
+
+                if (user.failedPasswordAttempts >= 5) {
+                    user.lockoutUntil = Date.now() + 60 * 60 * 1000;
+                    user.failedPasswordAttempts = 0;
+                    await user.save();
+                    console.log(`User locked out until: ${new Date(user.lockoutUntil!).toISOString()}`);
+                    return res.status(429).send({
+                        message: "Too many failed attempts. Please try again in 1 hour using OTP or password.",
+                    });
+                }
+
+                await user.save();
+                return res.status(401).send({
+                    message: "Incorrect password. Please verify your password or use OTP instead.",
+                    attempts: user.failedPasswordAttempts,
+                });
+            }
+
+            user.failedPasswordAttempts = 0;
+            await user.save();
+            console.log(`Password authenticated for ${phoneNumber}`);
+        } else {
+            if (user.tempOtp !== otp || !user.otpExpires || Date.now() > user.otpExpires) {
+                console.log(`OTP validation failed for ${phoneNumber}: tempOtp=${user.tempOtp}, otp=${otp}, expires=${user.otpExpires}`);
+                return res.status(400).send({ message: "Invalid or expired OTP." });
+            }
+            console.log(`OTP validated successfully for ${phoneNumber}`);
+        }
+
+        const unifiedAddress = await unifyWallets(user.privateKey);
+        console.log(`Unified address generated: ${unifiedAddress}`);
+
+        user.walletAddress = unifiedAddress;
+        user.isUnified = true;
+        user.tempOtp = undefined;
+        user.otpExpires = undefined;
+        await user.save();
+        console.log(`User updated with unified address: ${unifiedAddress}, marked as unified`);
+
+        res.send({
+            message: "Wallets unified successfully!",
+            unifiedWalletAddress: unifiedAddress,
+        });
+
+    } catch (error: any) {
+        console.error(`Error in unify API for ${phoneNumber}:`, error);
+        res.status(500).send({
+            message: "Failed to unify wallets.",
+            error: error.message || "Unknown error occurred",
+        });
+    }
+};
+
+export const migrate = async (req: Request, res: Response) => {
+    const { phoneNumber, password, otp } = req.body;
+
+    console.log("Raw request body:", req.body);
+
+    if (!phoneNumber) {
+        console.log("Migrate request failed: Phone number missing");
+        return res.status(400).send({ message: "Phone number is required." });
+    }
+
+    try {
+        console.log(`Migrating funds for phoneNumber: ${phoneNumber}`);
+        const user = await User.findOne({ phoneNumber });
+        if (!user) {
+            console.log(`User not found for phoneNumber: ${phoneNumber}`);
+            return res.status(404).send({ message: "User not found." });
+        }
+
+        if (!user.isUnified || !user.walletAddress) {
+            console.log(`User ${phoneNumber} has no unified wallet to migrate to`);
+            return res.status(400).send({ message: "User wallet is not unified. Please unify wallets first." });
+        }
+
+        if (!otp) {
+            if (!password) {
+                console.log(`No password provided for ${phoneNumber}, prompting OTP`);
+                const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
+
+                try {
+                    const smsResponse = await africastalking.SMS.send({
+                        to: phoneNumber,
+                        message: `Your migration OTP is ${generatedOtp}. Valid for 5 minutes.`,
+                        from: 'NEXUSPAY'
+                    });
+                    console.log(`SMS sent successfully to ${phoneNumber}:`, smsResponse);
+                } catch (smsError) {
+                    console.error(`Failed to send SMS to ${phoneNumber}:`, smsError);
+                    return res.status(500).send({ message: "Failed to send OTP. Please try again." });
+                }
+
+                user.tempOtp = generatedOtp;
+                user.otpExpires = Date.now() + 5 * 60 * 1000;
+                await user.save();
+                console.log(`OTP saved for ${phoneNumber}, expires at: ${new Date(user.otpExpires!).toISOString()}`);
+                return res.status(200).send({ message: "OTP sent to your phone. Please provide it to proceed." });
+            }
+
+            console.log(`Attempting password validation for ${phoneNumber}`);
+            const isPasswordValid = await bcrypt.compare(password, user.password);
+            if (!isPasswordValid) {
+                console.log(`Incorrect password for ${phoneNumber}`);
+                return res.status(401).send({ message: "Incorrect password. Please verify your password or use OTP." });
+            }
+            console.log(`Password authenticated for ${phoneNumber}`);
+        } else {
+            if (user.tempOtp !== otp || !user.otpExpires || Date.now() > user.otpExpires) {
+                console.log(`OTP validation failed for ${phoneNumber}: tempOtp=${user.tempOtp}, otp=${otp}, expires=${user.otpExpires}`);
+                return res.status(400).send({ message: "Invalid or expired OTP." });
+            }
+            console.log(`OTP validated successfully for ${phoneNumber}`);
+        }
+
+        if (!user.privateKey) {
+            console.log(`Private key missing for ${phoneNumber}`);
+            return res.status(400).send({ message: "Private key not found in database!" });
+        }
+
+        const personalAccount = privateKeyToAccount({ client, privateKey: user.privateKey });
+        const unifiedWalletAddress = user.walletAddress;
+        const chains = [
+            { name: 'celo', chainId: config.celo.chainId, tokenAddress: config.celo.tokenAddress },
+            { name: 'arbitrum', chainId: config.arbitrum.chainId, tokenAddress: config.arbitrum.tokenAddress },
+        ];
+        const migrationResults = [];
+
+        // Log unified wallet address
+        console.log(`Unified wallet address: ${unifiedWalletAddress}`);
+
+        for (const chain of chains) {
+            try {
+                const sourceWallet = smartWallet({
+                    chain: defineChain(chain.chainId),
+                    sponsorGas: false,
+                });
+                const sourceAccount = await sourceWallet.connect({ 
+                    client, 
+                    personalAccount 
+                });
+                console.log(`Previous ${chain.name} address: ${sourceAccount.address}`);
+
+                // Check balance
+                const contract = getContract({
+                    client,
+                    chain: defineChain(chain.chainId),
+                    address: chain.tokenAddress,
+                });
+                const balance = await readContract({
+                    contract,
+                    method: "function balanceOf(address) view returns (uint256)",
+                    params: [sourceAccount.address],
+                });
+                const decimals = 6;
+                const balanceInUSDC = Number(balance) / 10 ** decimals;
+                console.log(`USDC balance on ${chain.name} for ${sourceAccount.address}: ${balanceInUSDC}`);
+
+                if (balanceInUSDC > 0) {
+                    const result = await migrateFunds(sourceAccount.address, unifiedWalletAddress, chain.name, user.privateKey);
+                    migrationResults.push({ chain: chain.name, transactionHash: result.transactionHash });
+                    console.log(`Funds migrated on ${chain.name}: ${result.transactionHash}`);
+                } else {
+                    migrationResults.push({ chain: chain.name, message: "No balance to migrate" });
+                    console.log(`No USDC balance to migrate on ${chain.name}`);
+                }
+            } catch (error: any) {
+                console.error(`Migration failed for ${chain.name}:`, {
+                    errorMessage: error.message,
+                    errorDetails: error.shortMessage || error.details,
+                });
+                migrationResults.push({ chain: chain.name, error: error.message || "Migration failed" });
+            }
+        }
+
+        user.tempOtp = undefined;
+        user.otpExpires = undefined;
+        await user.save();
+        console.log(`OTP cleared for ${phoneNumber}`);
+
+        res.send({
+            message: "Funds migration attempted for all chains.",
+            unifiedWalletAddress,
+            migrationResults,
+        });
+
+    } catch (error: any) {
+        console.error(`Error in migrate API for ${phoneNumber}:`, error);
+        res.status(500).send({
+            message: "Failed to migrate funds.",
+            error: error.message || "Unknown error occurred",
+        });
+    }
+};
+
+export const getWallet = async (req: Request, res: Response) => {
+    const { phoneNumber } = req.query;
+
+    if (!phoneNumber || typeof phoneNumber !== 'string') {
+        console.log("Get wallet request failed: Phone number missing or invalid");
+        return res.status(400).send({ message: "Phone number is required as a query parameter." });
+    }
+
+    try {
+        console.log(`Fetching wallet details for phoneNumber (raw): ${phoneNumber}`);
+        const normalizedPhoneNumber = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`;
+        console.log(`Fetching wallet details for phoneNumber (normalized): ${normalizedPhoneNumber}`);
+
+        const user = await User.findOne({ phoneNumber: normalizedPhoneNumber });
+        if (!user) {
+            console.log(`User not found for phoneNumber: ${normalizedPhoneNumber}`);
+            return res.status(404).send({ message: "Phone number not registered." });
+        }
+
+        const walletDetails = {
+            phoneNumber: user.phoneNumber,
+            unifiedWalletAddress: user.walletAddress,
+            isUnified: user.isUnified,
+        };
+        console.log(`Wallet details for ${normalizedPhoneNumber}:`, walletDetails);
+
+        const balances: { [key: string]: number } = {};
+        const chains = [
+            { name: 'celo', chainId: config.celo.chainId, tokenAddress: config.celo.tokenAddress },
+            { name: 'arbitrum', chainId: config.arbitrum.chainId, tokenAddress: config.arbitrum.tokenAddress },
+        ];
+
+        for (const chain of chains) {
+            try {
+                console.log(`Fetching balance for ${chain.name} - Chain ID: ${chain.chainId}, Token Address: ${chain.tokenAddress}`);
+                const contract = getContract({
+                    client,
+                    chain: defineChain(chain.chainId),
+                    address: chain.tokenAddress,
+                });
+                const balance = await readContract({
+                    contract,
+                    method: "function balanceOf(address) view returns (uint256)",
+                    params: [user.walletAddress],
+                });
+                console.log(`Raw balance on ${chain.name} for ${user.walletAddress}: ${balance}`);
+                const decimals = 6;
+                const balanceInUSDC = Number(balance) / 10 ** decimals;
+                balances[chain.name] = balanceInUSDC;
+                console.log(`Balance on ${chain.name} for ${user.walletAddress}: ${balanceInUSDC} USDC`);
+            } catch (error: any) {
+                console.error(`Failed to fetch balance on ${chain.name} for ${normalizedPhoneNumber}:`, {
+                    errorMessage: error.message,
+                    errorDetails: error.shortMessage || error.details,
+                    chainId: chain.chainId,
+                    tokenAddress: chain.tokenAddress,
+                });
+                balances[chain.name] = 0;
+                console.log(`Set balance on ${chain.name} to 0 due to fetch error`);
+            }
+        }
+
+        res.send({
+            message: "Wallet details retrieved successfully",
+            wallet: {
+                ...walletDetails,
+                balances,
+            },
+        });
+
+    } catch (error: any) {
+        console.error(`Error in getWallet API for ${phoneNumber}:`, error);
+        res.status(500).send({
+            message: "Failed to retrieve wallet details.",
+            error: error.message || "Unknown error occurred",
+        });
+    }
+};
+//################ end new Code for Migrations #####################
+
