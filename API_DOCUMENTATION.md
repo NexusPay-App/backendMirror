@@ -658,4 +658,327 @@ Test credentials:
 
 For API integration support, contact:
 - Email: developers@nexuspay.app
-- Developer Portal: https://developers.nexuspay.app 
+- Developer Portal: https://developers.nexuspay.app
+
+### Admin Management
+
+#### Get Users
+
+```
+GET /admin/users
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Query Parameters:**
+```
+page (optional): Page number (default: 1)
+limit (optional): Items per page (default: 10)
+role (optional): Filter by role ('user', 'admin', 'support')
+search (optional): Search by email or phone number
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Users retrieved successfully",
+  "data": {
+    "users": [
+      {
+        "_id": "60d5ec66fcf556001581bf35",
+        "email": "admin@example.com",
+        "phoneNumber": "+254712345678",
+        "walletAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7",
+        "role": "admin",
+        "createdAt": "2023-05-15T14:23:45Z"
+      }
+    ],
+    "pagination": {
+      "total": 50,
+      "page": 1,
+      "limit": 10,
+      "pages": 5
+    }
+  }
+}
+```
+
+#### Get User by ID
+
+```
+GET /admin/users/:id
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "User retrieved successfully",
+  "data": {
+    "user": {
+      "_id": "60d5ec66fcf556001581bf35",
+      "email": "user@example.com",
+      "phoneNumber": "+254712345678",
+      "walletAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7",
+      "role": "user",
+      "isEmailVerified": true,
+      "isPhoneVerified": true,
+      "createdAt": "2023-05-15T14:23:45Z"
+    }
+  }
+}
+```
+
+#### Promote User to Admin
+
+```
+POST /admin/users/promote/:id
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "User promoted to admin successfully",
+  "data": {
+    "userId": "60d5ec66fcf556001581bf35",
+    "role": "admin"
+  }
+}
+```
+
+#### List Transactions
+
+```
+GET /admin/transactions
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Query Parameters:**
+```
+page (optional): Page number (default: 1)
+limit (optional): Items per page (default: 10)
+status (optional): Filter by status ('pending', 'completed', 'failed')
+type (optional): Filter by type ('fiat_to_crypto', 'crypto_to_fiat', 'crypto_to_paybill', 'crypto_to_till')
+startDate (optional): Filter by start date (ISO format)
+endDate (optional): Filter by end date (ISO format)
+userId (optional): Filter by user ID
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Transactions retrieved successfully",
+  "data": {
+    "transactions": [
+      {
+        "transactionId": "tx123",
+        "amount": 1000,
+        "cryptoAmount": 9.85,
+        "type": "fiat_to_crypto",
+        "status": "completed",
+        "userId": {
+          "phoneNumber": "+254712345678",
+          "email": "user@example.com",
+          "walletAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7"
+        },
+        "mpesaTransactionId": "MPESA123456",
+        "cryptoTransactionHash": "0x123...",
+        "createdAt": "2023-05-15T14:23:45Z",
+        "completedAt": "2023-05-15T14:25:00Z"
+      }
+    ],
+    "pagination": {
+      "total": 100,
+      "page": 1,
+      "limit": 10,
+      "pages": 10
+    }
+  }
+}
+```
+
+#### Get Transaction by ID
+
+```
+GET /admin/transactions/:id
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Transaction retrieved successfully",
+  "data": {
+    "transaction": {
+      "transactionId": "tx123",
+      "amount": 1000,
+      "cryptoAmount": 9.85,
+      "type": "fiat_to_crypto",
+      "status": "completed",
+      "userId": {
+        "phoneNumber": "+254712345678",
+        "email": "user@example.com",
+        "walletAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7"
+      },
+      "mpesaTransactionId": "MPESA123456",
+      "cryptoTransactionHash": "0x123...",
+      "createdAt": "2023-05-15T14:23:45Z",
+      "completedAt": "2023-05-15T14:25:00Z"
+    }
+  }
+}
+```
+
+#### Update Transaction Status
+
+```
+PUT /admin/transactions/:id/status
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Request Body:**
+```json
+{
+  "status": "completed",
+  "notes": "Manually verified and completed"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Transaction status updated successfully",
+  "data": {
+    "transactionId": "tx123",
+    "status": "completed",
+    "retryCount": 1,
+    "lastRetryAt": "2023-05-15T14:24:30Z",
+    "completedAt": "2023-05-15T14:25:00Z"
+  }
+}
+```
+
+#### Get Platform Wallet Status
+
+```
+GET /admin/platform-wallets
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Platform wallet status retrieved successfully",
+  "data": {
+    "mainWallet": {
+      "address": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7",
+      "balance": 10000.5
+    },
+    "feesWallet": {
+      "address": "0xA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0",
+      "balance": 500.75
+    }
+  }
+}
+```
+
+#### Fund User Wallet
+
+```
+POST /admin/wallets/fund
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Request Body:**
+```json
+{
+  "userId": "60d5ec66fcf556001581bf35",
+  "amount": 100,
+  "chainName": "celo"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "User wallet funded successfully",
+  "data": {
+    "userId": "60d5ec66fcf556001581bf35",
+    "amount": 100,
+    "transactionHash": "0x123...",
+    "recipientAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7"
+  }
+}
+```
+
+#### Withdraw Fees to Main Wallet
+
+```
+POST /admin/wallets/withdraw-fees
+```
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Request Body:**
+```json
+{
+  "amount": 500
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Fees withdrawn to main wallet successfully",
+  "data": {
+    "amount": 500,
+    "transactionHash": "0x123...",
+    "fromAddress": "0xA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0",
+    "toAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7"
+  }
+}
+``` 

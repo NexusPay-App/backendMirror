@@ -11,6 +11,7 @@ import businessRoutes from './routes/businessRoutes';
 import tokenRoutes from './routes/tokenRoutes';
 import usdcRoutes from './routes/usdcRoutes';
 import mpesaRoutes from './routes/mpesaRoutes';
+import adminRoutes from './routes/adminRoutes';
 import { connect } from './services/database';
 import { Verification } from './models/verificationModel';
 import { client, africastalking } from './services/auth';
@@ -73,6 +74,7 @@ app.use('/api/business', businessRoutes);
 app.use('/api/token', tokenRoutes);
 app.use('/api/usdc', usdcRoutes);
 app.use('/api/mpesa', mpesaRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Verification routes
 app.post('/api/verifications', async (req: Request, res: Response) => {
