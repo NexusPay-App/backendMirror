@@ -27,7 +27,10 @@ import {
     mpesaB2CWebhook, 
     mpesaQueueWebhook, 
     mpesaSTKPushWebhook,
-    getTransactionStatus
+    getTransactionStatus,
+    getPlatformWalletStatus,
+    withdrawFeesToMainWallet,
+    buyCrypto
 } from "../controllers/mpesaController";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validation";
@@ -36,7 +39,8 @@ import {
     withdrawValidation,
     paybillValidation,
     tillValidation,
-    transactionStatusValidation
+    transactionStatusValidation,
+    buyCryptoValidation
 } from "../middleware/validators/mpesaValidators";
 
 const router = Router();
@@ -46,7 +50,12 @@ router.post("/deposit", authenticate, validate(depositValidation), mpesaDeposit)
 router.post("/withdraw", authenticate, validate(withdrawValidation), withdrawToMpesa);
 router.post("/paybill", authenticate, validate(paybillValidation), payToPaybill);
 router.post("/till", authenticate, validate(tillValidation), payToTill);
+router.post("/buy-crypto", authenticate, validate(buyCryptoValidation), buyCrypto);
 router.get("/transaction/:transactionId", authenticate, validate(transactionStatusValidation), getTransactionStatus);
+
+// Platform wallet management (admin endpoints)
+router.get("/platform-wallets", authenticate, getPlatformWalletStatus);
+router.post("/withdraw-fees", authenticate, withdrawFeesToMainWallet);
 
 // Webhook routes (no authentication needed)
 router.post("/b2c/result", mpesaB2CWebhook);

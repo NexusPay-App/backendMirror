@@ -43,6 +43,7 @@ export interface IUser extends Document {
   failedPasswordAttempts: number;
   lockoutUntil?: number;
   isUnified: boolean;
+  role?: string;
   createdAt: Date;
   lastLoginAt?: Date;
 }
@@ -105,6 +106,11 @@ const userSchema: Schema = new Schema({
     type: Boolean,
     required: true,
     default: false,
+  },
+  role: {
+    type: String,
+    enum: ['user', 'admin', 'support'],
+    default: 'user'
   },
   createdAt: {
     type: Date,

@@ -111,3 +111,27 @@ export const retryOperation = async <T>(
   
   throw new Error(`Operation failed after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
 };
+
+/**
+ * Generates a unique success code for transactions
+ * Format: NP-XXXXX-YY where X is alphanumeric and Y is a check digit
+ */
+export function generateSuccessCode(): string {
+  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed similar looking characters (0,1,I,O)
+  let code = 'NP-';
+  
+  // Generate 5 random characters
+  for (let i = 0; i < 5; i++) {
+    code += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  
+  // Add a hyphen
+  code += '-';
+  
+  // Generate 2 check digits
+  for (let i = 0; i < 2; i++) {
+    code += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  
+  return code;
+}

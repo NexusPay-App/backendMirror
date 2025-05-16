@@ -118,4 +118,32 @@ export const transactionStatusValidation = [
     .withMessage('Transaction ID is required')
     .isUUID()
     .withMessage('Transaction ID must be a valid UUID')
+];
+
+/**
+ * Validation rules for buying crypto directly
+ */
+export const buyCryptoValidation = [
+  body('cryptoAmount')
+    .notEmpty()
+    .withMessage('Crypto amount is required')
+    .isNumeric()
+    .withMessage('Crypto amount must be a valid number')
+    .custom((value) => {
+      const amount = parseFloat(value);
+      if (amount <= 0) {
+        throw new Error('Crypto amount must be greater than 0');
+      }
+      // 150,000 KES divided by approx. exchange rate of 130 ≈ 1,150 USDC as max amount
+      if (amount > 1150) {
+        throw new Error('Crypto amount exceeds maximum allowed (MPESA limit)');
+      }
+      return true;
+    }),
+    
+  body('phone')
+    .notEmpty()
+    .withMessage('Phone number is required')
+    .matches(/^(?:\+254|0)(?:7|1)[0-9]{8}$/)
+    .withMessage('Please provide a valid Kenyan phone number (format: +254XXXXXXXXX or 07XXXXXXXX or 01XXXXXXXX)')
 ]; 

@@ -142,7 +142,7 @@ async function listAllTransactions() {
 }
 
 // List transactions by status
-async function listTransactionsByStatus(status) {
+async function listTransactionsByStatus(status: string) {
   const transactions = await Escrow.find({ status }).sort({ createdAt: -1 }).limit(20);
   
   if (transactions.length === 0) {
@@ -160,7 +160,7 @@ async function listTransactionsByStatus(status) {
 }
 
 // List transactions by type
-async function listTransactionsByType(type) {
+async function listTransactionsByType(type: string) {
   const transactions = await Escrow.find({ type }).sort({ createdAt: -1 }).limit(20);
   
   if (transactions.length === 0) {
@@ -178,7 +178,7 @@ async function listTransactionsByType(type) {
 }
 
 // Find transaction by ID
-async function findTransactionById(id) {
+async function findTransactionById(id: string) {
   const transaction = await Escrow.findOne({ transactionId: id });
   
   if (!transaction) {
@@ -236,7 +236,7 @@ async function findTransactionById(id) {
 }
 
 // Retry a failed transaction
-async function retryFailedTransaction(id) {
+async function retryFailedTransaction(id: string) {
   const transaction = await Escrow.findOne({ transactionId: id });
   
   if (!transaction) {
@@ -272,8 +272,8 @@ async function retryFailedTransaction(id) {
 }
 
 // Display transactions in a formatted way
-function displayTransactions(transactions) {
-  transactions.forEach((tx, index) => {
+function displayTransactions(transactions: any[]) {
+  transactions.forEach((tx: any, index: number) => {
     console.log(`\n[${index + 1}] Transaction:`);
     console.log('----------------------------------');
     console.log(`ID: ${tx.transactionId}`);

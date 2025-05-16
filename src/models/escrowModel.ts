@@ -17,6 +17,11 @@ export interface IEscrow extends Document {
   lastRetryAt?: Date;
   createdAt: Date;
   completedAt?: Date;
+  metadata?: {
+    successCode?: string;
+    directBuy?: boolean;
+    [key: string]: any;
+  };
 }
 
 const escrowSchema: Schema = new Schema({
@@ -62,7 +67,12 @@ const escrowSchema: Schema = new Schema({
     type: Date, 
     default: Date.now 
   },
-  completedAt: Date
+  completedAt: Date,
+  metadata: {
+    type: Map,
+    of: mongoose.Schema.Types.Mixed,
+    default: {}
+  }
 });
 
 // Create indexes for common queries

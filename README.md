@@ -93,6 +93,80 @@ For a comprehensive implementation roadmap with code examples, see [NEXUSPAY_IMP
 
 To track implementation progress, refer to the [IMPLEMENTATION_CHECKLIST.md](IMPLEMENTATION_CHECKLIST.md) file.
 
+## Testing
+
+### API Endpoint Testing
+
+NexusPay includes a modular testing script for testing API endpoints, particularly admin functionality:
+
+#### Running Tests
+
+1. **Start the Server:**
+   ```bash
+   npm run dev
+   ```
+
+2. **Run API Tests:**
+   ```bash
+   # Test all endpoints (non-destructive)
+   npm run test:admin
+   
+   # Test specific endpoint groups
+   npm run test:admin:users
+   npm run test:admin:transactions
+   npm run test:admin:wallets
+   ```
+
+3. **Test Individual Endpoints:**
+   ```bash
+   # Build the project
+   npm run build
+   
+   # Test specific endpoints with parameters
+   node dist/scripts/testAdminAPI.js -e users
+   node dist/scripts/testAdminAPI.js -e user -i <user_id>
+   node dist/scripts/testAdminAPI.js -e transactions
+   node dist/scripts/testAdminAPI.js -e transaction -i <transaction_id>
+   node dist/scripts/testAdminAPI.js -e wallets
+   ```
+
+#### Available Test Endpoints
+
+- **User Management:**
+  - `users` - List all users
+  - `user` - Get user details (requires ID parameter)
+  - `promote` - Promote user to admin (requires ID parameter)
+
+- **Transaction Management:**
+  - `transactions` - List all transactions
+  - `transaction` - Get transaction details (requires ID parameter)
+  - `update` - Update transaction status (requires ID parameter)
+
+- **Wallet Management:**
+  - `wallets` - Check platform wallet balances
+  - `fund` - Fund user wallet (requires ID parameter)
+  - `withdraw` - Withdraw fees to main wallet
+
+### Postman Collection
+
+For testing without running code, import the Postman collection:
+
+1. **Import the Collection:**
+   - Open Postman
+   - Click "Import" button
+   - Select the `nexuspay-admin-api.postman_collection.json` file
+
+2. **Configure Environment:**
+   - Create a new Environment in Postman
+   - Add variables:
+     - `base_url`: `http://localhost:8000/api`
+     - `admin_token`: Your JWT token for admin access
+
+3. **Using the Collection:**
+   - Select the imported environment
+   - Browse and execute requests for each endpoint
+   - Check responses and test API behavior
+
 # NexusPay Backend 
 
 ## Overview

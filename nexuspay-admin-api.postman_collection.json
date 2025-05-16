@@ -1,0 +1,401 @@
+{
+	"info": {
+		"_postman_id": "1a2b3c4d-5e6f-7g8h-9i0j-1k2l3m4n5o6p",
+		"name": "NexusPay Admin API",
+		"description": "Collection for testing NexusPay Admin API endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "User Management",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/admin/users",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"users"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10",
+									"disabled": true
+								},
+								{
+									"key": "page",
+									"value": "1",
+									"disabled": true
+								},
+								{
+									"key": "sortBy",
+									"value": "createdAt",
+									"disabled": true
+								},
+								{
+									"key": "order",
+									"value": "desc",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Get a list of all users in the system with pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/admin/users/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"users",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "123456789",
+									"description": "User ID to retrieve"
+								}
+							]
+						},
+						"description": "Get detailed information about a specific user"
+					},
+					"response": []
+				},
+				{
+					"name": "Promote User to Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/users/promote/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"users",
+								"promote",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "123456789",
+									"description": "User ID to promote to admin"
+								}
+							]
+						},
+						"description": "Promote a regular user to administrator status"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for managing users"
+		},
+		{
+			"name": "Transaction Management",
+			"item": [
+				{
+					"name": "Get All Transactions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/admin/transactions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"transactions"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "20",
+									"disabled": true
+								},
+								{
+									"key": "page",
+									"value": "1",
+									"disabled": true
+								},
+								{
+									"key": "status",
+									"value": "pending",
+									"disabled": true
+								},
+								{
+									"key": "type",
+									"value": "deposit",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Get a list of all transactions with filtering options"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transaction by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/admin/transactions/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"transactions",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TX123456789",
+									"description": "Transaction ID to retrieve"
+								}
+							]
+						},
+						"description": "Get detailed information about a specific transaction"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Transaction Status",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"completed\",\n    \"notes\": \"Transaction manually approved by admin\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/transactions/:id/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"transactions",
+								":id",
+								"status"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TX123456789",
+									"description": "Transaction ID to update"
+								}
+							]
+						},
+						"description": "Update the status of a transaction (e.g., approve, reject, mark as completed)"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for managing transactions"
+		},
+		{
+			"name": "Wallet Management",
+			"item": [
+				{
+					"name": "Get Platform Wallets",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/admin/platform-wallets",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"platform-wallets"
+							]
+						},
+						"description": "Get information about all platform-managed wallets"
+					},
+					"response": []
+				},
+				{
+					"name": "Fund User Wallet",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"123456789\",\n    \"amount\": \"0.01\",\n    \"currency\": \"USDC\",\n    \"network\": \"Polygon\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/wallets/fund",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"wallets",
+								"fund"
+							]
+						},
+						"description": "Fund a user's wallet with tokens (for testing, promotions, or customer service)"
+					},
+					"response": []
+				},
+				{
+					"name": "Withdraw Fees to Main Wallet",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/wallets/withdraw-fees",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"wallets",
+								"withdraw-fees"
+							]
+						},
+						"description": "Withdraw accumulated platform fees to the main platform wallet"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for managing platform and user wallets"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "admin_token",
+			"value": "your_admin_token_here",
+			"type": "string"
+		}
+	]
+} 

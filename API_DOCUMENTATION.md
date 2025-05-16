@@ -662,7 +662,7 @@ For API integration support, contact:
 
 ### Admin Management
 
-#### Get Users
+#### Get All Users
 
 ```
 GET /admin/users
@@ -675,10 +675,10 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 **Query Parameters:**
 ```
-page (optional): Page number (default: 1)
-limit (optional): Items per page (default: 10)
-role (optional): Filter by role ('user', 'admin', 'support')
-search (optional): Search by email or phone number
+limit: 10 (number of users per page)
+page: 1 (page number)
+sortBy: createdAt (field to sort by)
+order: desc (sort order: asc or desc)
 ```
 
 **Response:**
@@ -690,18 +690,19 @@ search (optional): Search by email or phone number
     "users": [
       {
         "_id": "60d5ec66fcf556001581bf35",
-        "email": "admin@example.com",
+        "email": "user@example.com",
         "phoneNumber": "+254712345678",
         "walletAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7",
-        "role": "admin",
-        "createdAt": "2023-05-15T14:23:45Z"
+        "role": "user",
+        "createdAt": "2023-05-15T14:23:45Z",
+        "lastLogin": "2023-05-15T14:25:00Z"
       }
     ],
     "pagination": {
-      "total": 50,
+      "total": 100,
       "page": 1,
       "limit": 10,
-      "pages": 5
+      "pages": 10
     }
   }
 }
@@ -730,9 +731,21 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
       "phoneNumber": "+254712345678",
       "walletAddress": "0xD4732b04f997D0229a755c797Bf1e4Ce6DcC65B7",
       "role": "user",
-      "isEmailVerified": true,
-      "isPhoneVerified": true,
-      "createdAt": "2023-05-15T14:23:45Z"
+      "createdAt": "2023-05-15T14:23:45Z",
+      "lastLogin": "2023-05-15T14:25:00Z",
+      "transactions": [
+        {
+          "transactionId": "tx123",
+          "amount": 1000,
+          "type": "fiat_to_crypto",
+          "status": "completed",
+          "createdAt": "2023-05-15T14:23:45Z"
+        }
+      ],
+      "walletBalance": {
+        "USDC": "100.50",
+        "CELO": "25.75"
+      }
     }
   }
 }
@@ -756,12 +769,13 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   "message": "User promoted to admin successfully",
   "data": {
     "userId": "60d5ec66fcf556001581bf35",
+    "email": "user@example.com",
     "role": "admin"
   }
 }
 ```
 
-#### List Transactions
+#### Get All Transactions
 
 ```
 GET /admin/transactions
