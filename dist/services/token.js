@@ -69,13 +69,14 @@ async function sendToken(recipientAddress, amount, chainName = "celo", pk, token
         if (!tokenConfig) {
             throw new Error(`Token ${tokenSymbol} not supported on chain ${chainName}`);
         }
-        // Debug logging
-        console.log("SendToken parameters:", {
-            recipientAddress: `${recipientAddress.substring(0, 6)}...${recipientAddress.substring(recipientAddress.length - 4)}`,
+        // Enhanced debug logging with transaction details
+        console.log("🔁 Token Transfer Initiated:", {
+            recipient: `${recipientAddress.substring(0, 6)}...${recipientAddress.substring(recipientAddress.length - 4)}`,
             amount,
-            chainName,
             tokenSymbol,
-            hasPrivateKey: !!pk
+            chain: chainName,
+            tokenAddress: tokenConfig.address.substring(0, 10) + '...',
+            timestamp: new Date().toISOString()
         });
         // Get chain configuration
         const chainConfig = env_1.default[chainName];
@@ -83,9 +84,7 @@ async function sendToken(recipientAddress, amount, chainName = "celo", pk, token
             throw new Error(`Invalid chain configuration for ${chainName}`);
         }
         const chain = (0, thirdweb_1.defineChain)(chainConfig.chainId);
-        console.log(`Chain ID for ${chainName}: ${chainConfig.chainId}`);
         const tokenAddress = tokenConfig.address;
-        console.log(`Token address for ${tokenSymbol} on ${chainName}: ${tokenAddress}`);
         // Initialize accounts and contract
         const personalAccount = (0, wallets_1.privateKeyToAccount)({ client: auth_1.client, privateKey: pk });
         const wallet = (0, wallets_1.smartWallet)({
@@ -125,6 +124,7 @@ async function sendToken(recipientAddress, amount, chainName = "celo", pk, token
                 account: smartAccount,
             });
             await (0, thirdweb_1.waitForReceipt)(approveTx);
+            console.log(`✅ Approval transaction completed: ${approveTx.transactionHash}`);
         }
         // Execute transfer
         const transferTx = await (0, thirdweb_1.sendTransaction)({
@@ -135,11 +135,20 @@ async function sendToken(recipientAddress, amount, chainName = "celo", pk, token
             }),
             account: smartAccount,
         });
+        const txHash = transferTx.transactionHash;
         await (0, thirdweb_1.waitForReceipt)(transferTx);
-        return { transactionHash: transferTx.transactionHash };
+        // Enhanced success logging with transaction hash
+        console.log(`✅ Token Transfer Successful:`);
+        console.log(`- Transaction Hash: ${txHash}`);
+        console.log(`- From: ${personalAccount.address.substring(0, 8)}...`);
+        console.log(`- To: ${recipientAddress.substring(0, 8)}...`);
+        console.log(`- Amount: ${amount} ${tokenSymbol} on ${chainName}`);
+        console.log(`- USD Value: ~$${amount} USD`);
+        console.log(`- Timestamp: ${new Date().toISOString()}`);
+        return { transactionHash: txHash };
     }
     catch (error) {
-        console.error("Error in sendToken:", {
+        console.error("❌ Error in sendToken:", {
             message: error.message,
             stack: error.stack,
             details: error.details || 'No additional details',

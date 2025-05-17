@@ -7,10 +7,10 @@ exports.initializePlatformWallets = initializePlatformWallets;
 exports.getWalletBalance = getWalletBalance;
 exports.transferBetweenPlatformWallets = transferBetweenPlatformWallets;
 exports.collectTransactionFee = collectTransactionFee;
+exports.sendTokenToUser = sendTokenToUser;
 exports.sendTokenFromUser = sendTokenFromUser;
 exports.withdrawFeesToMainWallet = withdrawFeesToMainWallet;
 exports.getPlatformWalletStatus = getPlatformWalletStatus;
-exports.sendTokenToUser = sendTokenToUser;
 const wallets_1 = require("thirdweb/wallets");
 const thirdweb_1 = require("thirdweb");
 const erc20_1 = require("thirdweb/extensions/erc20");
@@ -18,6 +18,7 @@ const auth_1 = require("./auth");
 const env_1 = __importDefault(require("../config/env"));
 const ioredis_1 = __importDefault(require("ioredis"));
 const ethers_1 = require("ethers");
+const tokens_1 = require("../config/tokens");
 // Initialize Redis client for caching
 const redis = new ioredis_1.default(env_1.default.REDIS_URL);
 // Cache keys
@@ -250,33 +251,59 @@ function calculateTransactionFee(amount) {
     return 0.95; // For amounts above $150.01
 }
 /**
- * Send tokens from a user wallet to any destination
- * @param recipientAddress Destination address
- * @param amount Amount to send
- * @param userPrivateKey User's private key
- * @param chainName Blockchain to use
+ * Send tokens from the platform wallet to a user
+ * @param toAddress User wallet address
+ * @param amount Amount to send in human-readable format (e.g., 1.0 USDC)
+ * @param chainName Which chain to use
+ * @param tokenType Token symbol (USDC, USDT, etc)
  * @returns Transaction hash
  */
-async function sendTokenFromUser(recipientAddress, amount, userPrivateKey, chainName = 'celo') {
+async function sendTokenToUser(toAddress, amount, chainName = 'celo', tokenType = 'USDC') {
     try {
-        if (!recipientAddress || !amount || amount <= 0 || !userPrivateKey) {
-            throw new Error("Invalid input parameters: recipientAddress, amount, and privateKey are required.");
+        // Get platform wallets
+        const platformWallets = await initializePlatformWallets();
+        // Validate input
+        if (!toAddress) {
+            throw new Error('Recipient address is required');
         }
+        if (!amount || amount <= 0) {
+            throw new Error('Valid amount is required');
+        }
+        // Log the outgoing transfer attempt
+        console.log(`🔍 Platform-to-User Transfer Initiated:`);
+        console.log(`- User Wallet: ${toAddress.substring(0, 8)}...`);
+        console.log(`- Amount: ${amount} ${tokenType} on ${chainName}`);
+        console.log(`- USD Value: ~$${amount} USD`);
+        // Get chain configuration
         const chainConfig = env_1.default[chainName];
-        if (!chainConfig || !chainConfig.chainId || !chainConfig.tokenAddress) {
+        if (!chainConfig || !chainConfig.chainId) {
             throw new Error(`Invalid chain configuration for ${chainName}`);
         }
         const chain = (0, thirdweb_1.defineChain)(chainConfig.chainId);
-        const tokenAddress = chainConfig.tokenAddress;
-        // Create account from private key
+        // Get token configuration
+        const tokenConfig = (0, tokens_1.getTokenConfig)(chainName, tokenType);
+        if (!tokenConfig) {
+            throw new Error(`Token ${tokenType} not supported on chain ${chainName}`);
+        }
+        const tokenAddress = tokenConfig.address;
+        const tokenDecimals = tokenConfig.decimals;
+        // Convert human-readable amount to raw amount with decimals
+        // e.g., 1.0 USDC with 6 decimals becomes 1000000
+        const rawAmount = amount * Math.pow(10, tokenDecimals);
+        console.log(`Token info: ${tokenType} on ${chainName}`);
+        console.log(`- Token address: ${tokenAddress}`);
+        console.log(`- Token decimals: ${tokenDecimals}`);
+        console.log(`- Human amount: ${amount}`);
+        console.log(`- Raw amount: ${rawAmount}`);
+        // Initialize accounts
         const personalAccount = (0, wallets_1.privateKeyToAccount)({
             client: auth_1.client,
-            privateKey: userPrivateKey
+            privateKey: platformWallets.main.privateKey
         });
         // Connect the smart wallet
         const wallet = (0, wallets_1.smartWallet)({
             chain,
-            sponsorGas: true,
+            sponsorGas: false,
         });
         const smartAccount = await wallet.connect({
             client: auth_1.client,
@@ -289,9 +316,106 @@ async function sendTokenFromUser(recipientAddress, amount, userPrivateKey, chain
             address: tokenAddress,
         });
         // Transfer tokens
+        console.log(`Executing token transfer of ${amount} ${tokenType} to ${toAddress.substring(0, 8)}...`);
         const transaction = (0, erc20_1.transfer)({
             contract,
-            to: recipientAddress,
+            to: toAddress,
+            amount: rawAmount, // Use the raw amount with decimals here
+        });
+        // Execute transaction
+        const tx = await (0, thirdweb_1.sendTransaction)({
+            transaction,
+            account: smartAccount,
+        });
+        const txHash = tx.transactionHash;
+        // Log transaction success with all details
+        console.log(`✅ Platform-to-User Transfer Successful:`);
+        console.log(`- Transaction Hash: ${txHash}`);
+        console.log(`- Platform Wallet: ${smartAccount.address.substring(0, 8)}...`);
+        console.log(`- User Wallet: ${toAddress.substring(0, 8)}...`);
+        console.log(`- Amount: ${amount} ${tokenType} on ${chainName}`);
+        console.log(`- USD Value: ~$${amount} USD`);
+        console.log(`- Token Address: ${tokenAddress.substring(0, 10)}...`);
+        console.log(`- Timestamp: ${new Date().toISOString()}`);
+        // Invalidate cache for affected addresses
+        await Promise.all([
+            redis.del(WALLET_BALANCE_CACHE_PREFIX + platformWallets.main.address),
+            redis.del(WALLET_BALANCE_CACHE_PREFIX + toAddress)
+        ]);
+        return { transactionHash: txHash };
+    }
+    catch (error) {
+        console.error(`❌ Error sending token from platform to user:`, {
+            error: error.message,
+            stack: error.stack,
+            details: error.details || 'No additional details'
+        });
+        throw error;
+    }
+}
+/**
+ * Send tokens from user to another address
+ * @param toAddress Recipient address
+ * @param amount Amount to send
+ * @param userPrivateKey User's private key
+ * @param chainName Chain to use
+ * @param tokenType Token symbol (USDC, USDT, etc)
+ * @returns Transaction hash
+ */
+async function sendTokenFromUser(toAddress, amount, userPrivateKey, chainName = 'celo', tokenType = 'USDC') {
+    try {
+        // Validate input
+        if (!toAddress) {
+            throw new Error('Recipient address is required');
+        }
+        if (!amount || amount <= 0) {
+            throw new Error('Valid amount is required');
+        }
+        if (!userPrivateKey) {
+            throw new Error('User private key is required');
+        }
+        // Log the outgoing transfer attempt (without revealing private key)
+        console.log(`🔍 User-to-Platform Transfer Initiated:`);
+        console.log(`- Recipient: ${toAddress.substring(0, 8)}...`);
+        console.log(`- Amount: ${amount} ${tokenType} on ${chainName}`);
+        console.log(`- USD Value: ~$${amount} USD`);
+        // Get chain configuration
+        const chainConfig = env_1.default[chainName];
+        if (!chainConfig || !chainConfig.chainId) {
+            throw new Error(`Invalid chain configuration for ${chainName}`);
+        }
+        const chain = (0, thirdweb_1.defineChain)(chainConfig.chainId);
+        // Get token configuration
+        const tokenConfig = (0, tokens_1.getTokenConfig)(chainName, tokenType);
+        if (!tokenConfig) {
+            throw new Error(`Token ${tokenType} not supported on chain ${chainName}`);
+        }
+        const tokenAddress = tokenConfig.address;
+        // Create wallet from private key
+        const personalAccount = (0, wallets_1.privateKeyToAccount)({
+            client: auth_1.client,
+            privateKey: userPrivateKey
+        });
+        // Connect the smart wallet
+        const wallet = (0, wallets_1.smartWallet)({
+            chain,
+            sponsorGas: false,
+        });
+        const smartAccount = await wallet.connect({
+            client: auth_1.client,
+            personalAccount,
+        });
+        // Get contract
+        const contract = (0, thirdweb_1.getContract)({
+            client: auth_1.client,
+            chain,
+            address: tokenAddress,
+        });
+        // Transfer tokens
+        console.log(`Executing token transfer of ${amount} ${tokenType} from user to ${toAddress.substring(0, 8)}...`);
+        const transaction = (0, erc20_1.transfer)({
+            contract,
+            to: toAddress,
             amount,
         });
         // Execute transaction
@@ -299,10 +423,29 @@ async function sendTokenFromUser(recipientAddress, amount, userPrivateKey, chain
             transaction,
             account: smartAccount,
         });
-        return { transactionHash: tx.transactionHash };
+        const txHash = tx.transactionHash;
+        // Log transaction success with all details
+        console.log(`✅ User-to-Platform Transfer Successful:`);
+        console.log(`- Transaction Hash: ${txHash}`);
+        console.log(`- User Wallet: ${smartAccount.address.substring(0, 8)}...`);
+        console.log(`- To: ${toAddress.substring(0, 8)}...`);
+        console.log(`- Amount: ${amount} ${tokenType} on ${chainName}`);
+        console.log(`- USD Value: ~$${amount} USD`);
+        console.log(`- Token Address: ${tokenAddress.substring(0, 10)}...`);
+        console.log(`- Timestamp: ${new Date().toISOString()}`);
+        // Invalidate cache for affected addresses
+        await Promise.all([
+            redis.del(WALLET_BALANCE_CACHE_PREFIX + smartAccount.address),
+            redis.del(WALLET_BALANCE_CACHE_PREFIX + toAddress)
+        ]);
+        return { transactionHash: txHash };
     }
     catch (error) {
-        console.error('Error sending tokens from user:', error);
+        console.error(`❌ Error sending token from user:`, {
+            error: error.message,
+            stack: error.stack,
+            details: error.details || 'No additional details'
+        });
         throw error;
     }
 }
@@ -356,68 +499,6 @@ async function getPlatformWalletStatus(chainName = 'celo') {
     }
     catch (error) {
         console.error('Error getting platform wallet status:', error);
-        throw error;
-    }
-}
-/**
- * Send tokens from platform wallet to a user's wallet
- * @param userAddress Destination user wallet address
- * @param amount Amount to send
- * @param chainName Blockchain to use
- * @returns Transaction hash
- */
-async function sendTokenToUser(userAddress, amount, chainName = 'celo') {
-    try {
-        if (!userAddress || !amount || amount <= 0) {
-            throw new Error("Invalid input parameters: userAddress and amount are required.");
-        }
-        // Get platform wallets
-        const platformWallets = await initializePlatformWallets();
-        const sourceWallet = platformWallets.main;
-        const chainConfig = env_1.default[chainName];
-        if (!chainConfig || !chainConfig.chainId || !chainConfig.tokenAddress) {
-            throw new Error(`Invalid chain configuration for ${chainName}`);
-        }
-        const chain = (0, thirdweb_1.defineChain)(chainConfig.chainId);
-        const tokenAddress = chainConfig.tokenAddress;
-        // Create account from private key
-        const personalAccount = (0, wallets_1.privateKeyToAccount)({
-            client: auth_1.client,
-            privateKey: sourceWallet.privateKey
-        });
-        // Connect the smart wallet
-        const wallet = (0, wallets_1.smartWallet)({
-            chain,
-            sponsorGas: true,
-        });
-        const smartAccount = await wallet.connect({
-            client: auth_1.client,
-            personalAccount,
-        });
-        // Get contract
-        const contract = (0, thirdweb_1.getContract)({
-            client: auth_1.client,
-            chain,
-            address: tokenAddress,
-        });
-        // Transfer tokens
-        const transaction = (0, erc20_1.transfer)({
-            contract,
-            to: userAddress,
-            amount,
-        });
-        // Execute transaction
-        const tx = await (0, thirdweb_1.sendTransaction)({
-            transaction,
-            account: smartAccount,
-        });
-        // Invalidate cache
-        await redis.del(`${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${sourceWallet.address}`);
-        await redis.del(`${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${userAddress}`);
-        return { transactionHash: tx.transactionHash };
-    }
-    catch (error) {
-        console.error('Error sending tokens to user:', error);
         throw error;
     }
 }

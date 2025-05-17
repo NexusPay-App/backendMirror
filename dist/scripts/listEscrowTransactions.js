@@ -30,10 +30,11 @@ const escrowSchema = new mongoose_1.default.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'completed', 'failed'],
+        enum: ['pending', 'completed', 'failed', 'reserved', 'error'],
         default: 'pending'
     },
     mpesaTransactionId: String,
+    mpesaReceiptNumber: String,
     cryptoTransactionHash: String,
     paybillNumber: String,
     accountNumber: String,
@@ -171,8 +172,16 @@ async function findTransactionById(id) {
     console.log(`ID: ${transaction.transactionId}`);
     console.log(`Type: ${transaction.type}`);
     console.log(`Status: ${transaction.status}`);
-    console.log(`Amount: ${transaction.amount}`);
-    console.log(`Crypto Amount: ${transaction.cryptoAmount}`);
+    console.log(`Amount: ${transaction.amount} KES`);
+    // Enhanced crypto amount display with token type
+    if (transaction.cryptoAmount) {
+        // Using optional chaining and treating transaction as any to safely access metadata
+        const metadata = transaction.metadata || {};
+        const tokenType = metadata.tokenType || 'USDC';
+        const chain = metadata.chain || 'celo';
+        console.log(`Crypto Amount: ${transaction.cryptoAmount} ${tokenType} on ${chain}`);
+        console.log(`Equivalent: ~ $${transaction.cryptoAmount} USD`);
+    }
     console.log(`User ID: ${transaction.userId}`);
     console.log(`User Phone: ${user ? user.phoneNumber : 'Unknown'}`);
     if (transaction.mpesaTransactionId) {
@@ -236,7 +245,16 @@ function displayTransactions(transactions) {
         console.log(`ID: ${tx.transactionId}`);
         console.log(`Type: ${tx.type}`);
         console.log(`Status: ${tx.status}`);
-        console.log(`Amount: ${tx.amount}`);
+        console.log(`Amount: ${tx.amount} KES`);
+        // Enhanced crypto amount display
+        if (tx.cryptoAmount) {
+            // Safely access metadata properties
+            const metadata = tx.metadata || {};
+            const tokenType = metadata.tokenType || 'USDC';
+            const chain = metadata.chain || 'celo';
+            console.log(`Crypto: ${tx.cryptoAmount} ${tokenType} (${chain})`);
+            console.log(`USD Value: ~$${tx.cryptoAmount}`);
+        }
         console.log(`Created: ${tx.createdAt.toISOString()}`);
         if (tx.completedAt) {
             console.log(`Completed: ${tx.completedAt.toISOString()}`);

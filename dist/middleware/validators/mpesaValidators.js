@@ -136,5 +136,19 @@ exports.buyCryptoValidation = [
         .notEmpty()
         .withMessage('Phone number is required')
         .matches(/^(?:\+254|0)(?:7|1)[0-9]{8}$/)
-        .withMessage('Please provide a valid Kenyan phone number (format: +254XXXXXXXXX or 07XXXXXXXX or 01XXXXXXXX)')
+        .withMessage('Please provide a valid Kenyan phone number (format: +254XXXXXXXXX or 07XXXXXXXX or 01XXXXXXXX)'),
+    (0, express_validator_1.body)('chain')
+        .notEmpty()
+        .withMessage('Chain is required')
+        .isString()
+        .withMessage('Chain must be a string')
+        .isIn(['celo', 'polygon', 'base', 'optimism', 'bnb', 'ethereum', 'arbitrum'])
+        .withMessage('Unsupported blockchain selected. Choose one of: celo, polygon, base, optimism, bnb, ethereum, arbitrum'),
+    (0, express_validator_1.body)('tokenType')
+        .notEmpty()
+        .withMessage('Token type is required')
+        .isString()
+        .withMessage('Token type must be a string')
+        .isIn(['USDC', 'USDT', 'BTC', 'ETH'])
+        .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH')
 ];

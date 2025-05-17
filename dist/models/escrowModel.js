@@ -62,10 +62,11 @@ const escrowSchema = new mongoose_1.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'completed', 'failed'],
+        enum: ['pending', 'completed', 'failed', 'reserved', 'error'],
         default: 'pending'
     },
     mpesaTransactionId: String,
+    mpesaReceiptNumber: String,
     cryptoTransactionHash: String,
     paybillNumber: String,
     accountNumber: String,

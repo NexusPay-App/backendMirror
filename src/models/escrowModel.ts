@@ -7,8 +7,9 @@ export interface IEscrow extends Document {
   amount: number;
   cryptoAmount: any;
   type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'crypto_to_paybill' | 'crypto_to_till';
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed' | 'reserved' | 'error';
   mpesaTransactionId?: string;
+  mpesaReceiptNumber?: string;
   cryptoTransactionHash?: string;
   paybillNumber?: string;
   accountNumber?: string;
@@ -50,10 +51,11 @@ const escrowSchema: Schema = new Schema({
   },
   status: { 
     type: String, 
-    enum: ['pending', 'completed', 'failed'],
+    enum: ['pending', 'completed', 'failed', 'reserved', 'error'],
     default: 'pending'
   },
   mpesaTransactionId: String,
+  mpesaReceiptNumber: String,
   cryptoTransactionHash: String,
   paybillNumber: String,
   accountNumber: String,
