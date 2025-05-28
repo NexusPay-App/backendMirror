@@ -19,19 +19,11 @@ let redis: Redis | null = null;
 let useRedis = true;
 
 try {
-    redis = new Redis(config.REDIS_URL || 'redis://localhost:6379', {
-        retryStrategy: (times) => {
-            if (times > 3) {
-                // After 3 retries, we'll switch to in-memory storage
-                useRedis = false;
-                console.log('⚠️ Redis connection failed after multiple attempts, using in-memory storage');
-                return null; // Stop retrying
-            }
-            const delay = Math.min(times * 50, 2000);
-            return delay;
-        },
+    redis = new Redis(config.REDIS_URL, {
         maxRetriesPerRequest: 3,
-        connectTimeout: 5000 // Timeout after 5 seconds
+        retryStrategy: (times) => {
+            return Math.min(times * 50, 2000);
+        }
     });
 
     // Handle Redis connection events

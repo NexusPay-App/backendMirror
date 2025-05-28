@@ -9,7 +9,8 @@ import {
   verifyPhone, 
   verifyLogin, 
   requestAccountDeletion, 
-  confirmAccountDeletion 
+  confirmAccountDeletion,
+  logout
 } from '../controllers/authController';
 import { validate } from '../middleware/validation';
 import {
@@ -24,12 +25,15 @@ import {
   phoneLoginVerifyValidation
 } from '../middleware/validators/authValidators';
 import { authenticate } from '../middleware/auth';
+import { registerVerifiedSession } from '../middleware/strictAuthMiddleware';
+import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 
 const router = express.Router();
 
 // Login routes
 router.post('/login', validate(loginValidation), login);
 router.post('/login/verify', validate(phoneLoginVerifyValidation), verifyLogin);
+router.post('/logout', enforceStrictAuth, logout);
 
 // Phone OTP routes (for standalone OTP authentication)
 router.post('/otp', validate(phoneOtpRequestValidation), async (req, res) => {
@@ -203,8 +207,11 @@ router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) 
         walletAddress: user.walletAddress 
       },
       config.JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '24h' }
     );
+    
+    // Register this as a verified session
+    registerVerifiedSession(token, user._id.toString());
     
     return res.json({
       success: true,

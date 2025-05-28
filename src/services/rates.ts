@@ -17,6 +17,14 @@ const DEFAULT_RATES: Record<string, number> = {
     'ETH': 440000.0,  // Approximate ETH/KES rate
 };
 
+// Optional CoinMarketCap API key
+const apiKey = process.env.COINMARKETCAP_API_KEY;
+
+// Headers for CoinMarketCap API (if available)
+const headers: HeadersInit | undefined = apiKey ? {
+    'X-CMC_PRO_API_KEY': apiKey
+} : undefined;
+
 /**
  * Get crypto to KES conversion rate with proper Redis caching
  * Implements a distributed locking mechanism to prevent multiple simultaneous API calls
@@ -107,51 +115,52 @@ export async function getConversionRateWithCaching(tokenType: string = 'USDC'): 
  */
 async function fetchCryptoToKESPrice(tokenType: string = 'USDC'): Promise<number> {
     try {
-        // Map our token symbols to CoinMarketCap symbols if needed
+        // Map our token symbols to CoinGecko symbols
         const cmcSymbol = tokenType === 'BTC' ? 'bitcoin' : 
                           tokenType === 'ETH' ? 'ethereum' : 
                           tokenType === 'USDT' ? 'tether' : 'usd-coin';
         
-        // Define the API endpoint - using CoinGecko in this example
-        const apiEndpoint = `https://api.coingecko.com/api/v3/simple/price?ids=${cmcSymbol}&vs_currencies=kes`;
-        
-        // Make a GET request to the API endpoint
-        const response = await fetch(apiEndpoint);
-        
-        // Check the response status code
-        if (response.status !== 200) {
-            throw new Error(`Failed to fetch ${tokenType} to KES price: ${response.status}`);
+        // Try CoinGecko API first
+        try {
+            const apiEndpoint = `https://api.coingecko.com/api/v3/simple/price?ids=${cmcSymbol}&vs_currencies=kes`;
+            const response = await fetch(apiEndpoint);
+            
+            if (response.status === 200) {
+                const data = await response.json();
+                if (data[cmcSymbol]?.kes) {
+                    return data[cmcSymbol].kes;
+                }
+            }
+            throw new Error(`Failed to fetch ${tokenType} to KES price from CoinGecko`);
+        } catch (coingeckoError) {
+            console.error(`CoinGecko API error:`, coingeckoError);
+            
+            // Only try CoinMarketCap if we have an API key
+            if (apiKey) {
+                const fallbackEndpoint = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${tokenType}&convert=KES`;
+                
+                const response = await fetch(fallbackEndpoint, {
+                    method: 'GET',
+                    headers: {
+                        'X-CMC_PRO_API_KEY': apiKey
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.data?.[tokenType]?.quote?.['KES']?.price) {
+                        return data.data[tokenType].quote['KES'].price;
+                    }
+                }
+                throw new Error(`Failed to fetch ${tokenType} to KES price from CoinMarketCap`);
+            }
         }
         
-        // Parse the JSON response
-        const data = await response.json();
-        
-        // Return the token to KES price
-        return data[cmcSymbol].kes;
+        // If all API calls fail, use default rate
+        console.warn(`Using default rate for ${tokenType}`);
+        return DEFAULT_RATES[tokenType];
     } catch (error) {
         console.error(`Error fetching ${tokenType} to KES price:`, error);
-        
-        // Implement fallback strategy by checking alternative data sources
-        try {
-            // Alternative API endpoint (example using CoinMarketCap)
-            const apiKey = process.env.COINMARKETCAP_API_KEY || '7e75c059-0ffc-41ca-ae72-88df27e0f202';
-            const fallbackEndpoint = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${tokenType}&convert=KES`;
-            
-            const fallbackResponse = await fetch(fallbackEndpoint, {
-                headers: {
-                    'X-CMC_PRO_API_KEY': apiKey
-                }
-            });
-            
-            if (fallbackResponse.ok) {
-                const fallbackData = await fallbackResponse.json();
-                return fallbackData.data[tokenType].quote['KES'].price;
-            }
-        } catch (fallbackError) {
-            console.error(`Fallback rate fetch for ${tokenType} also failed:`, fallbackError);
-        }
-        
-        // If all fetches fail, use default rate
         return DEFAULT_RATES[tokenType];
     }
 }

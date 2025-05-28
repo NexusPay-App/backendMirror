@@ -3,12 +3,16 @@ import { User } from '../models/models';
 import config from '../config/env';
 
 // MongoDB connection string from config
-const MONGODB_URL = "mongodb+srv://productionbranch:JYDbTetcX1sPL4hc@cluster0.y6bk3ba.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const MONGODB_URL = process.env.MONGODB_URI;
+if (!MONGODB_URL) {
+    throw new Error('MONGODB_URI environment variable is required');
+}
+const mongoUrl: string = MONGODB_URL;
 
 async function resetIndexes() {
   try {
     console.log('Connecting to MongoDB...');
-    await mongoose.connect(MONGODB_URL);
+    await mongoose.connect(mongoUrl);
     console.log('Connected to MongoDB');
 
     console.log('Dropping indexes for User collection...');

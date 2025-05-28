@@ -21,25 +21,25 @@ import {
   migrate, 
   getWallet 
 } from '../controllers/tokenController';
-import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validation';
 import {
   sendTokenValidation,
   payMerchantValidation,
   tokenTransferEventsValidation
 } from '../middleware/validators/tokenValidators';
+import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 
 const router = express.Router();
 
-// Protected routes that require authentication
-router.post('/sendToken', authenticate, validate(sendTokenValidation), send);
-router.post('/pay', authenticate, validate(payMerchantValidation), pay);
-router.get('/tokenTransferEvents', authenticate, validate(tokenTransferEventsValidation), tokenTransferEvents);
+// Protected routes that require strict authentication with OTP verification
+router.post('/sendToken', enforceStrictAuth, validate(sendTokenValidation), send);
+router.post('/pay', enforceStrictAuth, validate(payMerchantValidation), pay);
+router.get('/tokenTransferEvents', enforceStrictAuth, validate(tokenTransferEventsValidation), tokenTransferEvents);
 
-// Account management routes
-router.post('/unify', authenticate, unify);
-router.post('/migrate', authenticate, migrate);
-router.get('/wallet', authenticate, getWallet);
+// Account management routes - all require strict authentication
+router.post('/unify', enforceStrictAuth, unify);
+router.post('/migrate', enforceStrictAuth, migrate);
+router.get('/wallet', enforceStrictAuth, getWallet);
 
 export default router;
 

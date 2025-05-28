@@ -5,24 +5,21 @@ export interface IEscrow extends Document {
   transactionId: string;
   userId: mongoose.Types.ObjectId;
   amount: number;
-  cryptoAmount: any;
+  cryptoAmount: number;
   type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'crypto_to_paybill' | 'crypto_to_till';
-  status: 'pending' | 'completed' | 'failed' | 'reserved' | 'error';
+  status: 'pending' | 'reserved' | 'processing' | 'completed' | 'failed' | 'error';
+  cryptoTransactionHash?: string;
   mpesaTransactionId?: string;
   mpesaReceiptNumber?: string;
-  cryptoTransactionHash?: string;
   paybillNumber?: string;
   accountNumber?: string;
   tillNumber?: string;
-  retryCount: number;
-  lastRetryAt?: Date;
-  createdAt: Date;
   completedAt?: Date;
-  metadata?: {
-    successCode?: string;
-    directBuy?: boolean;
-    [key: string]: any;
-  };
+  retryCount?: number;
+  lastRetryAt?: Date;
+  metadata?: Record<string, any>;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const escrowSchema: Schema = new Schema({
@@ -41,7 +38,7 @@ const escrowSchema: Schema = new Schema({
     required: true 
   },
   cryptoAmount: { 
-    type: mongoose.Schema.Types.Mixed, 
+    type: Number, 
     required: true 
   },
   type: { 
@@ -51,36 +48,58 @@ const escrowSchema: Schema = new Schema({
   },
   status: { 
     type: String, 
-    enum: ['pending', 'completed', 'failed', 'reserved', 'error'],
+    enum: ['pending', 'reserved', 'processing', 'completed', 'failed', 'error'],
     default: 'pending'
   },
-  mpesaTransactionId: String,
-  mpesaReceiptNumber: String,
-  cryptoTransactionHash: String,
-  paybillNumber: String,
-  accountNumber: String,
-  tillNumber: String,
+  cryptoTransactionHash: {
+    type: String
+  },
+  mpesaTransactionId: {
+    type: String
+  },
+  mpesaReceiptNumber: {
+    type: String
+  },
+  paybillNumber: {
+    type: String
+  },
+  accountNumber: {
+    type: String
+  },
+  tillNumber: {
+    type: String
+  },
+  completedAt: {
+    type: Date
+  },
   retryCount: { 
     type: Number, 
     default: 0 
   },
-  lastRetryAt: Date,
-  createdAt: { 
-    type: Date, 
-    default: Date.now 
+  lastRetryAt: {
+    type: Date
   },
-  completedAt: Date,
   metadata: {
-    type: Map,
-    of: mongoose.Schema.Types.Mixed,
-    default: {}
+    type: mongoose.Schema.Types.Mixed
   }
-});
+}, { timestamps: true });
 
 // Create indexes for common queries
-escrowSchema.index({ userId: 1, createdAt: -1 }); // User's transactions by date
-escrowSchema.index({ status: 1, createdAt: 1 }); // Find pending transactions
-escrowSchema.index({ mpesaTransactionId: 1 }, { sparse: true }); // Look up by MPESA ID
-escrowSchema.index({ transactionId: 1 }, { unique: true }); // Fast lookup by our transaction ID
+escrowSchema.index({ transactionId: 1 }, { unique: true });
+escrowSchema.index({ userId: 1 });
+escrowSchema.index({ status: 1 });
+escrowSchema.index({ mpesaTransactionId: 1 });
+escrowSchema.index({ mpesaReceiptNumber: 1 });
+escrowSchema.index({ 'metadata.queuedTxId': 1 });
+escrowSchema.index({ createdAt: 1 });
+escrowSchema.index({ userId: 1, createdAt: -1 });
+escrowSchema.index({ status: 1, createdAt: -1 });
+escrowSchema.index({ 
+  status: 1, 
+  type: 1, 
+  createdAt: -1 
+}, { 
+  name: 'status_type_created' 
+});
 
 export const Escrow = mongoose.model<IEscrow>('Escrow', escrowSchema);

@@ -18,50 +18,51 @@
 // src/routes/mpesaRoutes.ts
 // src/routes/mpesaRoutes.ts
 // src/routes/mpesaRoutes.ts
-import { Router } from "express";
-import { 
-    mpesaDeposit, 
-    withdrawToMpesa,
+import express from 'express';
+import {
+    mpesaDeposit,
+    mpesaWithdraw,
     payToPaybill,
     payToTill,
-    mpesaB2CWebhook, 
-    mpesaQueueWebhook, 
     mpesaSTKPushWebhook,
+    mpesaB2CWebhook,
+    mpesaQueueWebhook,
+    buyCrypto,
     getTransactionStatus,
     getPlatformWalletStatus,
     withdrawFeesToMainWallet,
-    buyCrypto
-} from "../controllers/mpesaController";
-import { authenticate } from "../middleware/auth";
-import { validate } from "../middleware/validation";
-import {
+    stkPushCallback
+} from '../controllers/mpesaController';
+import { validate } from '../middleware/validation';
+import { 
     depositValidation,
     withdrawValidation,
     paybillValidation,
     tillValidation,
-    transactionStatusValidation,
     buyCryptoValidation
-} from "../middleware/validators/mpesaValidators";
+} from '../middleware/validators/mpesaValidators';
+import { authenticateToken } from '../middleware/authMiddleware';
+import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
+import { isAdmin } from '../middleware/roleMiddleware';
 
-const router = Router();
+const router = express.Router();
 
-// Protected routes (require authentication)
-router.post("/deposit", authenticate, validate(depositValidation), mpesaDeposit);
-router.post("/withdraw", authenticate, validate(withdrawValidation), withdrawToMpesa);
-router.post("/paybill", authenticate, validate(paybillValidation), payToPaybill);
-router.post("/till", authenticate, validate(tillValidation), payToTill);
-router.post("/buy-crypto", authenticate, validate(buyCryptoValidation), buyCrypto);
-router.get("/transaction/:transactionId", authenticate, validate(transactionStatusValidation), getTransactionStatus);
+// Public callback routes (no authentication required)
+router.post('/stk-callback', mpesaSTKPushWebhook);
+router.post('/b2c-callback', mpesaB2CWebhook);
+router.post('/queue-timeout', mpesaQueueWebhook);
+router.post('/callback', stkPushCallback);
 
-// Platform wallet management (admin endpoints)
-router.get("/platform-wallets", authenticate, getPlatformWalletStatus);
-router.post("/withdraw-fees", authenticate, withdrawFeesToMainWallet);
+// User routes (strict authentication required)
+router.post('/deposit', enforceStrictAuth, validate(depositValidation), mpesaDeposit);
+router.post('/withdraw', enforceStrictAuth, validate(withdrawValidation), mpesaWithdraw);
+router.post('/pay/paybill', enforceStrictAuth, validate(paybillValidation), payToPaybill);
+router.post('/pay/till', enforceStrictAuth, validate(tillValidation), payToTill);
+router.post('/buy-crypto', enforceStrictAuth, validate(buyCryptoValidation), buyCrypto);
+router.get('/transaction/:transactionId', enforceStrictAuth, getTransactionStatus);
 
-// Webhook routes (no authentication needed)
-router.post("/b2c/result", mpesaB2CWebhook);
-router.post("/stk-push/result", mpesaSTKPushWebhook);
-router.post("/queue", mpesaQueueWebhook);
-router.post("/paybill/result", mpesaSTKPushWebhook);
-router.post("/till/result", mpesaSTKPushWebhook);
+// Admin routes (requires admin role)
+router.get('/platform-wallet', enforceStrictAuth, isAdmin, getPlatformWalletStatus);
+router.post('/withdraw-fees', enforceStrictAuth, isAdmin, withdrawFeesToMainWallet);
 
 export default router;

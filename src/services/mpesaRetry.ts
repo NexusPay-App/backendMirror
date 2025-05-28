@@ -49,7 +49,7 @@ export const retryFailedDeposits = async (minutes: number = 60): Promise<number>
         await transaction.save();
         
         // Retry STK push
-        const result = await retryOperation(async () => {
+        const mpesaResponse = await retryOperation(async () => {
           return initiateSTKPush(
             phone,
             config.MPESA_SHORTCODE!,
@@ -59,17 +59,30 @@ export const retryFailedDeposits = async (minutes: number = 60): Promise<number>
           );
         });
         
-        if (result && result.ResultCode === "0") {
-          // Update transaction with new MPESA ID and set status to pending
-          transaction.status = 'pending';
-          transaction.mpesaTransactionId = result.CheckoutRequestID;
-          transaction.lastRetryAt = new Date();
-          await transaction.save();
+        if (mpesaResponse) {
+          const checkoutRequestId = mpesaResponse.checkoutRequestId;
+          const queryResponse = mpesaResponse.queryResponse;
           
-          console.log(`✅ Successfully retried transaction ${transaction.transactionId}`);
-          successCount++;
+          // Success either if query response shows success or transaction is processing
+          const isSuccess = 
+            (queryResponse && typeof queryResponse === 'object' && 'ResultCode' in queryResponse && queryResponse.ResultCode === "0") ||
+            mpesaResponse.isProcessing === true;
+          
+          if (isSuccess) {
+            // Update transaction with new MPESA ID and set status to pending
+            transaction.status = 'pending';
+            transaction.mpesaTransactionId = checkoutRequestId;
+            transaction.lastRetryAt = new Date();
+            await transaction.save();
+            
+            console.log(`✅ Successfully retried transaction ${transaction.transactionId}`);
+            successCount++;
+          } else {
+            const errorMessage = queryResponse?.ResultDesc || 'Unknown error';
+            console.error(`Failed to retry transaction ${transaction.transactionId}: ${errorMessage}`);
+          }
         } else {
-          console.error(`Failed to retry transaction ${transaction.transactionId}: ${result?.errorMessage || 'Unknown error'}`);
+          console.error(`Failed to retry transaction ${transaction.transactionId}: STK push returned no data`);
         }
       } catch (error) {
         console.error(`Error retrying transaction ${transaction.transactionId}:`, error);

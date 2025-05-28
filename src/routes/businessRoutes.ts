@@ -9,19 +9,20 @@
 
 // src/routes/businessRoutes.ts
 
-import { Router } from 'express';
+import express from 'express';
 import {
   requestBusinessCreation,
   completeBusinessCreation,
   transferFundsToPersonal,
 } from '../controllers/businessController';
+import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 
-const router: Router = Router();
+const router = express.Router();
 
-// Define business-related routes
-router.post('/request-upgrade', requestBusinessCreation);
-router.post('/complete-upgrade', completeBusinessCreation);
-router.post('/transfer-funds', transferFundsToPersonal);
+// All business operations require strict authentication with OTP verification
+router.post('/request-upgrade', enforceStrictAuth, requestBusinessCreation);
+router.post('/complete-upgrade', enforceStrictAuth, completeBusinessCreation);
+router.post('/transfer-funds', enforceStrictAuth, transferFundsToPersonal);
 
 export default router;
 

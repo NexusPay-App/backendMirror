@@ -15,7 +15,7 @@ import {
     collectTransactionFee,
     getPlatformWalletStatus as getWalletStatus,
     withdrawFeesToMainWallet as withdrawFees,
-    sendTokenToUser
+    queueTransaction
 } from '../services/platformWallet';
 import { TokenSymbol } from '../types/token';
 import { Chain } from '../types/token';
@@ -23,6 +23,10 @@ import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 import { defineChain, getContract } from "thirdweb";
 import { balanceOf } from "thirdweb/extensions/erc20";
 import { client } from "../services/auth";
+import { recordTransaction, TransactionType } from '../services/transactionLogger';
+import { getRedisClient } from '../services/redis';
+import { logTransactionForReconciliation } from '../services/reconciliation';
+import { logger } from '../config/logger';
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -145,7 +149,7 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
 
         // Initiate STK Push
         try {
-            const queryData = await initiateSTKPush(
+            const mpesaResponse = await initiateSTKPush(
                 formattedPhone, 
                 config.MPESA_SHORTCODE!, 
                 amountNum, 
@@ -153,7 +157,7 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
                 authenticatedUser._id.toString()
             );
             
-            if (!queryData || queryData.ResultCode !== "0") {
+            if (!mpesaResponse) {
                 escrow.status = 'failed';
                 escrow.completedAt = new Date();
                 await escrow.save();
@@ -164,13 +168,35 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
                     null,
                     { 
                         code: "STK_PUSH_FAILED", 
-                        message: queryData?.errorMessage || "Failed to initiate MPESA transaction"
+                        message: "Failed to initiate MPESA transaction"
+                    }
+                ));
+            }
+
+            // Extract the important data from the response
+            const stkResponse = mpesaResponse.stkResponse;
+            const checkoutRequestId = mpesaResponse.checkoutRequestId;
+            const queryResponse = mpesaResponse.queryResponse;
+            
+            // Check if the query response indicates an error
+            if (queryResponse && typeof queryResponse === 'object' && 'ResultCode' in queryResponse && queryResponse.ResultCode !== "0") {
+                escrow.status = 'failed';
+                escrow.completedAt = new Date();
+                await escrow.save();
+                
+                return res.status(400).json(standardResponse(
+                    false,
+                    "MPESA transaction unsuccessful",
+                    null,
+                    { 
+                        code: "STK_PUSH_FAILED", 
+                        message: queryResponse.ResultDesc || "Failed to initiate MPESA transaction"
                     }
                 ));
             }
 
             // Update escrow with MPESA transaction ID
-            escrow.mpesaTransactionId = queryData.CheckoutRequestID;
+            escrow.mpesaTransactionId = checkoutRequestId;
             await escrow.save();
 
             return res.json(standardResponse(
@@ -181,7 +207,7 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
                     amount: amountNum,
                     expectedCryptoAmount: parseFloat(cryptoAmount.toFixed(6)),
                     status: 'pending',
-                    checkoutRequestId: queryData.CheckoutRequestID,
+                    checkoutRequestId: checkoutRequestId,
                     createdAt: escrow.createdAt,
                     estimatedCompletionTime: new Date(Date.now() + 2 * 60 * 1000) // 2 minutes from now
                 }
@@ -851,7 +877,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
 
         // Step 4: Initiate MPESA STK Push
         try {
-            const queryData = await initiateSTKPush(
+            const mpesaResponse = await initiateSTKPush(
                 formattedPhone, 
                 config.MPESA_SHORTCODE!, 
                 mpesaAmount, 
@@ -860,13 +886,13 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             );
             
             // Handle potential M-Pesa API errors
-            if (!queryData) {
+            if (!mpesaResponse) {
                 console.warn(`⚠️ M-Pesa STK Push returned no data. Transaction ID: ${transactionId}`);
                 
                 if (!escrow.metadata) {
                     escrow.metadata = {};
                 }
-                escrow.metadata.mpesaWarning = "STK Push query returned no data";
+                escrow.metadata.mpesaWarning = "STK Push returned no data";
                 await escrow.save();
                 
                 return res.json(standardResponse(
@@ -887,17 +913,33 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                 ));
             }
             
-            // Even if ResultCode is not 0, the transaction might still be processing
-            if (queryData.ResultCode !== "0") {
+            // Get the main STK Push response (this always succeeds if we reach here)
+            const stkResponse = mpesaResponse.stkResponse;
+            const checkoutRequestId = mpesaResponse.checkoutRequestId;
+            const queryResponse = mpesaResponse.queryResponse;
+            const isProcessing = mpesaResponse.isProcessing === true;
+            
+            // Update escrow with MPESA transaction ID
+            escrow.mpesaTransactionId = checkoutRequestId;
+            await escrow.save();
+            
+            console.log(`✅ STK Push initiated successfully for ${cryptoAmountNum} ${tokenType} (${mpesaAmount} KES). Transaction ID: ${transactionId}`);
+            
+            // If query response exists and has non-zero result code, handle error
+            if (queryResponse && typeof queryResponse === 'object' && 'ResultCode' in queryResponse && queryResponse.ResultCode !== "0") {
                 // Check if it's a processing error rather than a definitive failure
-                if (queryData.errorCode === "500.001.1001" && queryData.errorMessage === "The transaction is being processed") {
+                const errorCode = queryResponse.errorCode || (queryResponse as any).errorCode;
+                const errorMessage = queryResponse.errorMessage || (queryResponse as any).errorMessage;
+                
+                if (errorCode === "500.001.1001" && 
+                    errorMessage === "The transaction is being processed") {
+                    
                     console.log(`⚠️ M-Pesa transaction is still processing. Transaction ID: ${transactionId}`);
                     
-                    escrow.mpesaTransactionId = queryData.CheckoutRequestID;
                     if (!escrow.metadata) {
                         escrow.metadata = {};
                     }
-                    escrow.metadata.mpesaWarning = "STK Push reported transaction is still processing";
+                    escrow.metadata.mpesaWarning = "STK Push query reported transaction is still processing";
                     await escrow.save();
                     
                     return res.json(standardResponse(
@@ -910,7 +952,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                             tokenType,
                             chain,
                             status: 'reserved',
-                            checkoutRequestId: queryData.CheckoutRequestID,
+                            checkoutRequestId: checkoutRequestId,
                             createdAt: escrow.createdAt,
                             note: "Your M-Pesa transaction is being processed. We will credit your account once the payment is confirmed.",
                             estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
@@ -922,6 +964,9 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                 // Other error types that indicate actual failure
                 escrow.status = 'failed';
                 escrow.completedAt = new Date();
+                if (!escrow.metadata) escrow.metadata = {};
+                escrow.metadata.mpesaErrorCode = queryResponse.ResultCode;
+                escrow.metadata.mpesaErrorMessage = queryResponse.ResultDesc || (queryResponse as any).ResultDesc;
                 await escrow.save();
                 
                 return res.status(400).json(standardResponse(
@@ -930,17 +975,39 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                     null,
                     { 
                         code: "STK_PUSH_FAILED", 
-                        message: queryData?.errorMessage || "Failed to initiate MPESA transaction"
+                        message: queryResponse.ResultDesc || (queryResponse as any).ResultDesc || "Failed to initiate MPESA transaction"
                     }
                 ));
             }
-
-            // Update escrow with MPESA transaction ID
-            escrow.mpesaTransactionId = queryData.CheckoutRequestID;
-            await escrow.save();
             
-            console.log(`✅ STK Push initiated successfully for ${cryptoAmountNum} ${tokenType} (${mpesaAmount} KES). Transaction ID: ${transactionId}`);
-
+            // If the transaction is still processing (query failed but STK push succeeded)
+            if (isProcessing) {
+                console.log(`⏳ M-Pesa transaction initiated but waiting for callback. Transaction ID: ${transactionId}`);
+                
+                if (!escrow.metadata) escrow.metadata = {};
+                escrow.metadata.mpesaProcessing = true;
+                await escrow.save();
+                
+                return res.json(standardResponse(
+                    true,
+                    "Crypto purchase initiated successfully",
+                    {
+                        transactionId: escrow.transactionId,
+                        mpesaAmount,
+                        cryptoAmount: parseFloat(cryptoAmountNum.toFixed(6)),
+                        tokenType,
+                        chain,
+                        status: 'reserved',
+                        checkoutRequestId: checkoutRequestId,
+                        createdAt: escrow.createdAt,
+                        note: "Your M-Pesa payment is being processed. We'll update your balance once confirmed.",
+                        estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
+                        successCode
+                    }
+                ));
+            }
+            
+            // Success case - STK push initiated and query returned success
             return res.json(standardResponse(
                 true,
                 "Crypto purchase initiated successfully",
@@ -950,8 +1017,8 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                     cryptoAmount: parseFloat(cryptoAmountNum.toFixed(6)),
                     tokenType,
                     chain,
-                    status: 'reserved', // Return reserved status
-                    checkoutRequestId: queryData.CheckoutRequestID,
+                    status: 'reserved',
+                    checkoutRequestId: checkoutRequestId,
                     createdAt: escrow.createdAt,
                     estimatedCompletionTime: new Date(Date.now() + 2 * 60 * 1000),
                     successCode
@@ -989,9 +1056,32 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                 ));
             }
             
+            // For authentication errors, provide a more specific message
+            if (mpesaError.response?.data?.errorCode === "404.001.03") {
+                console.error("❌ M-Pesa authentication error - Invalid Access Token");
+                
+                escrow.status = 'failed';
+                escrow.completedAt = new Date();
+                if (!escrow.metadata) escrow.metadata = {};
+                escrow.metadata.mpesaAuthError = true;
+                await escrow.save();
+                
+                return res.status(500).json(standardResponse(
+                    false,
+                    "Payment system temporarily unavailable",
+                    null,
+                    { 
+                        code: "MPESA_AUTH_ERROR", 
+                        message: "Our payment system is temporarily unavailable. Please try again in a few minutes."
+                    }
+                ));
+            }
+            
             // For other errors, mark as failed
             escrow.status = 'failed';
             escrow.completedAt = new Date();
+            if (!escrow.metadata) escrow.metadata = {};
+            escrow.metadata.mpesaErrorMessage = mpesaError.message || "Unknown error";
             await escrow.save();
             
             return res.status(500).json(standardResponse(
@@ -1016,31 +1106,29 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
  * Webhook handler for MPESA STK Push callbacks
  */
 export const mpesaSTKPushWebhook = async (req: Request, res: Response) => {
-    try {
-        console.log("📲 Received MPESA STK Push callback:", JSON.stringify(req.body, null, 2));
-        
-        // Acknowledge the webhook immediately to avoid timeout
-        const acknowledgement = {
-            "ResponseCode": "00000000",
-            "ResponseDesc": "success"
-        };
+    // Immediately acknowledge the webhook to avoid timeouts
+    const acknowledgement = {
+        "ResponseCode": "00000000",
+        "ResponseDesc": "success"
+    };
+    
+    // Send an immediate response
+    res.status(200).json(acknowledgement);
+    
+    // Log the received webhook
+        console.log("\n==================================================");
+        console.log("📲 MPESA CALLBACK RECEIVED - DETAILED LOG");
+        console.log("==================================================");
+        console.log("REQUEST HEADERS:");
+        console.log(JSON.stringify(req.headers, null, 2));
+        console.log("\nREQUEST BODY:");
+        console.log(JSON.stringify(req.body, null, 2));
+        console.log("==================================================");
         
         // Process the callback asynchronously
         processSTKCallback(req.body).catch(err => {
             console.error("❌ Error processing STK callback:", err);
         });
-        
-        // Respond to safaricom servers with a success message
-        res.json(acknowledgement);
-    } catch (error) {
-        console.error("❌ Error in STK Push webhook:", error);
-        
-        // Still acknowledge receipt even on error to prevent retries
-        res.json({
-            "ResponseCode": "00000000",
-            "ResponseDesc": "success"
-        });
-    }
 };
 
 /**
@@ -1049,29 +1137,83 @@ export const mpesaSTKPushWebhook = async (req: Request, res: Response) => {
 async function processSTKCallback(callbackData: any) {
     try {
         const stkCallback = callbackData.Body?.stkCallback;
+        const callbackId = randomUUID().slice(0, 8); // For tracking this specific callback processing
         
         if (!stkCallback) {
-            console.error("❌ Invalid STK callback format - missing Body.stkCallback");
+            console.error(`❌ [CB:${callbackId}] Invalid STK callback format - missing Body.stkCallback`);
             return;
         }
         
         const checkoutRequestID = stkCallback.CheckoutRequestID;
         const resultCode = parseInt(stkCallback.ResultCode, 10);
         
-        // Find the corresponding escrow transaction
-        const escrow = await Escrow.findOne({ mpesaTransactionId: checkoutRequestID });
+        console.log(`🔍 [CB:${callbackId}] Processing callback for CheckoutRequestID: ${checkoutRequestID}, ResultCode: ${resultCode}`);
+        
+        // Find the corresponding escrow transaction with more robust lookup
+        // First try direct match on mpesaTransactionId
+        let escrow = await Escrow.findOne({ mpesaTransactionId: checkoutRequestID });
+        
+        // If not found, try finding the most recent transaction with matching phone from callback metadata
+        if (!escrow && stkCallback.CallbackMetadata?.Item) {
+            const phoneItem = stkCallback.CallbackMetadata.Item.find((item: any) => item.Name === 'PhoneNumber');
+            if (phoneItem && phoneItem.Value) {
+                const phone = phoneItem.Value.toString();
+                console.log(`📱 [CB:${callbackId}] No direct match, trying lookup by phone: ${phone}`);
+                
+                // Find most recent transaction(s) for this phone number (formatted with +)
+                const formattedPhone = `+${phone}`;
+                
+                // Look for recent transactions in reserved status
+                const recentEscrows = await Escrow.find({
+                    status: 'reserved',
+                    createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) } // Last 30 minutes
+                })
+                .sort({ createdAt: -1 }) // Most recent first
+                .limit(5);
+                
+                // Find transactions for this user
+                if (recentEscrows.length > 0) {
+                    // Find users with this phone
+                    const user = await User.findOne({ phoneNumber: formattedPhone });
+                    
+                    if (user) {
+                        // Filter escrows for this user
+                        const userEscrows = recentEscrows.filter(e => 
+                            e.userId.toString() === user._id.toString()
+                        );
+                        
+                        if (userEscrows.length > 0) {
+                            escrow = userEscrows[0]; // Take the most recent one
+                            console.log(`✅ [CB:${callbackId}] Found matching escrow by phone: ${escrow.transactionId}`);
+                            
+                            // Update the escrow with the correct M-Pesa transaction ID
+                            escrow.mpesaTransactionId = checkoutRequestID;
+                            await escrow.save();
+                            console.log(`✅ [CB:${callbackId}] Updated escrow with correct M-Pesa transaction ID`);
+                        }
+                    }
+                }
+            }
+        }
         
         if (!escrow) {
-            console.error(`❌ No escrow found for CheckoutRequestID: ${checkoutRequestID}`);
+            console.error(`❌ [CB:${callbackId}] No escrow found for CheckoutRequestID: ${checkoutRequestID}`);
             return;
         }
         
         // Extract metadata for enhanced logging
         const metadata = escrow.metadata || {};
         const tokenType = metadata.tokenType || 'USDC';
-        const chain = metadata.chain || 'celo';
+        const chain = metadata.chain || 'arbitrum';
         const cryptoAmount = typeof escrow.cryptoAmount === 'string' ? parseFloat(escrow.cryptoAmount) : escrow.cryptoAmount;
         const isDirectBuy = metadata.directBuy === true;
+        
+        // Detailed logging for traceability
+        console.log(`\n🔄 [CB:${callbackId}] Processing M-Pesa callback for transaction: ${escrow.transactionId}`);
+        console.log(`- M-Pesa CheckoutRequestID: ${checkoutRequestID}`);
+        console.log(`- Result Code: ${resultCode}`);
+        console.log(`- Current Status: ${escrow.status}`);
+        console.log(`- Is Direct Buy: ${isDirectBuy}`);
         
         // Process the callback based on result code
         if (resultCode === 0) {
@@ -1091,143 +1233,187 @@ async function processSTKCallback(callbackData: any) {
                 });
             }
             
-            // Step 5: Process crypto transfer only if escrow status is 'reserved'
-            // This ensures we're following the new flow where crypto is validated and held before payment
+            // CRITICAL: Validate that we received a proper M-Pesa receipt number
+            if (!mpesaReceiptNumber) {
+                console.error(`❌ [CB:${callbackId}] No M-Pesa receipt number in callback for transaction: ${escrow.transactionId}`);
+                escrow.status = 'error';
+                escrow.metadata = { ...escrow.metadata, error: 'Missing M-Pesa receipt', errorCode: 'MISSING_RECEIPT' };
+                await escrow.save();
+                return;
+            }
+            
+            console.log(`✅ [CB:${callbackId}] M-Pesa payment confirmed:`);
+            console.log(`- Receipt Number: ${mpesaReceiptNumber}`);
+            console.log(`- Amount: ${amount} KES`);
+            console.log(`- Date: ${transactionDate}`);
+            console.log(`- Phone: ${phoneNumber}`);
+            
+            // Update escrow with M-Pesa receipt number
+                    escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+            
+            // Process based on escrow type and status
             if (escrow.status === 'reserved' && isDirectBuy) {
                 try {
-                    // Get user wallet address
+                    console.log(`🚀 [CB:${callbackId}] Processing direct buy crypto transfer for transaction: ${escrow.transactionId}`);
+                    
+                    // Retrieve user for wallet information
                     const user = await User.findById(escrow.userId);
-                    if (!user || !user.walletAddress) {
-                        console.error(`❌ User or wallet address not found for user ID ${escrow.userId}`);
-                        escrow.status = 'error';
-                        escrow.metadata = { ...escrow.metadata, error: 'User wallet not found' };
-                        await escrow.save();
-                        return;
+                    if (!user) {
+                        throw new Error(`User not found for transaction: ${escrow.transactionId}`);
                     }
                     
-                    // Transfer token to user wallet
-                    // This completes the final step after payment is confirmed
-                    const txResult = await sendTokenToUser(
+                    if (!user.walletAddress) {
+                        throw new Error(`User wallet address not found for transaction: ${escrow.transactionId}`);
+                    }
+                    
+                    // PERFORMANCE OPTIMIZATION: Use the queue for immediate response
+                    // This improves response time and allows for parallel processing
+                    const txId = await queueTransaction(
                         user.walletAddress,
                         cryptoAmount,
                         chain,
-                        tokenType as TokenSymbol
+                        tokenType as TokenSymbol,
+                        'high', // Priority level for faster processing
+                        escrow._id.toString(), // Pass escrow ID to prevent duplicates
+                        escrow.transactionId // Pass original transaction ID
                     );
                     
-                    // Log transaction details
-                    console.log(`\n🔄 TOKEN TRANSFER COMPLETED:`);
-                    console.log(`- User: ${user.phoneNumber || user._id}`);
-                    console.log(`- Wallet: ${user.walletAddress}`);
-                    console.log(`- Amount: ${cryptoAmount} ${tokenType}`);
-                    console.log(`- Chain: ${chain}`);
-                    console.log(`- Transaction Hash: ${txResult.transactionHash}`);
-                    console.log(`- Explorer URL: ${generateExplorerUrl(chain, txResult.transactionHash)}`);
+                    // Update escrow with queued transaction info
+                    escrow.status = 'processing';
+                        escrow.metadata = { 
+                            ...escrow.metadata, 
+                        mpesaPaymentReceived: true,
+                        queuedTxId: txId,
+                        processingStatus: 'queued',
+                        queuedAt: new Date().toISOString(),
+                        priority: 'high',
+                        mpesaReceiptNumber // Store receipt for reference
+                        };
+                        await escrow.save();
+                        
+                    // Record transaction for audit
+                    await recordTransaction({
+                        type: 'mpesa_to_crypto',
+                        txId,
+                        status: 'processing',
+                        executionTimeMs: Date.now() - new Date(escrow.createdAt).getTime(),
+                        escrowId: escrow._id.toString(),
+                            userId: escrow.userId.toString(),
+                        amount: escrow.amount,
+                        mpesaReceiptNumber
+                    });
                     
-                    // Update escrow record with completion details
-                    escrow.status = 'completed';
-                    escrow.completedAt = new Date();
-                    escrow.cryptoTransactionHash = txResult.transactionHash;
-                    escrow.mpesaReceiptNumber = mpesaReceiptNumber;
-                    escrow.metadata = { 
-                        ...escrow.metadata,
-                        txUrl: generateExplorerUrl(chain, txResult.transactionHash)
-                    };
-                    
-                    await escrow.save();
+                    // Log success
+                    logger.info(`✅ [CB:${callbackId}] Transaction ${txId} queued for processing with HIGH priority`);
                     
                     // Log for reconciliation
                     logTransactionForReconciliation({
                         transactionId: escrow.transactionId,
                         userId: escrow.userId.toString(),
-                        type: 'fiat_to_crypto',
+                        type: escrow.type,
+                        status: 'processing',
                         fiatAmount: amount,
                         cryptoAmount,
                         tokenType,
                         chain,
                         mpesaReceiptNumber,
-                        blockchain_tx: txResult.transactionHash,
-                        status: 'completed',
-                        timestamp: new Date().toISOString()
+                        queuedTxId: txId
                     });
                 } catch (error: any) {
-                    console.error(`❌ Error processing token transfer after successful payment:`, error);
+                    console.error(`❌ [CB:${callbackId}] Error queueing crypto transfer for transaction ${escrow.transactionId}:`, error);
                     
-                    // Update escrow with error status
+                    // Update escrow with error details but keep M-Pesa receipt for reconciliation
                     escrow.status = 'error';
                     escrow.metadata = { 
                         ...escrow.metadata, 
-                        error: error.message || 'Unknown error during token transfer',
-                        mpesaReceiptNumber 
+                        error: error instanceof Error ? error.message : 'Unknown error processing crypto transfer',
+                        errorCode: (error as any)?.code || 'CRYPTO_TRANSFER_ERROR',
+                        mpesaPaymentReceived: true,
+                        needsManualReview: true,
+                        lastError: new Date().toISOString(),
+                        mpesaReceiptNumber // Store receipt for reference
                     };
                     await escrow.save();
                     
-                    // Log failed transaction for reconciliation
-                    logTransactionForReconciliation({
-                        transactionId: escrow.transactionId,
-                        userId: escrow.userId.toString(),
-                        type: 'fiat_to_crypto',
-                        fiatAmount: amount,
-                        cryptoAmount,
-                        tokenType,
-                        chain,
-                        mpesaReceiptNumber,
-                        status: 'error',
-                        error: error.message || 'Unknown error',
-                        timestamp: new Date().toISOString()
-                    });
+                    // Add to retry queue for automatic recovery
+                    await queueForRetry(escrow.transactionId);
                 }
-            } else if (!isDirectBuy) {
-                // For regular deposit (not direct buy), just update the escrow
-                escrow.status = 'completed';
-                escrow.completedAt = new Date();
+            } else if (escrow.status === 'processing') {
+                console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} already in processing state`);
+                // Update the receipt in case this is a new callback
                 escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+                escrow.metadata = { ...escrow.metadata, mpesaReceiptNumber };
+                await escrow.save();
+            } else if (escrow.status === 'completed') {
+                console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} already completed`);
+                // Just update receipt for reconciliation if needed
+                if (!escrow.mpesaReceiptNumber) {
+                    escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+                    escrow.metadata = { ...escrow.metadata, mpesaReceiptNumber };
+                    await escrow.save();
+                }
+            } else {
+                console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} is not eligible for crypto transfer in current state: ${escrow.status}`);
+                
+                // Record M-Pesa receipt for reconciliation
+                escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+                if (!hasErrorOrFailedStatus(escrow.status)) {
+                    escrow.status = 'completed';
+                }
+                escrow.completedAt = new Date();
+                escrow.metadata = { ...escrow.metadata, mpesaPaymentReceived: true, mpesaReceiptNumber };
                 await escrow.save();
                 
                 // Log for reconciliation
                 logTransactionForReconciliation({
                     transactionId: escrow.transactionId,
                     userId: escrow.userId.toString(),
-                    type: 'fiat_deposit',
+                    type: escrow.type,
+                    status: escrow.status,
                     fiatAmount: amount,
                     mpesaReceiptNumber,
-                    status: 'completed',
-                    timestamp: new Date().toISOString()
+                    cryptoAmount,
+                    tokenType,
+                    chain
                 });
-            } else {
-                console.warn(`⚠️ Escrow ${escrow.transactionId} has unexpected status: ${escrow.status}`);
-                // Update with MPESA info but keep current status
-                escrow.mpesaReceiptNumber = mpesaReceiptNumber;
-                await escrow.save();
             }
         } else {
             // Payment failed
-            console.error(`❌ M-PESA PAYMENT FAILED - Transaction ID: ${escrow.transactionId}, Code: ${resultCode}`);
-            
+            console.error(`❌ [CB:${callbackId}] M-PESA PAYMENT FAILED - Transaction ID: ${escrow.transactionId}, Code: ${resultCode}`);
             // Get the result description if available
             const resultDesc = stkCallback.ResultDesc || 'Unknown error';
-            
             // Update escrow with failure details
             escrow.status = 'failed';
             escrow.completedAt = new Date();
-            escrow.metadata = { ...escrow.metadata, error: resultDesc, errorCode: resultCode };
+            escrow.metadata = { 
+                ...escrow.metadata, 
+                error: resultDesc, 
+                errorCode: `MPESA_ERROR_${resultCode}`
+            };
             await escrow.save();
             
             // Log failed transaction for reconciliation
             logTransactionForReconciliation({
                 transactionId: escrow.transactionId,
                 userId: escrow.userId.toString(),
-                type: 'fiat_to_crypto',
+                type: escrow.type,
+                status: 'failed',
                 cryptoAmount,
                 tokenType,
                 chain,
-                status: 'failed',
                 error: resultDesc,
-                errorCode: resultCode,
+                errorCode: `MPESA_ERROR_${resultCode}`,
                 timestamp: new Date().toISOString()
             });
         }
     } catch (error: any) {
         console.error("❌ Error processing STK callback:", error);
+        
+        // Log detailed error information for troubleshooting
+        console.error({
+            error: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : 'No stack trace available'
+        });
     }
 }
 
@@ -1255,22 +1441,6 @@ function generateExplorerUrl(chain: string, txHash: string): string {
     
     const baseUrl = explorers[chain] || explorers['celo']; // Default to Celo if chain not found
     return `${baseUrl}${txHash}`;
-}
-
-/**
- * Helper function to log transaction details for reconciliation
- */
-function logTransactionForReconciliation(data: any): void {
-    // This function would ideally write to a dedicated log file or database
-    // For now, we'll just log to console in a structured format
-    console.log('\n📝 TRANSACTION RECORD FOR RECONCILIATION 📝');
-    console.log(JSON.stringify(data, null, 2));
-    
-    // In a production system, you might want to:
-    // 1. Send this data to a monitoring system
-    // 2. Store in a dedicated transaction log database
-    // 3. Trigger alerts if needed
-    // 4. Queue for email/notification to admins
 }
 
 export const mpesaB2CWebhook = async (req: Request, res: Response) => {
@@ -1372,6 +1542,10 @@ async function processB2CCallback(callbackData: any) {
                 }
                 
                 // Send refund from platform to user
+                if (!platformWallets.main.privateKey) {
+                    throw new Error('Platform wallet private key not found. Cannot process refund.');
+                }
+                
                 const txResult = await sendTokenFromUser(
                     user.walletAddress,
                     cryptoAmount,
@@ -1573,111 +1747,270 @@ export const withdrawFeesToMainWallet = async (req: Request, res: Response, next
  * Handle STK Push callback from MPESA
  */
 export const stkPushCallback = async (req: Request, res: Response) => {
-    try {
-        const callbackData = req.body.Body.stkCallback;
+  // Early send 200 response to M-Pesa gateway
+  res.status(200).send();
+  
+  try {
+    // Validate the callback data
+    const callbackData = req.body?.Body?.stkCallback;
+    if (!callbackData) {
+      logger.error('Invalid STK callback payload');
+      return;
+    }
+    
+    const merchantRequestID = callbackData.MerchantRequestID;
+    const checkoutRequestID = callbackData.CheckoutRequestID;
+    const resultCode = callbackData.ResultCode;
+    const resultDesc = callbackData.ResultDesc;
+    
+    logger.info(`STK callback received: ${resultDesc} (${resultCode})`);
         
-        // Log the raw callback data for debugging
-        console.log("STK Callback received:", JSON.stringify(callbackData, null, 2));
-        
-        // Extract key data from callback
-        const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc } = callbackData;
-        
-        // Always send a 200 response to MPESA to acknowledge receipt
-        res.status(200).json({ success: true });
-        
-        // Find the escrow record for this MPESA transaction
-        const escrow = await Escrow.findOne({ mpesaTransactionId: CheckoutRequestID });
+    // Find the escrow record
+    const escrow = await Escrow.findOne({ 
+      mpesaTransactionId: checkoutRequestID 
+    });
         
         if (!escrow) {
-            console.error(`Escrow record not found for CheckoutRequestID: ${CheckoutRequestID}`);
+      logger.error(`No escrow found for checkout ID: ${checkoutRequestID}`);
             return;
         }
         
-        // Extract metadata for enhanced logging
-        const metadata = escrow.metadata || {};
-        const tokenType = metadata.tokenType || 'USDC';
-        const chain = metadata.chain || 'celo';
-        const cryptoAmount = typeof escrow.cryptoAmount === 'string' ? parseFloat(escrow.cryptoAmount) : escrow.cryptoAmount;
+    const transactionId = escrow.transactionId;
         
-        // Process the callback based on result code
-        if (ResultCode === 0) {
-            // Success - extract payment details from callback item
-            const callbackItems = callbackData.CallbackMetadata?.Item || [];
-            const amount = callbackItems.find((item: any) => item.Name === "Amount")?.Value;
-            const mpesaReceiptNumber = callbackItems.find((item: any) => item.Name === "MpesaReceiptNumber")?.Value;
-            const phoneNumber = callbackItems.find((item: any) => item.Name === "PhoneNumber")?.Value;
+    // Extract metadata if present
+    const { directBuy, chain, tokenType, successCode } = escrow.metadata || {};
+    const cryptoAmount = escrow.cryptoAmount;
+    
+    logger.info(`Processing STK callback for transaction ${transactionId}`);
+    logger.info(`- Status: ${resultDesc} (${resultCode})`);
+    logger.info(`- Amount: ${escrow.amount} KES / ${cryptoAmount} ${tokenType}`);
+        
+    // Process based on result code
+    if (resultCode === 0) {
+      // Payment successful
+      logger.info(`Payment successful for transaction ${transactionId}`);
+      
+      // Extract payment details
+      const callbackMetadata = callbackData.CallbackMetadata?.Item || [];
+      
+      // Extract important values
+      let amount = 0;
+      let mpesaReceiptNumber = '';
+      let transactionDate = '';
+      let phoneNumber = '';
+      
+      callbackMetadata.forEach((item: any) => {
+        if (item.Name === 'Amount') amount = item.Value;
+        if (item.Name === 'MpesaReceiptNumber') mpesaReceiptNumber = item.Value;
+        if (item.Name === 'TransactionDate') transactionDate = item.Value;
+        if (item.Name === 'PhoneNumber') phoneNumber = item.Value;
+      });
+      
+      logger.info(`Payment details: ${mpesaReceiptNumber}, ${amount} KES from ${phoneNumber}`);
             
-            // Enhanced success logging
-            console.log(`✅ Successful M-Pesa payment received:`);
-            console.log(`- Transaction: ${escrow.transactionId}`);
-            console.log(`- M-Pesa Receipt: ${mpesaReceiptNumber}`);
-            console.log(`- Amount: ${amount} KES`);
-            console.log(`- Crypto: ${cryptoAmount} ${tokenType} on ${chain} (≈ $${cryptoAmount} USD)`);
-            console.log(`- Phone: ${phoneNumber}`);
-            
-            // Update the escrow record
-            escrow.status = 'completed';
-            escrow.completedAt = new Date();
+      // Verify amount matches what we expected
+      if (amount !== escrow.amount) {
+        logger.warn(`Amount mismatch: Expected ${escrow.amount}, got ${amount}`);
+        // Continue anyway, as the payment was successful
+      }
+      
+      // Update escrow with MPESA details
+            escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+      escrow.status = directBuy ? 'reserved' : 'completed';
             await escrow.save();
+      
+      // Record transaction
+      recordTransaction({
+        type: 'mpesa_to_escrow', 
+        status: 'completed',
+        mpesaReceiptNumber,
+        escrowId: escrow._id.toString(),
+        userId: escrow.userId.toString(),
+        amount: amount,
+        tokenType,
+        chainName: chain,
+        metadata: {
+          phoneNumber,
+          transactionDate
+        }
+      }).catch(error => {
+        logger.error(`Failed to record transaction: ${error.message}`);
+      });
+      
+      // Determine if we should release crypto
+      const shouldReleaseCrypto = directBuy === true;
             
-            // Attempt to transfer the crypto to the user
-            try {
-                // Get the user
-                const user = await User.findById(escrow.userId);
-                
-                if (!user) {
-                    console.error(`User not found for escrow transaction: ${escrow.transactionId}`);
-                    return;
+            if (shouldReleaseCrypto) {
+                try {
+                    // Get the user
+                    const user = await User.findById(escrow.userId);
+                    
+                    if (!user) {
+            logger.error(`User not found for escrow transaction: ${escrow.transactionId}`);
+                        escrow.status = 'error';
+                        escrow.metadata = { 
+                            ...escrow.metadata, 
+                            error: !user ? 'User not found' : 'Wallet address not found',
+                            errorCode: !user ? 'USER_NOT_FOUND' : 'WALLET_NOT_FOUND',
+                            mpesaPaymentReceived: true
+                        };
+                        await escrow.save();
+                        return;
+                    }
+                    
+          if (!user.walletAddress) {
+            logger.error(`User ${user._id} does not have a wallet address`);
+            escrow.status = 'error';
+            escrow.metadata = { 
+              ...escrow.metadata, 
+              error: 'Wallet address not found',
+              errorCode: 'WALLET_NOT_FOUND',
+              mpesaPaymentReceived: true
+            };
+            await escrow.save();
+            return;
+          }
+          
+          logger.info(`Initiating crypto transfer to user wallet:`);
+          logger.info(`- User ID: ${user._id}`);
+          logger.info(`- Wallet: ${user.walletAddress}`);
+          logger.info(`- Amount: ${cryptoAmount} ${tokenType} on ${chain}`);
+                    
+          // Queue the crypto transfer for processing
+          // This is more efficient than direct transfer in the callback
+          const txId = await queueTransaction(
+                        user.walletAddress,
+                        cryptoAmount,
+                        chain,
+                        tokenType as TokenSymbol,
+                        'high', // Priority level for faster processing
+                        escrow._id.toString(), // Pass escrow ID to prevent duplicates
+                        escrow.transactionId // Pass original transaction ID
+                    );
+                    
+          // Update escrow with queued transaction
+          escrow.status = 'pending';
+          escrow.metadata = {
+            ...escrow.metadata,
+            queuedTxId: txId,
+            mpesaPaymentReceived: true,
+            mpesaReceiptNumber
+          };
+                    await escrow.save();
+                    
+          logger.info(`Crypto transfer queued with ID ${txId} for transaction ${transactionId}`);
+          
+          // Record the transfer for audit
+          recordTransaction({
+            type: 'escrow_to_user',
+            status: 'pending',
+            txId,
+            escrowId: escrow._id.toString(),
+            userId: user._id.toString(),
+            toAddress: user.walletAddress,
+            amount: cryptoAmount,
+                        tokenType,
+            chainName: chain
+          }).catch(err => {
+            logger.error(`Failed to record escrow_to_user transaction: ${err.message}`);
+          });
+        } catch (error: any) {
+          logger.error(`Error initiating crypto transfer: ${error.message}`);
+                    
+          // Update escrow with error
+                    escrow.status = 'error';
+                    escrow.metadata = { 
+                        ...escrow.metadata, 
+            error: error.message,
+            errorCode: 'CRYPTO_TRANSFER_FAILED',
+                        mpesaPaymentReceived: true,
+            mpesaReceiptNumber
+                    };
+                    await escrow.save();
+                    
+          // Record failed transaction for recovery
+          recordTransaction({
+            type: 'escrow_to_user',
+            status: 'failed',
+            escrowId: escrow._id.toString(),
+                        userId: escrow.userId.toString(),
+            amount: cryptoAmount,
+                        tokenType,
+            chainName: chain,
+            error: error.message
+          }).catch(err => {
+            logger.error(`Failed to record failed transaction: ${err.message}`);
+                    });
                 }
-                
-                // Get wallet address
-                const walletAddress = user.walletAddress;
-                
-                if (!walletAddress) {
-                    console.error(`User ${user._id} does not have a wallet address`);
-                    return;
-                }
-                
-                // Transfer the crypto from platform wallet to user wallet
-                const transferResult = await sendTokenToUser(
-                    walletAddress,
-                    escrow.cryptoAmount,
-                    chain,
-                    tokenType as TokenSymbol
-                );
-                
-                // Update escrow with crypto transaction hash
-                escrow.cryptoTransactionHash = transferResult.transactionHash;
-                await escrow.save();
-                
-                console.log(`✅ Crypto transfer successful: ${transferResult.transactionHash}`);
-                console.log(`- From: Platform wallet to ${walletAddress.substring(0, 8)}...`);
-                console.log(`- Amount: ${cryptoAmount} ${tokenType} (≈ $${cryptoAmount} USD)`);
-                
-                // Mark the transaction as completed
-                escrow.status = 'completed';
-                await escrow.save();
-            } catch (transferError) {
-                console.error(`❌ Error transferring crypto to user:`, transferError);
-                
-                // The payment was received, but crypto transfer failed
-                // This requires manual resolution - we should notify admins
-                escrow.status = 'failed';
-                await escrow.save();
+            } else {
+        logger.info(`Not a direct buy, skipping crypto transfer for ${transactionId}`);
             }
         } else {
-            // Transaction failed on MPESA side
-            console.error(`❌ STK Push transaction failed for ${escrow.transactionId}:`);
-            console.error(`- Result Code: ${ResultCode}`);
-            console.error(`- Description: ${ResultDesc}`);
-            console.error(`- Transaction: ${cryptoAmount} ${tokenType} (≈ $${cryptoAmount} USD)`);
-            
-            // Update escrow status
+      // Payment failed
+      logger.warn(`Payment failed for transaction ${transactionId}: ${resultDesc}`);
+      
+      // Update escrow
             escrow.status = 'failed';
-            escrow.completedAt = new Date();
+            escrow.metadata = { 
+                ...escrow.metadata, 
+        failureReason: resultDesc,
+        failureCode: resultCode
+            };
             await escrow.save();
+            
+      // Record transaction
+      recordTransaction({
+        type: 'mpesa_to_escrow',
+                status: 'failed',
+        escrowId: escrow._id.toString(),
+        userId: escrow.userId.toString(),
+        amount: escrow.amount,
+        error: resultDesc
+      }).catch(error => {
+        logger.error(`Failed to record failed transaction: ${error.message}`);
+            });
         }
-    } catch (error) {
-        console.error("❌ Error processing STK Push callback:", error);
+    } catch (error: any) {
+    logger.error(`Error processing STK callback: ${error.message}`);
     }
 };
+
+// Define function to check specific status values to avoid type comparison errors
+function hasErrorOrFailedStatus(status: string): boolean {
+    return status === 'error' || status === 'failed';
+}
+
+/**
+ * Queue a failed transaction for automatic retry
+ */
+async function queueForRetry(transactionId: string): Promise<void> {
+    try {
+        // Log the retry attempt
+        console.log(`🔄 Queueing transaction ${transactionId} for automatic retry`);
+        
+        // Find the transaction to retry
+        const escrow = await Escrow.findOne({ transactionId });
+        if (!escrow) {
+            console.error(`❌ Transaction not found for retry: ${transactionId}`);
+            return;
+        }
+        
+        // Update retry count
+        escrow.retryCount = (escrow.retryCount || 0) + 1;
+        escrow.lastRetryAt = new Date();
+        await escrow.save();
+        
+        console.log(`✅ Transaction ${transactionId} queued for retry (attempt ${escrow.retryCount})`);
+        
+        // Add to Redis queue for retry processing
+        const redisClient = await getRedisClient();
+        if (redisClient) {
+            await redisClient.lPush('transaction:retry:queue', transactionId);
+            console.log(`✅ Added ${transactionId} to Redis retry queue`);
+        } else {
+            console.warn(`⚠️ Redis client not available, transaction ${transactionId} will be retried by scheduled processor`);
+        }
+    } catch (error) {
+        console.error(`❌ Error queueing transaction for retry: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}

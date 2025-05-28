@@ -97,9 +97,30 @@ const requiredEnvVars = [
     'MPESA_DEV_SHORTCODE',
     'MPESA_DEV_B2C_SHORTCODE',
     'MPESA_DEV_PASSKEY',
+    'MPESA_PROD_CONSUMER_KEY',
+    'MPESA_PROD_CONSUMER_SECRET',
+    'MPESA_PROD_SHORTCODE',
+    'MPESA_PROD_PASSKEY',
     'DEV_PLATFORM_WALLET_PRIVATE_KEY',
     'DEV_PLATFORM_WALLET_ADDRESS'
 ];
+
+// Check if we're in production mode to enforce production credentials
+if (process.env.NODE_ENV === 'production') {
+    const prodRequiredVars = [
+        'MPESA_PROD_CONSUMER_KEY',
+        'MPESA_PROD_CONSUMER_SECRET',
+        'MPESA_PROD_SHORTCODE',
+        'MPESA_PROD_PASSKEY',
+    ];
+    
+    prodRequiredVars.forEach(varName => {
+        if (!process.env[varName]) {
+            console.error(`${varName} is not defined in environment variables but required for production`);
+            process.exit(1);
+        }
+    });
+}
 
 requiredEnvVars.forEach(varName => {
     if (!process.env[varName]) {
@@ -121,12 +142,16 @@ let config: Record<string, any> = {
         MPESA_SHORTCODE: process.env.MPESA_DEV_SHORTCODE,
         MPESA_B2C_SHORTCODE: process.env.MPESA_DEV_B2C_SHORTCODE,
         MPESA_PASSKEY: process.env.MPESA_DEV_PASSKEY,
-        MPESA_BASEURL: 'https://sandbox.safaricom.co.ke',
+        MPESA_BASEURL: 'https://api.safaricom.co.ke',
+        MPESA_STK_QUERY_URL: 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query',
         MPESA_REQUEST_TIMEOUT: 30000,
-        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://1234567890ab.ngrok-free.app",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_STK_CALLBACK_URL || "https://your-ngrok-url.ngrok-free.app/api/mpesa/stk-push/result",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://your-ngrok-url.ngrok-free.app/api/mpesa/b2c/result",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://your-ngrok-url.ngrok-free.app/api/mpesa/queue",
+        // For local testing without callbacks, use localhost
+        // For testing with real callbacks, use ngrok and ensure the tunnel is running
+        // To start ngrok: ngrok http 8000
+        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://304d-41-90-185-42.ngrok-free.app",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://304d-41-90-185-42.ngrok-free.app/hooks/mpesa",
+        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/b2c-callback",
+        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/queue-timeout",
         MPESA_INITIATOR_NAME: process.env.MPESA_DEV_INITIATOR_NAME,
         MPESA_SECURITY_CREDENTIAL: process.env.MPESA_DEV_SECURITY_CREDENTIAL,
         // Chain Explorer API Keys
@@ -208,7 +233,7 @@ let config: Record<string, any> = {
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,
         EMAIL_APP_PASSWORD: process.env.EMAIL_APP_PASSWORD,
-        REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
+        REDIS_URL: process.env.REDIS_URL,
     },
     production: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -221,11 +246,15 @@ let config: Record<string, any> = {
         MPESA_B2C_SHORTCODE: process.env.MPESA_PROD_B2C_SHORTCODE,
         MPESA_PASSKEY: process.env.MPESA_PROD_PASSKEY,
         MPESA_BASEURL: 'https://api.safaricom.co.ke',
+        MPESA_STK_QUERY_URL: 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query',
         MPESA_REQUEST_TIMEOUT: 30000,
-        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL,
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_STK_CALLBACK_URL || "https://api.nexuspay.app/api/mpesa/stk-push/result",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://api.nexuspay.app/api/mpesa/b2c/result",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://api.nexuspay.app/api/mpesa/queue",
+        // For local testing without callbacks, use localhost
+        // For testing with real callbacks, use ngrok and ensure the tunnel is running
+        // To start ngrok: ngrok http 8000
+        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://304d-41-90-185-42.ngrok-free.app",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://304d-41-90-185-42.ngrok-free.app/hooks/mpesa",
+        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/b2c-callback",
+        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/queue-timeout",
         MPESA_INITIATOR_NAME: process.env.MPESA_PROD_INITIATOR_NAME,
         MPESA_SECURITY_CREDENTIAL: process.env.MPESA_PROD_SECURITY_CREDENTIAL,
         // Chain Explorer API Keys
@@ -319,8 +348,15 @@ let config: Record<string, any> = {
         MPESA_SHORTCODE: process.env.MPESA_DEV_SHORTCODE,
         MPESA_PASSKEY: process.env.MPESA_DEV_PASSKEY,
         MPESA_BASEURL: 'https://sandbox.safaricom.co.ke',
+        MPESA_STK_QUERY_URL: 'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query',
         MPESA_REQUEST_TIMEOUT: 30000,
-        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL,
+        // For local testing without callbacks, use localhost
+        // For testing with real callbacks, use ngrok and ensure the tunnel is running
+        // To start ngrok: ngrok http 8000
+        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://304d-41-90-185-42.ngrok-free.app",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://304d-41-90-185-42.ngrok-free.app/hooks/mpesa",
+        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/b2c-callback",
+        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/queue-timeout",
         celo: {
             chainId: 44787,
             tokenAddress: "0x3572c9ce620f80032Ee3b101d75300186a0D7787"

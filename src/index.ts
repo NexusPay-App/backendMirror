@@ -24,22 +24,27 @@ const PORT = process.env.PORT || 8000;
 // Security middlewares
 app.use(helmet());
 
-// Define allowed origins
-const allowedOrigins: string[] = ['http://localhost:3000', 'https://nexuspayapp-snowy.vercel.app', 'https://app.nexuspayapp.xyz'];
+// CORS configuration
+const allowedOrigins: string[] = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
+if (allowedOrigins.length === 0) {
+    console.warn('⚠️ No ALLOWED_ORIGINS specified in environment variables. Using default origins.');
+    allowedOrigins.push('https://nexuspayapp-snowy.vercel.app', 'https://app.nexuspayapp.xyz');
+    if (process.env.NODE_ENV === 'development') {
+        allowedOrigins.push('http://localhost:3000');
+    }
+}
 
 // CORS middleware
-const corsOptions: CorsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  optionsSuccessStatus: 200,
-};
-
-app.use(cors(corsOptions));
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
 
 // Body parser middlewares
 app.use(bodyParser.json());
@@ -141,7 +146,7 @@ let server: any = null;
 connect()
   .then(() => {
     server = app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`Server running on port ${PORT}`);
       console.log("Thirdweb client initialized with secret key:", client.secretKey ? "present" : "missing");
       console.log("Africa's Talking initialized:", africastalking.SMS ? "present" : "missing");
       

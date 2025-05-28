@@ -5,7 +5,7 @@ import { sendTokenToUser } from '../services/platformWallet';
 import { TokenSymbol } from '../types/token';
 import mongoose from 'mongoose';
 
-const transactionId = '3c5c18c9-7f26-4a80-aa18-755848e2b54b';
+const transactionId = 'c18fe69c-bdfe-4818-932a-74aa27d7253d';
 
 async function completeTransaction() {
   try {

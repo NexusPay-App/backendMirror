@@ -387,7 +387,8 @@ export async function sendToken(
         const personalAccount = privateKeyToAccount({ client, privateKey: pk });
         const wallet = smartWallet({
             chain,
-            sponsorGas: false,
+            // factoryAddress removed to use default
+            sponsorGas: true, // Enable gas sponsorship
         });
         const smartAccount = await wallet.connect({ client, personalAccount });
         const contract = getContract({
@@ -472,7 +473,7 @@ export async function generateUnifiedWallet(phoneNumber: string): Promise<{ addr
     const wallet = smartWallet({
         chain,
         // factoryAddress removed to use default
-        sponsorGas: false, // Switch to true when paymaster is funded
+        sponsorGas: true, // Enable gas sponsorship
     });
 
     const smartAccount = await wallet.connect({ client, personalAccount: newAccount });
@@ -493,7 +494,7 @@ export async function unifyWallets(pk: string): Promise<string> {
         const wallet = smartWallet({
             chain,
             // factoryAddress removed to use default
-            sponsorGas: false, // Switch to true when paymaster is funded
+            sponsorGas: true, // Enable gas sponsorship
         });
         console.log("Smart wallet initialized with default factory");
 
@@ -529,7 +530,7 @@ export async function migrateFunds(
         const personalAccount = privateKeyToAccount({ client, privateKey: pk });
         const wallet = smartWallet({
             chain,
-            sponsorGas: false, // Switch to true when paymaster is funded
+            sponsorGas: true, // Enable gas sponsorship
         });
 
         const smartAccount = await wallet.connect({ client, personalAccount });

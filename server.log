@@ -9,8 +9,26 @@
 [32m[nodemon] starting `npx ts-node ./src/index.ts`[39m
 Thirdweb client initialized with secret key: present
 Africa's Talking initialized with API key: present
-MongoDB URL: mongodb+srv://productionbranch:JYDbTetcX1sPL4hc@cluster0.y6bk3ba.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+MongoDB URL: undefined
+❌ Error connecting to MongoDB: MongooseError: The `uri` parameter to `openUri()` must be a string, got "undefined". Make sure the first parameter to `mongoose.connect()` or `mongoose.createConnection()` is a string.
+    at NativeConnection.createClient (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/node_modules/mongoose/lib/drivers/node-mongodb-native/connection.js:206:11)
+    at NativeConnection.openUri (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/node_modules/mongoose/lib/connection.js:766:34)
+    at Mongoose.connect (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/node_modules/mongoose/lib/index.js:416:15)
+    at connect (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/src/services/database.ts:27:20)
+    at Object.<anonymous> (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/src/index.ts:141:8)
+    at Module._compile (node:internal/modules/cjs/loader:1469:14)
+    at Module.m._compile (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1548:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/griffinsoduol/Desktop/NEXUSPAYOFFICIAL/GitPush/backendMirror/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1288:32)
+Server running on http://localhost:8000
+Thirdweb client initialized with secret key: present
+Africa's Talking initialized: present
+🕒 Starting schedulers...
+✅ Schedulers started successfully
 ✅ Connected to Redis
+[32m[nodemon] restarting child process[39m
+[32m[nodemon] starting `npx ts-node ./src/index.ts`[39m
 node:events:497
       throw er; // Unhandled 'error' event
       ^

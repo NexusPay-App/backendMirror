@@ -7,6 +7,7 @@ import { createAccount, generateOTP, otpStore, africastalking, SALT_ROUNDS } fro
 import { handleError, standardResponse } from "../services/utils";
 import config from '../config/env';
 import { sendEmail, verifyOTP } from '../services/email';
+import { registerVerifiedSession, invalidateSession } from '../middleware/strictAuthMiddleware';
 
 export const initiateRegisterUser = async (req: Request, res: Response) => {
     const { phoneNumber } = req.body;
@@ -498,23 +499,29 @@ export const verifyLogin = async (req: Request, res: Response) => {
             ));
         }
 
+        // Update last login timestamp
         user.lastLoginAt = new Date();
         await user.save();
 
+        // Generate token for authentication
         const token = jwt.sign(
-            { 
+            {
                 id: user._id,
-                email: user.email,
                 phoneNumber: user.phoneNumber,
-                walletAddress: user.walletAddress 
+                email: user.email,
+                walletAddress: user.walletAddress
             },
-            config.JWT_SECRET!,
-            { expiresIn: '1h' }
+            config.JWT_SECRET,
+            { expiresIn: '24h' }
         );
 
+        // Register this as a verified session
+        registerVerifiedSession(token, user._id.toString());
+
+        // Return user data and token
         return res.json(standardResponse(
-            true,
-            "Login successful!",
+            true, 
+            "Login successful.",
             {
                 token,
                 walletAddress: user.walletAddress,
@@ -523,8 +530,8 @@ export const verifyLogin = async (req: Request, res: Response) => {
             }
         ));
     } catch (error) {
-        console.error('Error in verifyLogin:', error);
-        return handleError(error, res, "Error during login verification");
+        console.error("Error in verifyLogin:", error);
+        return handleError(error, res, "Error verifying login");
     }
 };
 
@@ -655,5 +662,28 @@ export const confirmAccountDeletion = async (req: Request, res: Response) => {
             message: "Error deleting account", 
             error: error.message || String(error)
         });
+    }
+};
+
+export const logout = async (req: Request, res: Response) => {
+    try {
+        // Get token from authorization header
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+        
+        if (token) {
+            // Invalidate the session
+            invalidateSession(token);
+            
+            console.log(`User ${req.user?._id || 'unknown'} logged out successfully`);
+        }
+        
+        return res.json(standardResponse(
+            true, 
+            "Logged out successfully."
+        ));
+    } catch (error) {
+        console.error("Error in logout:", error);
+        return handleError(error, res, "Error during logout");
     }
 };
