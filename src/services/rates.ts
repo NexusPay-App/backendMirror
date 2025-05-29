@@ -122,13 +122,13 @@ async function fetchCryptoToKESPrice(tokenType: string = 'USDC'): Promise<number
         
         // Try CoinGecko API first
         try {
-            const apiEndpoint = `https://api.coingecko.com/api/v3/simple/price?ids=${cmcSymbol}&vs_currencies=kes`;
-            const response = await fetch(apiEndpoint);
-            
+        const apiEndpoint = `https://api.coingecko.com/api/v3/simple/price?ids=${cmcSymbol}&vs_currencies=kes`;
+        const response = await fetch(apiEndpoint);
+        
             if (response.status === 200) {
-                const data = await response.json();
+        const data = await response.json();
                 if (data[cmcSymbol]?.kes) {
-                    return data[cmcSymbol].kes;
+        return data[cmcSymbol].kes;
                 }
             }
             throw new Error(`Failed to fetch ${tokenType} to KES price from CoinGecko`);
@@ -137,20 +137,20 @@ async function fetchCryptoToKESPrice(tokenType: string = 'USDC'): Promise<number
             
             // Only try CoinMarketCap if we have an API key
             if (apiKey) {
-                const fallbackEndpoint = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${tokenType}&convert=KES`;
-                
+            const fallbackEndpoint = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${tokenType}&convert=KES`;
+            
                 const response = await fetch(fallbackEndpoint, {
                     method: 'GET',
-                    headers: {
-                        'X-CMC_PRO_API_KEY': apiKey
-                    }
-                });
-                
+                headers: {
+                    'X-CMC_PRO_API_KEY': apiKey
+                }
+            });
+            
                 if (response.ok) {
                     const data = await response.json();
                     if (data.data?.[tokenType]?.quote?.['KES']?.price) {
                         return data.data[tokenType].quote['KES'].price;
-                    }
+            }
                 }
                 throw new Error(`Failed to fetch ${tokenType} to KES price from CoinMarketCap`);
             }

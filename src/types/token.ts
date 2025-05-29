@@ -20,12 +20,19 @@ export type TokenTransferEvent = {
     confirmations: string;
 }
 
-export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'fuse' | 'aurora' | 'lisk';
+export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'lisk';
 
-export type TokenSymbol = 'USDC' | 'USDT' | 'DAI' | 'CKES' | 'BNB' | 'WBTC' | 'WETH' | 'MATIC' | 'ARB' | 'TRX' | 'SOL' | 'OP';
+export type TokenSymbol = 'USDC' | 'USDT' | 'DAI' | 'CKES' | 'BNB' | 'WBTC' | 'WETH' | 'MATIC' | 'ARB' | 'TRX' | 'SOL' | 'OP' | 'cUSD';
 
 export interface TokenConfig {
-    symbol: TokenSymbol;
+    address: `0x${string}`;
     decimals: number;
-    address: string;
+    symbol: TokenSymbol;
+    name: string;
+}
+
+export interface TokenBalance {
+    symbol: TokenSymbol;
+    balance: number;
+    usdValue: number;
 }

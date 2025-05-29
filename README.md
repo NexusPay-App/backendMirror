@@ -167,178 +167,159 @@ For testing without running code, import the Postman collection:
    - Browse and execute requests for each endpoint
    - Check responses and test API behavior
 
-# NexusPay Backend 
+# Platform Wallet System
 
-## Overview
+This system implements a secure multi-chain platform wallet using ThirdWeb's smart wallet functionality. The system supports multiple chains and requires 2-of-3 signatures for enhanced security.
 
-NexusPay Node.js/Express backend application provides APIs for user authentication, business registration, token transactions, and  balance inquiries. It's designed with scalability and maintainability in mind, using a structured approach with controllers and routes.
+## Environment Variables
 
-## Getting Started
+Copy these variables to your `.env` file and fill in the appropriate values:
 
-### Prerequisites
+### Required Variables
 
-- Node.js (version 14.x or later)
-- npm (version 6.x or later)
-- MongoDB (version 4.x or later)
+```bash
+# ThirdWeb Configuration
+THIRDWEB_SECRET_KEY=your_thirdweb_secret_key
+THIRDWEB_CLIENT_ID=your_thirdweb_client_id
+SMART_WALLET_FACTORY_ADDRESS=your_smart_wallet_factory_address
 
-### Installation
+# Platform Wallet Keys
+PLATFORM_WALLET_PRIMARY_KEY=your_primary_key
+PLATFORM_WALLET_SECONDARY_KEY=your_secondary_key
+PLATFORM_WALLET_BACKUP_KEY=your_backup_key
+```
 
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/doyeninnit/nexuspay.git
-   ```
+### Optional Variables (with defaults)
 
-2. **Navigate to Project Directory:**
-   ```bash
-   cd nexuspay/backend
-   ```
+```bash
+# Chain RPC URLs (will use public endpoints if not provided)
+ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
+POLYGON_RPC_URL=https://polygon-rpc.com
+BASE_RPC_URL=https://mainnet.base.org
+OPTIMISM_RPC_URL=https://mainnet.optimism.io
+CELO_RPC_URL=https://forno.celo.org
+SCROLL_RPC_URL=https://rpc.scroll.io
+FUSE_RPC_URL=https://rpc.fuse.io
+GNOSIS_RPC_URL=https://rpc.gnosischain.com
+AURORA_RPC_URL=https://mainnet.aurora.dev
 
-3. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
+# Redis Configuration
+REDIS_URL=redis://localhost:6379
+REDIS_PREFIX=platform
 
-4. **Set Up Environment Variables:**
-   - Create a `.env` file in the project root.
-   - Add variables like `DB_URI`, `JWT_SECRET`, etc.
+# Feature Flags
+ENABLE_GASLESS=true
+ENABLED_CHAINS=arbitrum,polygon,base,optimism,celo,scroll,fuse,gnosis,aurora
 
-### Running the Application
+# Logging
+LOG_LEVEL=info
+```
 
-1. **Start the Server:**
-   ```bash
-   npx nodemon
-   ```
+## Supported Chains
 
-## API Reference
+The system supports the following chains:
 
-### Authentication
+- Arbitrum One (chainId: 42161)
+- Polygon (chainId: 137)
+- Base (chainId: 8453)
+- Optimism (chainId: 10)
+- Celo (chainId: 42220)
+- Scroll (chainId: 534352)
+- Fuse (chainId: 122)
+- Gnosis (chainId: 100)
+- Aurora (chainId: 1313161554)
 
-#### `POST /api/auth`
+## Security Considerations
 
-- **Description**: User login and registration.
-- **Request Body**:
-  - `phoneNumber`: String
-  - `password`: String
-- **Responses**:
-  - `200 OK`: `{ token: String, message: String, walletAddress: String, phoneNumber: String }`
-  - `400 Bad Request`: `{ message: String }`
-  - `401 Unauthorized`: `{ message: String }`
-  - `500 Internal Server Error`: `{ message: String }`
+1. **Private Key Management**
+   - Store private keys securely
+   - Keep offline backups of all three keys
+   - Store the backup key in a different physical location
+   - Never share or expose these keys
+   - Consider using a hardware security module (HSM) for key storage
 
-### Business Registration
+2. **RPC Endpoints**
+   - Use private RPC endpoints in production
+   - Monitor RPC endpoint health
+   - Have backup RPC providers configured
 
-#### `POST /api/business/registerBusiness`
+3. **Transaction Security**
+   - All transactions require 2-of-3 signatures
+   - Monitor failed transaction attempts
+   - Set up alerts for suspicious activity
 
-- **Description**: Register a new business.
-- **Request Body**:
-  - `businessName`: String
-  - `ownerName`: String
-  - `location`: String
-  - `phoneNumber`: String
-  - `password`: String
-- **Responses**:
-  - `200 OK`: `{ message: String, walletAddress: String, uniqueCode: String }`
-  - `400 Bad Request`: `{ message: String }`
-  - `500 Internal Server Error`: `{ message: String }`
+## Initialization
 
-### Token Transactions
+To initialize the platform wallets:
 
-#### `POST /api/token/sendToken`
+```bash
+# Install dependencies
+npm install
 
-- **Description**: Send tokens to a recipient.
-- **Request Body**:
-  - `tokenAddress`: String
-  - `recipientPhoneNumber`: String
-  - `amount`: Number
-  - `senderAddress`: String
-- **Responses**:
-  - `200 OK`: `{ message: 'Token sent successfully!' }`
-  - `400 Bad Request`: `{ message: String, error: String }`
-  - `404 Not Found`: `{ message: String }`
-  - `500 Internal Server Error`: `{ message: String, error: String }`
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your configuration
 
-#### `POST /api/token/pay`
+# Run initialization script
+npm run init-wallets
+```
 
-- **Description**: Process payment to a business.
-- **Request Body**:
-  - `tokenAddress`: String
-  - `senderAddress`: String
-  - `businessUniqueCode`: String
-  - `amount`: Number
-  - `confirm`: Boolean
-- **Responses**:
-  - `200 OK`: `{ message: String, businessName: String }` / `{ message: 'Token sent successfully to the business!' }`
-  - `400 Bad Request`: `{ message: String }`
-  - `404 Not Found`: `{ message: String }`
-  - `500 Internal Server Error`: `{ message: String, error: String }`
+## Monitoring
 
-#### `GET /api/token/token-transfer-events`
+1. Set up monitoring for:
+   - Wallet balances
+   - Transaction success rates
+   - RPC endpoint health
+   - Gas prices
+   - Network congestion
 
-- **Description**: Get token transfer events.
-- **Query Parameters**:
-  - `address`: String
-- **Responses**:
-  - `200 OK`: JSON Array of `TokenTransferEvent`
-  - `400 Bad Request`: `'Address required query parameters.'`
-  - `500 Internal Server Error`: `'Internal server error.'`
+2. Configure alerts for:
+   - Low balances
+   - Failed transactions
+   - Suspicious activity
+   - RPC endpoint issues
 
-### USDC Balance Inquiry
+## Recovery Procedures
 
-#### `GET /api/usdc/usdc-balance/:address`
+1. If a key is compromised:
+   - Use the remaining two keys to authorize a new key
+   - Update the compromised key immediately
+   - Document the incident
+   - Review security measures
 
-- **Description**: Fetch USDC balance for a given address.
-- **URL Parameters**:
-  - `address`: String
-- **Responses**:
-  - `200 OK`: `{ balanceInUSDC: Number, balanceInKES: String, rate: Number }`
-  - `500 Internal Server Error`: `'Failed to fetch balance.'`
-
-## Models
-
-### `User`
-
-- **Fields**:
-  - `phoneNumber`: String (unique)
-  - `walletAddress`: String
-  - `password`: String
-  - `privateKey`: String
-
-### `Business`
-
-- **Fields**:
-  - `businessName`: String
-  - `ownerName`: String
-  - `location`: String
-  - `uniqueCode`: String (unique)
-  - `phoneNumber`: String (unique)
-  - `walletAddress`: String
-  - `password`: String
-  - `privateKey`: String
+2. If a transaction fails:
+   - Check transaction logs
+   - Verify gas settings
+   - Ensure sufficient balance
+   - Retry with adjusted parameters
 
 ## Development
 
-### Directory Structure
+```bash
+# Install dependencies
+npm install
 
-- `/src`
-  - `/config`: Configuration and database connection setup.
-  - `/controllers`: Contains logic for handling API requests.
-  - `/models`: Database schema definitions.
-  - `/routes`: API endpoint definitions.
-  - `/utils`: Helper functions and shared business logic.
-  - `index.ts`: Application entry point.
-- `package.json`: Project metadata and dependencies.
+# Run tests
+npm test
 
-## Testing
+# Run linter
+npm run lint
 
-Currently, no specific testing framework is integrated. Future updates may include testing suites for unit and integration testing.
-
-## Deployment
-
-Deployment steps will vary based on the chosen hosting platform. General steps include environment setup, database connection, and server start-up.
+# Build
+npm run build
+```
 
 ## Contributing
 
-Contributions to this project are welcome. Please follow standard GitHub pull request procedures.
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 
 

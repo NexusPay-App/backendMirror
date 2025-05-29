@@ -9,7 +9,15 @@
     "test:admin": "npm run build && node dist/scripts/testAdminAPI.js",
     "test:admin:users": "npm run build && node dist/scripts/testAdminAPI.js -e users",
     "test:admin:transactions": "npm run build && node dist/scripts/testAdminAPI.js -e transactions",
-    "test:admin:wallets": "npm run build && node dist/scripts/testAdminAPI.js -e wallets"
+    "test:admin:wallets": "npm run build && node dist/scripts/testAdminAPI.js -e wallets",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "init-wallets": "ts-node src/scripts/initializeWallets.ts",
+    "check-balances": "ts-node src/scripts/checkBalances.ts",
+    "monitor": "ts-node src/scripts/monitor.ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepare": "husky install"
   },
   "keywords": [],
   "author": "",
@@ -28,7 +36,14 @@
     "husky": "^9.1.7",
     "nodemon": "^2.0.22",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "@types/jest": "^29.5.11",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2",
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.0",
+    "ts-jest": "^29.1.1"
   },
   "dependencies": {
     "@biconomy/account": "^3.1.1-alpha.0",
@@ -67,6 +82,14 @@
     "pino": "^9.7.0",
     "pino-pretty": "^13.0.0",
     "redis": "^5.1.0",
-    "thirdweb": "^5.20.0"
+    "thirdweb": "^5.20.0",
+    "viem": "^1.19.11"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/doyeninnit/nexuspay.git"
   }
 }

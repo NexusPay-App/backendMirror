@@ -1270,8 +1270,8 @@ async function processSTKCallback(callbackData: any) {
                     // This improves response time and allows for parallel processing
                     const txId = await queueTransaction(
                         user.walletAddress,
-                        cryptoAmount,
-                        chain,
+                            cryptoAmount,
+                            chain,
                         tokenType as TokenSymbol,
                         'high', // Priority level for faster processing
                         escrow._id.toString(), // Pass escrow ID to prevent duplicates
