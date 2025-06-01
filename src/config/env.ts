@@ -230,10 +230,21 @@ let config: Record<string, any> = {
         },
         PLATFORM_WALLET_PRIVATE_KEY: process.env.DEV_PLATFORM_WALLET_PRIVATE_KEY,
         PLATFORM_WALLET_ADDRESS: process.env.DEV_PLATFORM_WALLET_ADDRESS,
+        SMART_WALLET_FACTORY_ADDRESS: process.env.SMART_WALLET_FACTORY_ADDRESS,
+        // Blockchain Explorer API Keys (for transaction verification and data fetching)
+        ARBITRUM_EXPLORER_API_KEY: process.env.ARBITRUM_API_KEY, // For Arbiscan.io API
+        POLYGON_EXPLORER_API_KEY: process.env.POLYGON_API_KEY, // For Polygonscan.com API
+        OPTIMISM_EXPLORER_API_KEY: process.env.OPTIMISM_API_KEY, // For Optimistic.etherscan.io API
+        BASE_EXPLORER_API_KEY: process.env.BASE_API_KEY, // For Basescan.org API
+        CELO_EXPLORER_API_KEY: process.env.CELO_API_KEY, // For Celoscan.io API
+        FUSE_EXPLORER_API_KEY: process.env.FUSE_API_KEY, // For Explorer.fuse.io API
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,
         EMAIL_APP_PASSWORD: process.env.EMAIL_APP_PASSWORD,
         REDIS_URL: process.env.REDIS_URL,
+        // Additional API Keys for secure operation
+        COINMARKETCAP_API_KEY: process.env.COINMARKETCAP_API_KEY,
+        ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
     },
     production: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -333,10 +344,21 @@ let config: Record<string, any> = {
         },
         PLATFORM_WALLET_PRIVATE_KEY: process.env.PROD_PLATFORM_WALLET_PRIVATE_KEY,
         PLATFORM_WALLET_ADDRESS: process.env.PROD_PLATFORM_WALLET_ADDRESS,
+        SMART_WALLET_FACTORY_ADDRESS: process.env.SMART_WALLET_FACTORY_ADDRESS,
+        // Blockchain Explorer API Keys (for transaction verification and data fetching)
+        ARBITRUM_EXPLORER_API_KEY: process.env.ARBITRUM_API_KEY, // For Arbiscan.io API
+        POLYGON_EXPLORER_API_KEY: process.env.POLYGON_API_KEY, // For Polygonscan.com API
+        OPTIMISM_EXPLORER_API_KEY: process.env.OPTIMISM_API_KEY, // For Optimistic.etherscan.io API
+        BASE_EXPLORER_API_KEY: process.env.BASE_API_KEY, // For Basescan.org API
+        CELO_EXPLORER_API_KEY: process.env.CELO_API_KEY, // For Celoscan.io API
+        FUSE_EXPLORER_API_KEY: process.env.FUSE_API_KEY, // For Explorer.fuse.io API
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,
         EMAIL_APP_PASSWORD: process.env.EMAIL_APP_PASSWORD,
         REDIS_URL: process.env.REDIS_URL,
+        // Additional API Keys for secure operation
+        COINMARKETCAP_API_KEY: process.env.COINMARKETCAP_API_KEY,
+        ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
     },
     test: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -419,10 +441,21 @@ let config: Record<string, any> = {
         },
         PLATFORM_WALLET_PRIVATE_KEY: process.env.DEV_PLATFORM_WALLET_PRIVATE_KEY,
         PLATFORM_WALLET_ADDRESS: process.env.DEV_PLATFORM_WALLET_ADDRESS,
+        SMART_WALLET_FACTORY_ADDRESS: process.env.SMART_WALLET_FACTORY_ADDRESS,
+        // Blockchain Explorer API Keys (for transaction verification and data fetching)
+        ARBITRUM_EXPLORER_API_KEY: process.env.ARBITRUM_API_KEY, // For Arbiscan.io API
+        POLYGON_EXPLORER_API_KEY: process.env.POLYGON_API_KEY, // For Polygonscan.com API
+        OPTIMISM_EXPLORER_API_KEY: process.env.OPTIMISM_API_KEY, // For Optimistic.etherscan.io API
+        BASE_EXPLORER_API_KEY: process.env.BASE_API_KEY, // For Basescan.org API
+        CELO_EXPLORER_API_KEY: process.env.CELO_API_KEY, // For Celoscan.io API
+        FUSE_EXPLORER_API_KEY: process.env.FUSE_API_KEY, // For Explorer.fuse.io API
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,
         EMAIL_APP_PASSWORD: process.env.EMAIL_APP_PASSWORD,
         REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
+        // Additional API Keys for secure operation
+        COINMARKETCAP_API_KEY: process.env.COINMARKETCAP_API_KEY,
+        ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
     }
 };
 

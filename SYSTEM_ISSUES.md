@@ -10,7 +10,7 @@
 
 2. **Arbitrum USDC Token Transfer Failures**:
    - When trying to transfer USDC on Arbitrum after a successful M-Pesa payment, we encounter: "ERC20: transfer amount exceeds balance".
-   - The platform wallet (0x182d87B8cb79D792d8E9bd9227cA645CA9F9263e) shows a balance of 9.83 USDC on Arbitrum.
+   - The platform wallet (0x2b0B97EA7922E9CF5ef689A211F75B1E67A261Bf) shows a balance of 6.43 USDC on Arbitrum.
    - However, attempts to transfer even a small amount (0.001 USDC) fail with balance errors.
 
 ### Likely Causes:

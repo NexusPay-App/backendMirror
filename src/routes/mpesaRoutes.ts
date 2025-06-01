@@ -31,7 +31,9 @@ import {
     getTransactionStatus,
     getPlatformWalletStatus,
     withdrawFeesToMainWallet,
-    stkPushCallback
+    stkPushCallback,
+    submitMpesaReceiptManually,
+    getTransactionsRequiringIntervention
 } from '../controllers/mpesaController';
 import { validate } from '../middleware/validation';
 import { 
@@ -39,7 +41,8 @@ import {
     withdrawValidation,
     paybillValidation,
     tillValidation,
-    buyCryptoValidation
+    buyCryptoValidation,
+    manualReceiptValidation
 } from '../middleware/validators/mpesaValidators';
 import { authenticateToken } from '../middleware/authMiddleware';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
@@ -60,6 +63,10 @@ router.post('/pay/paybill', enforceStrictAuth, validate(paybillValidation), payT
 router.post('/pay/till', enforceStrictAuth, validate(tillValidation), payToTill);
 router.post('/buy-crypto', enforceStrictAuth, validate(buyCryptoValidation), buyCrypto);
 router.get('/transaction/:transactionId', enforceStrictAuth, getTransactionStatus);
+
+// Manual intervention routes (for failed automatic processing)
+router.post('/submit-receipt', enforceStrictAuth, validate(manualReceiptValidation), submitMpesaReceiptManually);
+router.get('/pending-interventions', enforceStrictAuth, getTransactionsRequiringIntervention);
 
 // Admin routes (requires admin role)
 router.get('/platform-wallet', enforceStrictAuth, isAdmin, getPlatformWalletStatus);

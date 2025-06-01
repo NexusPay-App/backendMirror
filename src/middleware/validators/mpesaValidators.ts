@@ -162,4 +162,29 @@ export const buyCryptoValidation = [
     .withMessage('Token type must be a string')
     .isIn(['USDC', 'USDT', 'BTC', 'ETH'])
     .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH')
+];
+
+/**
+ * Validation rules for manual M-Pesa receipt submission
+ */
+export const manualReceiptValidation = [
+  body('mpesaReceiptNumber')
+    .notEmpty()
+    .withMessage('M-Pesa receipt number is required')
+    .isString()
+    .withMessage('M-Pesa receipt number must be a string')
+    .isLength({ min: 10, max: 10 })
+    .withMessage('M-Pesa receipt number must be exactly 10 characters')
+    .matches(/^[A-Z0-9]{10}$/i)
+    .withMessage('M-Pesa receipt number must contain only letters and numbers')
+    .customSanitizer((value) => {
+      // Convert to uppercase for consistency
+      return value.toUpperCase();
+    }),
+    
+  body('transactionId')
+    .notEmpty()
+    .withMessage('Transaction ID is required')
+    .isUUID()
+    .withMessage('Transaction ID must be a valid UUID')
 ]; 

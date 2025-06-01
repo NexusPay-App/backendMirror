@@ -102,4 +102,5 @@ escrowSchema.index({
   name: 'status_type_created' 
 });
 
-export const Escrow = mongoose.model<IEscrow>('Escrow', escrowSchema);
+// Check if model already exists to prevent OverwriteModelError
+export const Escrow = mongoose.models.Escrow || mongoose.model<IEscrow>('Escrow', escrowSchema);

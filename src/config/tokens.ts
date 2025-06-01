@@ -75,6 +75,12 @@ export const tokenConfigs: TokenConfigurations = {
     },
     lisk: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0x4e05F8C19EaA61520a94850dC41EAc3c39927696', name: 'USD Coin' }
+    },
+    fuse: {
+        USDC: { symbol: 'USDC', decimals: 6, address: '0x620fd5fa44BE6af63715Ef4E65DDFA0387aD13F5', name: 'USD Coin' }
+    },
+    aurora: {
+        USDC: { symbol: 'USDC', decimals: 6, address: '0xB12BFcA5A55806AaF64E99521918A4bf0fC40802', name: 'USD Coin' }
     }
 };
 

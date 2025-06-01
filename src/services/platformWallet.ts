@@ -127,7 +127,7 @@ const TOKEN_CONFIG = {
 } as const;
 
 // Chain configuration from environment variables
-const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
+export const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
   arbitrum: {
     id: 42161,
     name: 'Arbitrum One',
@@ -139,7 +139,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc']
+        http: ['https://arb1.arbitrum.io/rpc']
       }
     },
     blockExplorers: {
@@ -160,7 +160,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com']
+        http: ['https://polygon-rpc.com']
       }
     },
     blockExplorers: {
@@ -181,7 +181,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.BASE_RPC_URL || 'https://mainnet.base.org']
+        http: ['https://mainnet.base.org']
       }
     },
     blockExplorers: {
@@ -202,7 +202,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io']
+        http: ['https://mainnet.optimism.io']
       }
     },
     blockExplorers: {
@@ -223,7 +223,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.CELO_RPC_URL || 'https://forno.celo.org']
+        http: ['https://forno.celo.org']
       }
     },
     blockExplorers: {
@@ -244,7 +244,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.SCROLL_RPC_URL || 'https://rpc.scroll.io']
+        http: ['https://rpc.scroll.io']
       }
     },
     blockExplorers: {
@@ -265,7 +265,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.GNOSIS_RPC_URL || 'https://rpc.gnosischain.com']
+        http: ['https://rpc.gnosischain.com']
       }
     },
     blockExplorers: {
@@ -286,7 +286,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc']
+        http: ['https://api.avax.network/ext/bc/C/rpc']
       }
     },
     blockExplorers: {
@@ -307,7 +307,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org']
+        http: ['https://bsc-dataseed.binance.org']
       }
     },
     blockExplorers: {
@@ -328,7 +328,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.FANTOM_RPC_URL || 'https://rpc.ftm.tools']
+        http: ['https://rpc.ftm.tools']
       }
     },
     blockExplorers: {
@@ -349,7 +349,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.SOMNIA_RPC_URL || 'https://rpc.somnia.network']
+        http: ['https://rpc.somnia.network']
       }
     },
     blockExplorers: {
@@ -370,7 +370,7 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.MOONBEAM_RPC_URL || 'https://rpc.api.moonbeam.network']
+        http: ['https://rpc.api.moonbeam.network']
       }
     },
     blockExplorers: {
@@ -380,24 +380,66 @@ const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
       }
     }
   },
-  lisk: {
-    id: 1,  // Replace with actual chain ID
-    name: 'Lisk',
-    network: 'lisk',
+  fuse: {
+    id: 122,
+    name: 'Fuse',
+    network: 'fuse',
     nativeCurrency: {
-      name: 'LSK',
-      symbol: 'LSK',
-      decimals: 8
+      name: 'FUSE',
+      symbol: 'FUSE',
+      decimals: 18
     },
     rpcUrls: {
       default: {
-        http: [process.env.LISK_RPC_URL || 'https://mainnet.lisk.com']
+        http: ['https://rpc.fuse.io']
+      }
+    },
+    blockExplorers: {
+      default: {
+        name: 'FuseScan',
+        url: 'https://explorer.fuse.io'
+      }
+    }
+  },
+  aurora: {
+    id: 1313161554,
+    name: 'Aurora',
+    network: 'aurora',
+    nativeCurrency: {
+      name: 'ETH',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://mainnet.aurora.dev']
+      }
+    },
+    blockExplorers: {
+      default: {
+        name: 'AuroraScan',
+        url: 'https://explorer.aurora.dev'
+      }
+    }
+  },
+  lisk: {
+    id: 1135,
+    name: 'Lisk',
+    network: 'lisk',
+    nativeCurrency: {
+      name: 'ETH',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://rpc.api.lisk.com']
       }
     },
     blockExplorers: {
       default: {
         name: 'LiskScan',
-        url: 'https://liskscan.com'
+        url: 'https://blockscout.lisk.com'
       }
     }
   }
@@ -486,7 +528,7 @@ export async function initializePlatformWallets(): Promise<PlatformWallets> {
   // Main wallet is configured in env variables
   // For smart wallets, we need the controlling EOA private key
   const mainWallet = {
-    address: '0x182d87B8cb79D792d8E9bd9227cA645CA9F9263e', // Hardcoded smart wallet address
+    address: '0x2b0B97EA7922E9CF5ef689A211F75B1E67A261Bf', // Correct wallet address with 6.43 USDC funds
     privateKey: process.env.DEV_PLATFORM_WALLET_PRIVATE_KEY || null // The EOA that controls the smart wallet
   };
   
@@ -951,8 +993,8 @@ export async function clearDuplicateTransactions(): Promise<number> {
   }
   
   return clearedCount;
-}
-
+    }
+    
 /**
  * Process the transaction queue with the given priority
  */
@@ -1009,6 +1051,36 @@ async function processBatch(transactions: QueuedTransaction[], queueKey: string)
   for (const tx of transactions) {
     if (tx.isProcessing) {
       continue; // Skip transactions already being processed
+    }
+    
+    // Skip transactions that have exceeded retry attempts
+    if (tx.attempts >= MAX_RETRY_ATTEMPTS) {
+      logger.warn(`Skipping permanently failed transaction ${tx.id} (${tx.attempts} attempts)`);
+      await redis.lrem(queueKey, 1, JSON.stringify({...tx, isProcessing: false}));
+      continue;
+    }
+    
+    // Skip transactions that are too old (older than 24 hours)
+    const ageMs = Date.now() - tx.timestamp;
+    const maxAgeMs = 24 * 60 * 60 * 1000; // 24 hours
+    if (ageMs > maxAgeMs) {
+      logger.warn(`Skipping old transaction ${tx.id} (age: ${Math.round(ageMs / 1000 / 60 / 60)} hours)`);
+      await redis.lrem(queueKey, 1, JSON.stringify({...tx, isProcessing: false}));
+      continue;
+    }
+    
+    // Check if the escrow is already marked as permanently failed
+    if (tx.escrowId) {
+      try {
+        const escrow = await mongoose.model('Escrow').findById(tx.escrowId);
+        if (escrow && (escrow.status === 'failed' || escrow.metadata?.permanentlyFailed)) {
+          logger.warn(`Skipping transaction ${tx.id} - escrow ${tx.escrowId} is permanently failed`);
+          await redis.lrem(queueKey, 1, JSON.stringify({...tx, isProcessing: false}));
+          continue;
+        }
+      } catch (escrowError) {
+        logger.error(`Error checking escrow status for ${tx.id}:`, escrowError);
+      }
     }
     
     // Remove from queue and mark as processing
@@ -1267,7 +1339,7 @@ async function processIndividualTransactions(
         if (error instanceof Error) {
           errorMessage = error.message;
           detailedError = error.message;
-          
+        
           // Log the full error for debugging
           logger.error(`❌ Full error object for transaction ${tx.id}:`, {
             message: error.message,
@@ -1404,6 +1476,37 @@ export async function processScheduledRetries(): Promise<void> {
       try {
         const tx = JSON.parse(item) as QueuedTransaction;
         
+        // Check if this transaction has already failed permanently
+        if (tx.attempts >= MAX_RETRY_ATTEMPTS) {
+          logger.warn(`Skipping permanently failed transaction ${tx.id} (${tx.attempts} attempts)`);
+          // Remove from retry schedule but don't re-queue
+          await redis.zrem('tx_retry_schedule', item);
+          continue;
+        }
+        
+        // Check if transaction is too old (older than 24 hours)
+        const ageMs = now - tx.timestamp;
+        const maxAgeMs = 24 * 60 * 60 * 1000; // 24 hours
+        if (ageMs > maxAgeMs) {
+          logger.warn(`Skipping old transaction ${tx.id} (age: ${Math.round(ageMs / 1000 / 60 / 60)} hours)`);
+          await redis.zrem('tx_retry_schedule', item);
+          continue;
+        }
+        
+        // Check if the escrow is already marked as permanently failed
+        if (tx.escrowId) {
+          try {
+            const escrow = await mongoose.model('Escrow').findById(tx.escrowId);
+            if (escrow && (escrow.status === 'failed' || escrow.metadata?.permanentlyFailed)) {
+              logger.warn(`Skipping transaction ${tx.id} - escrow ${tx.escrowId} is permanently failed`);
+              await redis.zrem('tx_retry_schedule', item);
+              continue;
+            }
+          } catch (escrowError) {
+            logger.error(`Error checking escrow status for ${tx.id}:`, escrowError);
+          }
+        }
+        
         // Determine which queue to use based on priority
         let queueKey = NORMAL_PRIORITY_QUEUE_KEY;
         if (tx.priority === 'high') queueKey = HIGH_PRIORITY_QUEUE_KEY;
@@ -1419,6 +1522,8 @@ export async function processScheduledRetries(): Promise<void> {
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         logger.error(`Error processing retry item: ${errorMessage}`);
+        // Remove problematic items from retry schedule
+        await redis.zrem('tx_retry_schedule', item);
       }
     }
 
@@ -1855,7 +1960,7 @@ export async function initializePlatformWallet(
     // Initialize smart wallet with first owner as primary
     const wallet = smartWallet({
       chain,
-      factoryAddress: process.env.SMART_WALLET_FACTORY_ADDRESS || '',
+      factoryAddress: config.SMART_WALLET_FACTORY_ADDRESS || '',
       gasless: true,
     });
 
@@ -1924,7 +2029,7 @@ export async function sendFromPlatformWallet(
     // Initialize smart wallet with primary account
     const wallet = smartWallet({
       chain,
-      factoryAddress: process.env.SMART_WALLET_FACTORY_ADDRESS || '',
+      factoryAddress: config.SMART_WALLET_FACTORY_ADDRESS || '',
       gasless: true,
     });
 
@@ -2001,51 +2106,107 @@ export async function getPlatformWalletBalance(
   tokenSymbol: TokenSymbol = 'USDC'
 ): Promise<number> {
   try {
-    // Get wallet address from cache
-    const walletAddress = await redis.get(PLATFORM_WALLETS_CACHE_KEY);
-    if (!walletAddress) {
-      throw new Error('Platform wallet not initialized');
-    }
+    // Get platform wallets (this returns the full object with main and fees wallets)
+    const platformWallets = await initializePlatformWallets();
+    const walletAddress = platformWallets.main.address;
+
+    logger.info(`Getting balance for platform wallet: ${walletAddress}`);
+    logger.info(`Chain: ${chainName}, Token: ${tokenSymbol}`);
 
     // Check cache first
-    const cacheKey = `${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${walletAddress}`;
+    const cacheKey = `${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${walletAddress}:${tokenSymbol}`;
     const cachedBalance = await redis.get(cacheKey);
     if (cachedBalance) {
+      logger.info(`Using cached balance: ${cachedBalance} ${tokenSymbol}`);
       return Number(cachedBalance);
     }
 
-    // Get chain and token configuration
-    const chainConfig = config[chainName];
-    const tokenConfig = getTokenConfig(chainName as Chain, tokenSymbol);
-    if (!chainConfig || !tokenConfig) {
-      throw new Error(`Invalid configuration for ${chainName} or ${tokenSymbol}`);
+    // Get chain configuration
+    const chainConfig = SUPPORTED_CHAINS[chainName as keyof typeof SUPPORTED_CHAINS];
+    if (!chainConfig) {
+      throw new Error(`Chain ${chainName} not supported`);
     }
 
-    const chain = defineChain(chainConfig.chainId);
+    // Get token configuration
+    const tokenConfig = getTokenConfig(chainName as Chain, tokenSymbol);
+    if (!tokenConfig) {
+      throw new Error(`Token ${tokenSymbol} not supported on chain ${chainName}`);
+    }
 
-    // Get token contract
-    const tokenContract = getContract({
-      client,
-      chain,
-      address: tokenConfig.address,
-    });
+    logger.info(`Using token config: ${tokenConfig.address} (${tokenConfig.decimals} decimals)`);
 
-    // Get balance
-    const rawBalance = await balanceOf({
-      contract: tokenContract,
-      address: walletAddress,
-    });
+    // Method 1: Try ThirdWeb approach (current)
+    try {
+      const chain = defineChain(chainConfig.id);
 
-    // Convert to human readable format
-    const decimals = tokenConfig.decimals || 18;
-    const balance = Number(rawBalance) / Math.pow(10, decimals);
+      // Get token contract
+      const tokenContract = getContract({
+        client,
+        chain,
+        address: tokenConfig.address,
+      });
 
-    // Cache the balance for 2 minutes
-    await redis.set(cacheKey, balance.toString(), 'EX', 120);
+      // Get balance
+      const rawBalance = await balanceOf({
+        contract: tokenContract,
+        address: walletAddress,
+      });
 
-    return balance;
-  } catch (error) {
-    logger.error('Error getting platform wallet balance:', error);
+      // Convert to human readable format
+      const decimals = tokenConfig.decimals || 18;
+      const balance = Number(rawBalance) / Math.pow(10, decimals);
+
+      logger.info(`ThirdWeb method - Raw balance: ${rawBalance.toString()}, Human readable: ${balance} ${tokenSymbol}`);
+
+      // Cache the balance for 2 minutes
+      await redis.set(cacheKey, balance.toString(), 'EX', 120);
+
+      return balance;
+    } catch (thirdwebError: unknown) {
+      const errorMessage = thirdwebError instanceof Error ? thirdwebError.message : 'Unknown ThirdWeb error';
+      logger.warn(`ThirdWeb method failed, trying ethers.js fallback: ${errorMessage}`);
+      
+      // Method 2: Fallback to ethers.js approach (like in scripts)
+      try {
+        const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrls.default.http[0]);
+        
+        const ERC20_ABI = [
+          'function balanceOf(address owner) view returns (uint256)',
+          'function decimals() view returns (uint8)',
+          'function symbol() view returns (string)'
+        ];
+        
+        // Create contract instance
+        const tokenContract = new ethers.Contract(tokenConfig.address, ERC20_ABI, provider);
+        
+        // Get balance and decimals
+        const [balance, decimals] = await Promise.all([
+          tokenContract.balanceOf(walletAddress),
+          tokenContract.decimals()
+        ]);
+        
+        // Convert to human-readable format
+        const humanReadableBalance = Number(ethers.utils.formatUnits(balance, decimals));
+        
+        logger.info(`Ethers.js method - Raw balance: ${balance.toString()}, Human readable: ${humanReadableBalance} ${tokenSymbol}`);
+        
+        // Cache the balance for 2 minutes
+        await redis.set(cacheKey, humanReadableBalance.toString(), 'EX', 120);
+        
+        return humanReadableBalance;
+      } catch (ethersError: unknown) {
+        const thirdwebMsg = thirdwebError instanceof Error ? thirdwebError.message : 'Unknown ThirdWeb error';
+        const ethersMsg = ethersError instanceof Error ? ethersError.message : 'Unknown Ethers error';
+        
+        logger.error(`Both ThirdWeb and ethers.js methods failed for balance check`);
+        logger.error(`ThirdWeb error: ${thirdwebMsg}`);
+        logger.error(`Ethers.js error: ${ethersMsg}`);
+        throw new Error(`Failed to get balance using both methods. ThirdWeb: ${thirdwebMsg}, Ethers: ${ethersMsg}`);
+      }
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error getting platform wallet balance:', errorMessage);
     throw error;
   }
 }
@@ -2080,7 +2241,7 @@ export async function recoverPlatformWallet(
     // Initialize smart wallet
     const wallet = smartWallet({
       chain,
-      factoryAddress: process.env.SMART_WALLET_FACTORY_ADDRESS || '',
+      factoryAddress: config.SMART_WALLET_FACTORY_ADDRESS || '',
       gasless: true,
     });
 
@@ -2159,7 +2320,7 @@ export async function initializeMultiChainWallet(
         // Initialize smart wallet with first owner as primary
         const wallet = smartWallet({
           chain,
-          factoryAddress: process.env.SMART_WALLET_FACTORY_ADDRESS || '',
+          factoryAddress: config.SMART_WALLET_FACTORY_ADDRESS || '',
           gasless: process.env.ENABLE_GASLESS === 'true',
         });
 
@@ -2224,4 +2385,62 @@ async function updateSmartWalletOwner(
   } else {
     throw new Error('Smart wallet does not support owner updates');
   }
-} 
+}
+
+/**
+ * Clear platform wallet cache to force refresh
+ */
+export async function clearPlatformWalletCache(): Promise<void> {
+  try {
+    await redis.del(PLATFORM_WALLETS_CACHE_KEY);
+    console.log('✅ Platform wallet cache cleared');
+  } catch (error) {
+    console.error('❌ Error clearing platform wallet cache:', error);
+  }
+}
+
+/**
+ * Get the blockchain explorer API key for a specific chain
+ */
+function getExplorerApiKey(chainName: string): string | undefined {
+  switch (chainName) {
+    case 'arbitrum':
+      return config.ARBITRUM_EXPLORER_API_KEY;
+    case 'polygon':
+      return config.POLYGON_EXPLORER_API_KEY;
+    case 'optimism':
+      return config.OPTIMISM_EXPLORER_API_KEY;
+    case 'base':
+      return config.BASE_EXPLORER_API_KEY;
+    case 'celo':
+      return config.CELO_EXPLORER_API_KEY;
+    case 'fuse':
+      return config.FUSE_EXPLORER_API_KEY;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Get the explorer API URL for a specific chain
+ */
+function getExplorerApiUrl(chainName: string): string | undefined {
+  switch (chainName) {
+    case 'arbitrum':
+      return 'https://api.arbiscan.io/api';
+    case 'polygon':
+      return 'https://api.polygonscan.com/api';
+    case 'optimism':
+      return 'https://api-optimistic.etherscan.io/api';
+    case 'base':
+      return 'https://api.basescan.org/api';
+    case 'celo':
+      return 'https://api.celoscan.io/api';
+    case 'fuse':
+      return 'https://explorer.fuse.io/api';
+    default:
+      return undefined;
+  }
+}
+
+// Helper function to ensure chain parameter is valid

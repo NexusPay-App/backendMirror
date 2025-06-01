@@ -65,4 +65,5 @@ const verificationSchema: Schema = new Schema({
   },
 });
 
-export const Verification = mongoose.model<IVerification>('Verification', verificationSchema);
+// Check if model already exists to prevent OverwriteModelError
+export const Verification = mongoose.models.Verification || mongoose.model<IVerification>('Verification', verificationSchema);

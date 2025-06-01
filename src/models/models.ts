@@ -121,7 +121,8 @@ const userSchema: Schema = new Schema({
   }
 });
 
-export const User = mongoose.model<IUser>('User', userSchema);
+// Check if model already exists to prevent OverwriteModelError
+export const User = mongoose.models.User || mongoose.model<IUser>('User', userSchema);
 
 
 //################ end new Code for Migrations #####################

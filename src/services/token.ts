@@ -317,9 +317,9 @@ import { Chain, TokenSymbol, TokenTransferEvent } from '../types/token';
 import { client } from './auth';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import { defineChain, getContract, sendTransaction, waitForReceipt, readContract } from "thirdweb";
-import { transfer, approve, allowance } from "thirdweb/extensions/erc20";
+import { transfer, approve, allowance, balanceOf } from "thirdweb/extensions/erc20";
 import config from "../config/env";
-import { keccak256, toHex } from "thirdweb/utils";
+import { keccak256, toHex } from "viem";
 import { getTokenConfig, getTokenAddress, getTokenDecimals } from "../config/tokens";
 
 // Removed explicit FACTORY_ADDRESS; using Thirdweb's default factory
@@ -599,18 +599,18 @@ export async function getAllTokenTransferEvents(chain: Chain, walletAddress: str
         lisk: 'https://api.liskscan.com/api'
     };
     const apiKeys = {
-        arbitrum: '44UDQIEKU98ZQ559DWX4ZUZJC5EBK8XUU4',
-        celo: 'Z349YD6992FHPR3V7SMTS62X1TS52EV5KT',
-        optimism: config.OPTIMISM_API_KEY || '',
-        polygon: config.POLYGON_API_KEY || '',
-        base: config.BASE_API_KEY || '',
+        arbitrum: config.ARBITRUM_EXPLORER_API_KEY || '',
+        celo: config.CELO_EXPLORER_API_KEY || '',
+        optimism: config.OPTIMISM_EXPLORER_API_KEY || '',
+        polygon: config.POLYGON_EXPLORER_API_KEY || '',
+        base: config.BASE_EXPLORER_API_KEY || '',
         avalanche: config.AVALANCHE_API_KEY || '',
         bnb: config.BNB_API_KEY || '',
         scroll: config.SCROLL_API_KEY || '',
         gnosis: config.GNOSIS_API_KEY || '',
         fantom: config.FANTOM_API_KEY || '',
         moonbeam: config.MOONBEAM_API_KEY || '',
-        fuse: config.FUSE_API_KEY || '',
+        fuse: config.FUSE_EXPLORER_API_KEY || '',
         aurora: config.AURORA_API_KEY || '',
         somnia: config.SOMNIA_API_KEY || '',  // Added Somnia API key
         lisk: ''     // Lisk might use a different API structure
@@ -637,7 +637,7 @@ export async function getAllTokenTransferEvents(chain: Chain, walletAddress: str
 
 async function fetchUSDCToKESPrice() {
     const apiEndpoint = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=USDC&convert=KES';
-    const headers = { 'X-CMC_PRO_API_KEY': '7e75c059-0ffc-41ca-ae72-88df27e0f202' };
+    const headers = { 'X-CMC_PRO_API_KEY': config.COINMARKETCAP_API_KEY };
     const response = await fetch(apiEndpoint, { headers });
     if (response.status !== 200) {
         throw new Error(`Failed to fetch USDC to KES price: ${response.status}`);

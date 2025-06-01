@@ -60,4 +60,5 @@ userSchema.index({ phoneNumber: 1 }, { unique: true });
 userSchema.index({ walletAddress: 1 }, { unique: true });
 userSchema.index({ createdAt: 1 });
 
-export const User = mongoose.model<IUser>('User', userSchema); 
+// Check if model already exists to prevent OverwriteModelError
+export const User = mongoose.models.User || mongoose.model<IUser>('User', userSchema); 

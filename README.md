@@ -177,7 +177,7 @@ Copy these variables to your `.env` file and fill in the appropriate values:
 
 ### Required Variables
 
-```bash
+   ```bash
 # ThirdWeb Configuration
 THIRDWEB_SECRET_KEY=your_thirdweb_secret_key
 THIRDWEB_CLIENT_ID=your_thirdweb_client_id
@@ -191,7 +191,7 @@ PLATFORM_WALLET_BACKUP_KEY=your_backup_key
 
 ### Optional Variables (with defaults)
 
-```bash
+   ```bash
 # Chain RPC URLs (will use public endpoints if not provided)
 ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
 POLYGON_RPC_URL=https://polygon-rpc.com
@@ -252,9 +252,9 @@ The system supports the following chains:
 
 To initialize the platform wallets:
 
-```bash
+   ```bash
 # Install dependencies
-npm install
+   npm install
 
 # Set up environment variables
 cp .env.example .env

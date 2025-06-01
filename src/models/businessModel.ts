@@ -95,4 +95,5 @@ const businessSchema: Schema = new Schema({
   },
 });
 
-export const Business = mongoose.model<IBusiness>('Business', businessSchema);
+// Check if model already exists to prevent OverwriteModelError
+export const Business = mongoose.models.Business || mongoose.model<IBusiness>('Business', businessSchema);

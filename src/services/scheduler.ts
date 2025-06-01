@@ -1,4 +1,3 @@
-import { retryAllFailedTransactions } from './mpesaRetry';
 import { 
   processTransactionQueue, 
   scheduleQueueProcessing, 
@@ -65,105 +64,16 @@ export const startSchedulers = async () => {
   intervals.push(recoveryInterval);
   logger.info('Transaction recovery scheduler started (every 5 minutes)');
   
-  // Schedule MPESA retry every 15 minutes
-  const mpesaRetryInterval = setInterval(async () => {
-    try {
-      await retryAllFailedTransactions();
-    } catch (error) {
-      logger.error('Error in MPESA retry scheduler:', error);
-    }
-  }, 15 * 60 * 1000); // 15 minutes
-  intervals.push(mpesaRetryInterval);
-  logger.info('MPESA retry scheduler started (every 15 minutes)');
-  
-  // Schedule metrics collection and monitoring every 5 minutes
-  const metricsInterval = setInterval(async () => {
-    try {
-      // Get transaction metrics for the last hour
-      const hourlyMetrics = await getTransactionMetrics(60 * 60 * 1000); // 1 hour
-      
-      // Log metrics summary
-      logger.info({
-        msg: 'Transaction metrics (1 hour)',
-        ...hourlyMetrics
-      });
-      
-      // Alert on high failure rate
-      if (hourlyMetrics.totalCount > 10 && hourlyMetrics.failureRate > 10) {
-        logger.warn({
-          msg: '⚠️ High transaction failure rate detected',
-          failureRate: hourlyMetrics.failureRate,
-          failureCount: hourlyMetrics.failureCount,
-          totalCount: hourlyMetrics.totalCount
-        });
-      }
-      
-      // Alert on slow transactions
-      if (hourlyMetrics.slowTransactionsRate > 15) {
-        logger.warn({
-          msg: '⚠️ High rate of slow transactions detected',
-          slowRate: hourlyMetrics.slowTransactionsRate,
-          slowCount: hourlyMetrics.slowTransactionsCount,
-          avgTime: hourlyMetrics.avgExecutionTimeMs
-        });
-      }
-      
-      // Monitor queue sizes for each priority
-      try {
-        const [highPriorityCount, normalPriorityCount, lowPriorityCount, legacyCount, retryCount] = await Promise.all([
-          redis.llen('tx_queue:high'),
-          redis.llen('tx_queue:normal'),
-          redis.llen('tx_queue:low'),
-          redis.llen('tx_queue'),
-          redis.zcard('tx_retry_schedule')
-        ]);
-        
-        logger.info({
-          msg: 'Transaction queue status',
-          high: highPriorityCount,
-          normal: normalPriorityCount,
-          low: lowPriorityCount,
-          legacy: legacyCount,
-          retries: retryCount,
-          total: highPriorityCount + normalPriorityCount + lowPriorityCount + legacyCount + retryCount
-        });
-        
-        // Alert if queues are growing too large
-        const totalQueueSize = highPriorityCount + normalPriorityCount + lowPriorityCount + legacyCount;
-        if (totalQueueSize > 100) {
-          logger.warn({
-            msg: '⚠️ Large transaction queue detected',
-            queueSize: totalQueueSize,
-            retries: retryCount
-          });
-          
-          // If queue is large, trigger immediate processing
-          processTransactionQueue().catch((error: Error) => {
-            logger.error('Error in force-triggered queue processing:', error);
-          });
-        }
-      } catch (error) {
-        logger.error('Error monitoring queue sizes:', error);
-      }
-    } catch (error) {
-      logger.error('Error in metrics collection scheduler:', error);
-    }
-  }, 5 * 60 * 1000); // 5 minutes
-  intervals.push(metricsInterval);
-  logger.info('Metrics collection scheduler started (every 5 minutes)');
-  
-  logger.info('All schedulers started successfully');
+  // Removed automatic MPESA retry scheduler
+  logger.info('MPESA transactions will require manual claiming');
 };
 
 /**
- * Stop all scheduled tasks
+ * Stop all schedulers
  */
 export const stopSchedulers = () => {
-  logger.info('Stopping schedulers...');
-  
   intervals.forEach(interval => clearInterval(interval));
-  intervals.length = 0; // Clear the array
-  
+  intervals.length = 0;
   logger.info('All schedulers stopped');
 };
 
@@ -183,9 +93,6 @@ export const runImmediateRetry = async () => {
     
     // Recover failed transactions
     await recoverFailedTransactions();
-    
-    // Retry MPESA transactions
-    await retryAllFailedTransactions();
     
     logger.info('Immediate retry completed');
   } catch (error) {

@@ -156,3 +156,5 @@ simulate-*.js
 
 # Redis dump
 dump.rdb 
+
+scripts/
