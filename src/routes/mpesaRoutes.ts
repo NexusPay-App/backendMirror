@@ -33,7 +33,8 @@ import {
     withdrawFeesToMainWallet,
     stkPushCallback,
     submitMpesaReceiptManually,
-    getTransactionsRequiringIntervention
+    getTransactionsRequiringIntervention,
+    testWebhookLogging
 } from '../controllers/mpesaController';
 import { validate } from '../middleware/validation';
 import { 
@@ -71,5 +72,8 @@ router.get('/pending-interventions', enforceStrictAuth, getTransactionsRequiring
 // Admin routes (requires admin role)
 router.get('/platform-wallet', enforceStrictAuth, isAdmin, getPlatformWalletStatus);
 router.post('/withdraw-fees', enforceStrictAuth, isAdmin, withdrawFeesToMainWallet);
+
+// Test webhook logging route
+router.post('/test-webhook-logging', testWebhookLogging);
 
 export default router;

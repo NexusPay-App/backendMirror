@@ -1106,6 +1106,70 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
 //#########################################
 
 /**
+ * Enhanced logging function to make webhook activity highly visible
+ */
+function logProminentWebhookReceived(req: Request) {
+    const timestamp = new Date().toISOString();
+    const separator = "=".repeat(80);
+    
+    // Use process.stdout.write for immediate output
+    process.stdout.write(`\n${separator}\n`);
+    process.stdout.write(`🚨 MPESA WEBHOOK RECEIVED - ${timestamp}\n`);
+    process.stdout.write(`${separator}\n`);
+    process.stdout.write(`📡 URL: ${req.url}\n`);
+    process.stdout.write(`📱 Method: ${req.method}\n`);
+    process.stdout.write(`📦 Body Preview: ${JSON.stringify(req.body, null, 2).slice(0, 500)}...\n`);
+    process.stdout.write(`${separator}\n\n`);
+    
+    // Also use console methods
+    console.log("\n" + separator);
+    console.log("📲 MPESA CALLBACK RECEIVED - DETAILED LOG");
+    console.log(separator);
+    console.log("REQUEST HEADERS:");
+    console.log(JSON.stringify(req.headers, null, 2));
+    console.log("\nREQUEST BODY:");
+    console.log(JSON.stringify(req.body, null, 2));
+    console.log(separator);
+}
+
+/**
+ * Enhanced error logging function
+ */
+function logProminentError(message: string, error: any) {
+    const timestamp = new Date().toISOString();
+    const separator = "❌".repeat(40);
+    
+    process.stdout.write(`\n${separator}\n`);
+    process.stdout.write(`🚨 ERROR - ${timestamp}\n`);
+    process.stdout.write(`📝 Message: ${message}\n`);
+    process.stdout.write(`💥 Error: ${error.message || error}\n`);
+    process.stdout.write(`${separator}\n\n`);
+}
+
+/**
+ * Enhanced M-Pesa receipt logging function
+ */
+function logProminentMpesaReceipt(callbackId: string, mpesaReceiptNumber: string, amount: number, transactionId: string) {
+    const timestamp = new Date().toISOString();
+    const separator = "🎉".repeat(50);
+    
+    // Immediate output to ensure visibility
+    process.stdout.write(`\n${separator}\n`);
+    process.stdout.write(`💰 MPESA RECEIPT DETECTED - ${timestamp}\n`);
+    process.stdout.write(`${separator}\n`);
+    process.stdout.write(`📄 Receipt Number: ${mpesaReceiptNumber}\n`);
+    process.stdout.write(`💵 Amount: ${amount} KES\n`);
+    process.stdout.write(`🆔 Transaction ID: ${transactionId}\n`);
+    process.stdout.write(`🔖 Callback ID: ${callbackId}\n`);
+    process.stdout.write(`${separator}\n\n`);
+    
+    // Also log to console
+    console.log(`\n${separator}`);
+    console.log(`💰 MPESA RECEIPT: ${mpesaReceiptNumber} | Amount: ${amount} KES | TX: ${transactionId}`);
+    console.log(`${separator}\n`);
+}
+
+/**
  * Webhook handler for MPESA STK Push callbacks
  */
 export const mpesaSTKPushWebhook = async (req: Request, res: Response) => {
@@ -1118,20 +1182,14 @@ export const mpesaSTKPushWebhook = async (req: Request, res: Response) => {
     // Send an immediate response
     res.status(200).json(acknowledgement);
     
-    // Log the received webhook
-        console.log("\n==================================================");
-        console.log("📲 MPESA CALLBACK RECEIVED - DETAILED LOG");
-        console.log("==================================================");
-        console.log("REQUEST HEADERS:");
-        console.log(JSON.stringify(req.headers, null, 2));
-        console.log("\nREQUEST BODY:");
-        console.log(JSON.stringify(req.body, null, 2));
-        console.log("==================================================");
-        
-        // Process the callback asynchronously
-        processSTKCallback(req.body).catch(err => {
-            console.error("❌ Error processing STK callback:", err);
-        });
+    // ENHANCED LOGGING - Make webhook receipt more visible
+    logProminentWebhookReceived(req);
+    
+    // Process the callback asynchronously
+    processSTKCallback(req.body).catch((err: any) => {
+        console.error("❌ Error processing STK callback:", err);
+        logProminentError("STK callback processing failed", err);
+    });
 };
 
 /**
@@ -1245,6 +1303,9 @@ async function processSTKCallback(callbackData: any) {
                 return;
             }
             
+            // 🎉 PROMINENT M-PESA RECEIPT LOGGING 🎉
+            logProminentMpesaReceipt(callbackId, mpesaReceiptNumber, amount, escrow.transactionId);
+            
             console.log(`✅ [CB:${callbackId}] M-Pesa payment confirmed:`);
             console.log(`- Receipt Number: ${mpesaReceiptNumber}`);
             console.log(`- Amount: ${amount} KES`);
@@ -1257,7 +1318,9 @@ async function processSTKCallback(callbackData: any) {
             // Process based on escrow type and status
             if (escrow.status === 'reserved' && isDirectBuy) {
                 try {
-                    console.log(`🚀 [CB:${callbackId}] Processing direct buy crypto transfer for transaction: ${escrow.transactionId}`);
+                    // PERFORMANCE OPTIMIZATION: Process transaction directly instead of using queue
+                    // This improves response time and reduces complexity for high-volume processing
+                    console.log(`🚀 [CB:${callbackId}] Processing direct crypto transfer for transaction: ${escrow.transactionId}`);
                     
                     // Retrieve user for wallet information
                     const user = await User.findById(escrow.userId);
@@ -1269,92 +1332,70 @@ async function processSTKCallback(callbackData: any) {
                         throw new Error(`User wallet address not found for transaction: ${escrow.transactionId}`);
                     }
                     
-                    // PERFORMANCE OPTIMIZATION: Use the queue for immediate response
-                    // This improves response time and allows for parallel processing
-                    const txId = await queueTransaction(
-                        user.walletAddress,
-                            cryptoAmount,
-                            chain,
-                        tokenType as TokenSymbol,
-                        'high', // Priority level for faster processing
-                        escrow._id.toString(), // Pass escrow ID to prevent duplicates
-                        escrow.transactionId // Pass original transaction ID
-                    );
+                    // Get platform wallets for the transfer
+                    const platformWallets = await initializePlatformWallets();
                     
-                    // Update escrow with queued transaction info
-                    escrow.status = 'processing';
-                        escrow.metadata = { 
-                            ...escrow.metadata, 
-                        mpesaPaymentReceived: true,
-                        queuedTxId: txId,
-                        processingStatus: 'queued',
-                        queuedAt: new Date().toISOString(),
-                        priority: 'high',
-                        mpesaReceiptNumber // Store receipt for reference
-                        };
-                        await escrow.save();
-                        
-                    // Record transaction for audit
-                    const transactionData: TransactionLogEntry = {
-                        type: 'mpesa_to_crypto',
-                        status: 'processing',
-                        executionTimeMs: escrow.createdAt ? Date.now() - new Date(escrow.createdAt).getTime() : 0,
-                        escrowId: escrow._id.toString(),
-                            userId: escrow.userId.toString(),
-                        amount: escrow.amount,
-                        mpesaReceiptNumber,
-                        chainName: chain || 'unknown',
-                        txId: undefined // Set to undefined initially, will be updated later if available
-                    };
+                    // Get the proper private keys from environment variables (same as manual intervention)
+                    const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+                    const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
                     
-                    try {
-                        await recordTransaction(transactionData);
-                    } catch (error) {
-                        logger.error(`Failed to record transaction: ${error}`);
+                    if (!primaryKey || !secondaryKey) {
+                        throw new Error('Platform wallet keys (PLATFORM_WALLET_PRIMARY_KEY, PLATFORM_WALLET_SECONDARY_KEY) are required for crypto transfer');
                     }
                     
-                    // Log success
-                    logger.info(`✅ [CB:${callbackId}] Transaction ${txId} queued for processing with HIGH priority`);
-                    
-                    // Log for reconciliation
-                    logTransactionForReconciliation({
-                        transactionId: escrow.transactionId,
-                        userId: escrow.userId.toString(),
-                        type: escrow.type || 'unknown',
-                        status: 'processing',
-                        fiatAmount: amount,
+                    // Process the crypto transfer immediately using the correct function signature
+                    const transferResult = await sendFromPlatformWallet(
                         cryptoAmount,
-                        tokenType,
+                        user.walletAddress,
+                        primaryKey,
+                        secondaryKey,
                         chain,
+                        tokenType as TokenSymbol
+                    );
+                    
+                    // Generate explorer URL for the transaction
+                    const explorerUrl = generateExplorerUrl(chain, transferResult.transactionHash);
+                    
+                    // Update escrow with successful transfer
+                    escrow.status = 'completed';
+                    escrow.completedAt = new Date();
+                    escrow.metadata = { 
+                        ...escrow.metadata, 
+                        mpesaPaymentReceived: true,
+                        cryptoTransferred: true,
+                        transferHash: transferResult.transactionHash,
+                        explorerUrl: explorerUrl,
+                        processingStatus: 'completed',
+                        completedAt: new Date().toISOString(),
                         mpesaReceiptNumber,
-                        queuedTxId: txId
-                    });
+                        directProcessing: true // Flag to indicate direct processing
+                    };
+                    await escrow.save();
+                    
+                    console.log(`✅ [CB:${callbackId}] Crypto transfer completed successfully:`);
+                    console.log(`- Transaction Hash: ${transferResult.transactionHash}`);
+                    console.log(`- Amount: ${cryptoAmount} ${tokenType}`);
+                    console.log(`- Recipient: ${user.walletAddress}`);
+                    console.log(`- Explorer: ${explorerUrl}`);
+                    
                 } catch (error: any) {
-                    console.error(`❌ [CB:${callbackId}] Error queueing crypto transfer for transaction ${escrow.transactionId}:`, error);
+                    console.error(`❌ [CB:${callbackId}] Error processing direct crypto transfer for transaction ${escrow.transactionId}:`, error);
                     
                     // Update escrow with error details but keep M-Pesa receipt for reconciliation
                     escrow.status = 'error';
                     escrow.metadata = { 
                         ...escrow.metadata, 
-                        error: error instanceof Error ? error.message : 'Unknown error processing crypto transfer',
-                        errorCode: (error as any)?.code || 'CRYPTO_TRANSFER_ERROR',
                         mpesaPaymentReceived: true,
-                        needsManualReview: true,
-                        lastError: new Date().toISOString(),
-                        mpesaReceiptNumber // Store receipt for reference
+                        cryptoTransferred: false,
+                        transferError: error.message || 'Unknown error during crypto transfer',
+                        processingStatus: 'failed',
+                        failedAt: new Date().toISOString(),
+                        mpesaReceiptNumber,
+                        requiresManualIntervention: true
                     };
                     await escrow.save();
                     
-                    // Add to retry queue for automatic recovery
-                    console.log(`⚠️ [CB:${callbackId}] Transaction ${escrow.transactionId} requires manual intervention. User can submit M-Pesa receipt manually.`);
-                    
-                    // Mark transaction for manual intervention
-                    escrow.metadata = { 
-                        ...escrow.metadata, 
-                        requiresManualIntervention: true,
-                        manualInterventionReason: error instanceof Error ? error.message : 'Unknown error processing crypto transfer'
-                    };
-                    await escrow.save();
+                    console.log(`⚠️ [CB:${callbackId}] Transaction marked for manual intervention: ${escrow.transactionId}`);
                 }
             } else if (escrow.status === 'processing') {
                 console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} already in processing state`);
@@ -2477,4 +2518,34 @@ export const getTransactionsRequiringIntervention = async (req: Request, res: Re
       { code: "INTERNAL_ERROR", message: "Please try again later" }
     ));
   }
+};
+
+/**
+ * Test webhook endpoint to verify webhook connectivity and logging
+ */
+export const testWebhookLogging = async (req: Request, res: Response) => {
+    const timestamp = new Date().toISOString();
+    const testId = randomUUID().slice(0, 8);
+    
+    // Test the prominent logging functions
+    logProminentWebhookReceived(req);
+    logProminentMpesaReceipt(testId, "TEST123456", 100, "test-transaction-id");
+    
+    // Log success
+    const separator = "✅".repeat(50);
+    process.stdout.write(`\n${separator}\n`);
+    process.stdout.write(`🧪 WEBHOOK TEST COMPLETED - ${timestamp}\n`);
+    process.stdout.write(`🆔 Test ID: ${testId}\n`);
+    process.stdout.write(`📱 If you can see this, webhook logging is working!\n`);
+    process.stdout.write(`${separator}\n\n`);
+    
+    res.status(200).json({
+        success: true,
+        message: "Webhook test completed - check your terminal for prominent logging",
+        data: {
+            testId,
+            timestamp,
+            note: "If you can see prominent logging in your terminal, webhooks will be visible"
+        }
+    });
 };

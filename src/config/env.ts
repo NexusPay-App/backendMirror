@@ -262,10 +262,10 @@ let config: Record<string, any> = {
         // For local testing without callbacks, use localhost
         // For testing with real callbacks, use ngrok and ensure the tunnel is running
         // To start ngrok: ngrok http 8000
-        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://304d-41-90-185-42.ngrok-free.app",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://304d-41-90-185-42.ngrok-free.app/hooks/mpesa",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/b2c-callback",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/queue-timeout",
+        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL,
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL,
+        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL,
+        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL,
         MPESA_INITIATOR_NAME: process.env.MPESA_PROD_INITIATOR_NAME,
         MPESA_SECURITY_CREDENTIAL: process.env.MPESA_PROD_SECURITY_CREDENTIAL,
         // Chain Explorer API Keys

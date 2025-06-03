@@ -342,6 +342,93 @@ POST /mpesa/deposit
 }
 ```
 
+#### Buy Crypto (Automatic Flow)
+
+```
+POST /mpesa/buy-crypto
+```
+
+**Description:** Initiates crypto purchase with automatic M-Pesa payment. Specify crypto amount, and the system calculates required M-Pesa payment based on current conversion rates.
+
+**Request Body:**
+```json
+{
+  "cryptoAmount": "0.5",
+  "phone": "+254712345678",
+  "chain": "arbitrum",
+  "tokenType": "USDC"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Crypto purchase initiated successfully",
+  "data": {
+    "transactionId": "1247393a-a504-4131-ad7f-23d943dc6851",
+    "mpesaAmount": 65,
+    "cryptoAmount": 0.5,
+    "tokenType": "USDC",
+    "chain": "arbitrum",
+    "status": "reserved",
+    "checkoutRequestId": "ws_CO_03062025021903025759280875",
+    "createdAt": "2025-06-02T23:19:02.568Z",
+    "estimatedCompletionTime": "2025-06-02T23:21:18.320Z",
+    "successCode": "NP-5ATVA-XR"
+  }
+}
+```
+
+#### Submit M-Pesa Receipt (Manual Completion)
+
+```
+POST /mpesa/submit-receipt
+```
+
+**Description:** Manually complete a crypto purchase by submitting M-Pesa receipt details. This is used when automatic webhook processing fails or for manual intervention scenarios.
+
+**Request Body:**
+```json
+{
+  "transactionId": "1247393a-a504-4131-ad7f-23d943dc6851",
+  "mpesaReceiptNumber": "TF34AMNCAC",
+  "amount": 65
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "M-Pesa receipt verified and crypto transferred successfully",
+  "data": {
+    "transactionId": "1247393a-a504-4131-ad7f-23d943dc6851",
+    "mpesaReceiptNumber": "TF34AMNCAC",
+    "cryptoAmount": 0.5,
+    "tokenType": "USDC",
+    "chain": "arbitrum",
+    "recipient": "0x31c41BCa835C0d3c597cbBaFf2e8dBF973645fb4",
+    "cryptoTransactionHash": "0x4f0368b28d0068ea11fda270eb8c79d263ac9872cbfc7b96f98fd4df621680d4",
+    "explorerUrl": "https://arbiscan.io/tx/0x4f0368b28d0068ea11fda270eb8c79d263ac9872cbfc7b96f98fd4df621680d4",
+    "status": "completed",
+    "completedAt": "2025-06-02T23:25:06.056Z",
+    "platformBalance": "5.43 USDC",
+    "note": "Your M-Pesa receipt has been verified and crypto has been transferred to your wallet successfully!"
+  }
+}
+```
+
+**Use Cases:**
+- When automatic M-Pesa webhooks fail in development/testing environments
+- Manual intervention for failed automatic processing
+- Customer support scenarios where manual verification is required
+
+**Error Responses:**
+- `400 Bad Request`: Invalid transaction ID, duplicate receipt, or mismatched amount
+- `404 Not Found`: Transaction not found or not eligible for manual completion
+- `409 Conflict`: Transaction already completed or receipt already used
+
 #### Withdraw to MPESA
 
 ```
