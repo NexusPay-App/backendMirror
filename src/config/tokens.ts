@@ -1,5 +1,8 @@
 import { Chain, TokenSymbol, TokenConfig } from '../types/token';
 
+// Re-export the types for use in other files
+export { Chain, TokenSymbol, TokenConfig };
+
 type ChainTokens = {
     [key in TokenSymbol]?: TokenConfig;
 };

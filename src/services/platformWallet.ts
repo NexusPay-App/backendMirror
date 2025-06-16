@@ -19,6 +19,7 @@ import { recordTransaction, TransactionType } from './transactionLogger';
 import { logTransactionForReconciliation } from './reconciliation';
 import { encodeAbiParameters } from 'viem';
 import { SmartContract } from '@thirdweb-dev/sdk';
+import { transactionMonitor } from './transactionMonitor';
 
 // Configure logger
 const logger = pino({
@@ -478,6 +479,10 @@ interface QueuedTransaction {
   isProcessing?: boolean;
   escrowId?: string;
   originalTransactionId?: string;
+  // Enhanced retry metadata
+  retryReason?: string;
+  isRetryable?: boolean;
+  retryDelayMs?: number;
 }
 
 const TRANSACTION_QUEUE_KEY = 'tx_queue';
@@ -491,6 +496,25 @@ const RETRY_DELAY_MS = 30000; // 30 seconds
 const BATCH_SIZE = 10;
 // Maximum gas limit factor for batched transactions
 const MAX_BATCH_GAS_LIMIT_FACTOR = 0.8;
+
+// Enhanced timeout configuration for different transaction types
+const TRANSACTION_TIMEOUTS = {
+  NORMAL: 30000,      // 30 seconds for normal transactions
+  HIGH_PRIORITY: 45000, // 45 seconds for high priority
+  BATCH: 90000        // 90 seconds for batch transactions
+};
+
+// Intelligent retry configuration
+const RETRY_CONFIG = {
+  MAX_ATTEMPTS: 5,
+  NETWORK_ERROR_BACKOFF: 2000,    // 2 seconds for network errors
+  GAS_ERROR_BACKOFF: 5000,        // 5 seconds for gas errors
+  PERMANENT_ERROR_CODES: [
+    'INSUFFICIENT_FUNDS',
+    'INVALID_ADDRESS',
+    'NONCE_TOO_LOW'
+  ]
+};
 
 // Helper function to ensure chain parameter is valid
 function validateChain(chainName: string): Chain {
@@ -1220,21 +1244,33 @@ async function processIndividualTransactions(
     logger.info(`Token decimals: ${decimals}`);
     logger.info(`Platform wallet: ${maskAddress(platformWallets.main.address)}`);
     
-    // Process each transaction
+    // Process each transaction with enhanced error handling
     for (const tx of transactions) {
+      let processingStartTime = Date.now();
+      
       try {
         logger.info(`Processing transaction ${tx.id} to ${maskAddress(tx.toAddress)}`);
         logger.info(`- Amount: ${tx.amount} ${tokenType}`);
-        logger.info(`- Attempt: ${tx.attempts + 1} of ${MAX_RETRY_ATTEMPTS}`);
+        logger.info(`- Attempt: ${tx.attempts + 1} of ${RETRY_CONFIG.MAX_ATTEMPTS}`);
         
-        // Validate the recipient address
-        if (!tx.toAddress || tx.toAddress.length !== 42 || !tx.toAddress.startsWith('0x')) {
+        // Enhanced validation
+        if (!isValidEthereumAddress(tx.toAddress)) {
           throw new Error(`Invalid recipient address: ${tx.toAddress}`);
         }
         
-        // Validate the amount
-        if (!tx.amount || tx.amount <= 0) {
+        if (!isValidAmount(tx.amount)) {
           throw new Error(`Invalid amount: ${tx.amount}`);
+        }
+        
+        // Real-time balance check before processing
+        const currentBalance = await getTokenBalanceOnChain(
+          chainName as Chain, 
+          platformWallets.main.address, 
+          tokenType
+        );
+        
+        if (currentBalance < tx.amount) {
+          throw new Error(`Insufficient balance: ${currentBalance} < ${tx.amount}`);
         }
         
         logger.info(`- Amount (human readable): ${tx.amount}`);
@@ -1252,14 +1288,17 @@ async function processIndividualTransactions(
         
         logger.info(`Sending transaction...`);
       
-        // Execute transaction with timeout and better error handling
+        // Enhanced timeout based on transaction priority
+        const timeout = tx.priority === 'high' ? TRANSACTION_TIMEOUTS.HIGH_PRIORITY : TRANSACTION_TIMEOUTS.NORMAL;
+        
+        // Execute transaction with dynamic timeout and better error handling
         const result = await promiseWithTimeout(
           sendTransaction({
           transaction: transferTx,
           account: account
           }),
-          60000, // 60 second timeout
-          `Transaction ${tx.id} timed out after 60 seconds`
+          timeout,
+          `Transaction ${tx.id} timed out after ${timeout/1000} seconds`
         );
       
         // Extract transaction hash
@@ -1268,18 +1307,22 @@ async function processIndividualTransactions(
           throw new Error('Transaction completed but no hash was returned');
         }
         
-        // Log success with full details
+        // Calculate processing time
+        const processingTime = Date.now() - processingStartTime;
+        
+        // Log success with full details and performance metrics
         logger.info(`✅ Transaction ${tx.id} completed: ${txHash}`);
         logger.info(`- Chain: ${chainName}`);
         logger.info(`- Token: ${tokenType}`);
         logger.info(`- Amount: ${tx.amount}`);
         logger.info(`- To: ${maskAddress(tx.toAddress)}`);
+        logger.info(`- Processing Time: ${processingTime}ms`);
         logger.info(`- Explorer: ${generateExplorerUrl(chainName, txHash)}`);
       
         // Remove from processing queue
         await redis.lrem(`${queueKey}:processing`, 1, JSON.stringify(tx));
       
-        // Record the successful transaction
+        // Record the successful transaction with performance metrics
       await recordTransaction({
           type: TransactionType.PLATFORM_TO_USER,
           txId: tx.id,
@@ -1289,8 +1332,18 @@ async function processIndividualTransactions(
           amount: tx.amount,
         tokenType,
         chainName,
-          executionTimeMs: Date.now() - tx.timestamp
+          executionTimeMs: processingTime
         });
+
+        // Record transaction in monitoring system
+        await transactionMonitor.recordTransaction(
+          tx.id,
+          true, // success
+          processingTime,
+          chainName,
+          tokenType,
+          tx.amount
+        );
         
         // Update any associated escrow record with the transaction hash
         try {
@@ -1304,7 +1357,8 @@ async function processIndividualTransactions(
                 completedAt: new Date(),
                 'metadata.cryptoTransferComplete': true,
                 'metadata.txHash': txHash,
-                'metadata.explorerUrl': generateExplorerUrl(chainName, txHash)
+                'metadata.explorerUrl': generateExplorerUrl(chainName, txHash),
+                'metadata.processingTimeMs': processingTime
               }
             },
             { new: true }
@@ -1316,6 +1370,7 @@ async function processIndividualTransactions(
             logger.info(`- User: ${escrow.userId}`);
             logger.info(`- Amount: ${tx.amount} ${tokenType} on ${chainName}`);
             logger.info(`- Transaction: ${txHash}`);
+            logger.info(`- Processing Time: ${processingTime}ms`);
             logger.info(`- Explorer: ${generateExplorerUrl(chainName, txHash)}`);
           } else {
             logger.warn(`No escrow found for transaction ${tx.id}`);
@@ -1331,15 +1386,27 @@ async function processIndividualTransactions(
         }
         
   } catch (error: any) {
-        // Handle transaction error with detailed logging
+        // Enhanced error handling with intelligent classification
         let errorMessage = 'Unknown error';
         let detailedError = 'Unknown error';
+        let isRetryable = true;
+        let retryDelay = RETRY_CONFIG.NETWORK_ERROR_BACKOFF;
         
-        // Extract detailed error information
+        // Classify error type for intelligent retry logic
         if (error instanceof Error) {
           errorMessage = error.message;
           detailedError = error.message;
         
+          // Check for permanent error conditions
+          if (RETRY_CONFIG.PERMANENT_ERROR_CODES.some(code => errorMessage.includes(code))) {
+            isRetryable = false;
+          }
+          
+          // Adjust retry delay based on error type
+          if (errorMessage.includes('gas') || errorMessage.includes('Gas')) {
+            retryDelay = RETRY_CONFIG.GAS_ERROR_BACKOFF;
+          }
+          
           // Log the full error for debugging
           logger.error(`❌ Full error object for transaction ${tx.id}:`, {
             message: error.message,
@@ -1349,7 +1416,9 @@ async function processIndividualTransactions(
             reason: (error as any).reason,
             data: (error as any).data,
             details: (error as any).details,
-            response: (error as any).response?.data
+            response: (error as any).response?.data,
+            isRetryable,
+            retryDelay
           });
           
           // Extract more specific error info
@@ -1376,14 +1445,26 @@ async function processIndividualTransactions(
         // Log detailed error information
         logger.error(`❌ Transaction ${tx.id} failed (attempt ${tx.attempts + 1}): ${detailedError}`);
         
-        // Update transaction with error info
+        // Update transaction with error info and processing time
         tx.attempts = (tx.attempts || 0) + 1;
         tx.lastAttempt = Date.now();
         tx.error = detailedError;
         
-        if (tx.attempts >= MAX_RETRY_ATTEMPTS) {
+        // Intelligent retry logic
+        if (!isRetryable || tx.attempts >= RETRY_CONFIG.MAX_ATTEMPTS) {
           // Mark as permanently failed
-          logger.error(`❌ Transaction ${tx.id} has failed ${tx.attempts} times, marking as permanently failed`);
+          logger.error(`❌ Transaction ${tx.id} has failed ${tx.attempts} times or is not retryable, marking as permanently failed`);
+          
+          // Record failed transaction in monitoring system
+          await transactionMonitor.recordTransaction(
+            tx.id,
+            false, // failed
+            Date.now() - processingStartTime,
+            chainName,
+            tokenType,
+            tx.amount
+          );
+
     try {
             await markTransactionFailed(tx.id, errorMessage, queueKey);
             
@@ -1397,7 +1478,9 @@ async function processIndividualTransactions(
                     completedAt: new Date(),
                     'metadata.cryptoTransferFailed': true,
                     'metadata.error': detailedError,
-                    'metadata.failedAt': new Date().toISOString()
+                    'metadata.failedAt': new Date().toISOString(),
+                    'metadata.isRetryable': isRetryable,
+                    'metadata.attempts': tx.attempts
                   }
                 },
                 { new: true }
@@ -1415,21 +1498,26 @@ async function processIndividualTransactions(
             await redis.lrem(`${queueKey}:processing`, 1, JSON.stringify(tx));
           }
         } else {
-          // Schedule for retry with exponential backoff
+          // Schedule for intelligent retry with custom backoff
           const backoffMs = Math.min(
-            RETRY_DELAY_MS * Math.pow(2, tx.attempts - 1) * (0.5 + Math.random()), // Add jitter
-            24 * 60 * 60 * 1000 // Max 24 hours
+            retryDelay * Math.pow(1.5, tx.attempts - 1) * (0.8 + Math.random() * 0.4), // Add jitter
+            4 * 60 * 60 * 1000 // Max 4 hours
           );
           
           const retryTimestamp = Date.now() + backoffMs;
           
-          // Add to retry schedule
-          await redis.zadd('tx_retry_schedule', retryTimestamp, JSON.stringify(tx));
+          // Add to retry schedule with enhanced metadata
+          await redis.zadd('tx_retry_schedule', retryTimestamp, JSON.stringify({
+            ...tx,
+            retryReason: errorMessage,
+            isRetryable,
+            retryDelayMs: backoffMs
+          }));
           
           // Remove from processing queue
           await redis.lrem(`${queueKey}:processing`, 1, JSON.stringify(tx));
           
-          logger.info(`Scheduled retry for transaction ${tx.id} in ${Math.round(backoffMs / 1000)} seconds`);
+          logger.info(`Scheduled intelligent retry for transaction ${tx.id} in ${Math.round(backoffMs / 1000)} seconds (${errorMessage})`);
 }
       }
     }
@@ -1453,6 +1541,23 @@ async function processIndividualTransactions(
     // Rethrow to notify calling code
     throw globalError;
   }
+}
+
+// Helper functions for enhanced validation
+function isValidEthereumAddress(address: string): boolean {
+  return !!(address && 
+         typeof address === 'string' && 
+         address.length === 42 && 
+         address.startsWith('0x') &&
+         /^0x[a-fA-F0-9]{40}$/.test(address));
+}
+
+function isValidAmount(amount: number): boolean {
+  return typeof amount === 'number' && 
+         amount > 0 && 
+         !isNaN(amount) && 
+         isFinite(amount) &&
+         amount <= Number.MAX_SAFE_INTEGER;
 }
 
 /**

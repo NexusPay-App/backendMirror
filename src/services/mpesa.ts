@@ -247,16 +247,43 @@ const mpesaExpressQuery = async (
 
 export const initiateB2C = async (amount: number, receiver: number, remarks: string = "Withdrawal from NexusPay") => {
     try {
-        const client = await mpesaClient();
+        console.log(`🚀 [B2C] Initiating B2C payment: ${amount} KES to ${receiver}`);
+        console.log(`- Environment: ${process.env.NODE_ENV}`);
+        console.log(`- B2C URL: ${config.MPESA_B2C_URL}`);
+        
+        // Check if security credential is available
+        if (!config.MPESA_SECURITY_CREDENTIAL) {
+            console.error('❌ [B2C] MPESA_SECURITY_CREDENTIAL is not configured');
+            console.error('❌ [B2C] This is required for B2C transactions');
+            console.error('❌ [B2C] Please add MPESA_DEV_SECURITY_CREDENTIAL to your environment variables');
+            throw new Error('Security credential not configured for B2C transactions');
+        }
+        
+        // Check if initiator name is available
+        if (!config.MPESA_INITIATOR_NAME) {
+            console.error('❌ [B2C] MPESA_INITIATOR_NAME is not configured');
+            console.error('❌ [B2C] Using default: testapi');
+        }
+        
+        // Get fresh access token
+        const accessToken = await getAccessToken();
         const uuid = randomUUID();
-        const shortcode = config.MPESA_B2C_SHORTCODE;
+        
+        // Use the same shortcode as STK Push (as per M-Pesa support guidance)
+        const shortcode = config.MPESA_SHORTCODE;
+        
+        console.log(`- Using shortcode: ${shortcode}`);
+        console.log(`- Receiver: ${receiver}`);
+        console.log(`- Amount: ${amount}`);
+        console.log(`- Security Credential available: ${config.MPESA_SECURITY_CREDENTIAL ? 'Yes' : 'No'}`);
+        console.log(`- Initiator Name: ${config.MPESA_INITIATOR_NAME || 'testapi'}`);
 
-        const stkData = {
+        const b2cData = {
             "OriginatorConversationID": uuid,
-            "InitiatorName": "testapi",
+            "InitiatorName": config.MPESA_INITIATOR_NAME || "testapi",
             "SecurityCredential": config.MPESA_SECURITY_CREDENTIAL,
             "CommandID": "BusinessPayment",
-            "Amount": amount,
+            "Amount": Math.floor(amount), // Ensure amount is an integer
             "PartyA": shortcode,
             "PartyB": receiver,
             "Remarks": remarks,
@@ -265,10 +292,38 @@ export const initiateB2C = async (amount: number, receiver: number, remarks: str
             "Occasion": "Payment",
         };
 
-        const { data } = await client.post("/mpesa/b2c/v3/paymentrequest", stkData);
-        return data;
-    } catch (error) {
-        console.error("Error in B2C transaction:", error);
+        console.log(`📤 B2C request payload:`, { 
+            ...b2cData, 
+            SecurityCredential: config.MPESA_SECURITY_CREDENTIAL ? 'PROVIDED' : 'MISSING',
+            PartyB: receiver.toString().substring(0, 6) + '****' // Mask part of the phone number
+        });
+
+        // Use direct axios call to the correct B2C endpoint
+        const response = await axios({
+            method: 'post',
+            url: config.MPESA_B2C_URL,
+            headers: {
+                'Authorization': 'Bearer ' + accessToken,
+                'Content-Type': 'application/json'
+            },
+            data: b2cData,
+            timeout: config.MPESA_REQUEST_TIMEOUT
+        });
+
+        console.log(`✅ [B2C] Payment initiated successfully:`, response.data);
+        return response.data;
+
+    } catch (error: any) {
+        console.error(`❌ Error in B2C transaction:`, error);
+        
+        if (error.response?.data) {
+            console.error(`❌ B2C Error details:`, {
+                message: error.message,
+                response: error.response.data,
+                status: error.response.status
+            });
+        }
+        
         throw error;
     }
 };

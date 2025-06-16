@@ -144,6 +144,7 @@ let config: Record<string, any> = {
         MPESA_PASSKEY: process.env.MPESA_DEV_PASSKEY,
         MPESA_BASEURL: 'https://api.safaricom.co.ke',
         MPESA_STK_QUERY_URL: 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query',
+        MPESA_B2C_URL: process.env.MPESA_B2C_URL || 'https://api.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
         MPESA_REQUEST_TIMEOUT: 30000,
         // For local testing without callbacks, use localhost
         // For testing with real callbacks, use ngrok and ensure the tunnel is running
@@ -258,6 +259,7 @@ let config: Record<string, any> = {
         MPESA_PASSKEY: process.env.MPESA_PROD_PASSKEY,
         MPESA_BASEURL: 'https://api.safaricom.co.ke',
         MPESA_STK_QUERY_URL: 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query',
+        MPESA_B2C_URL: process.env.MPESA_B2C_URL || 'https://api.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
         MPESA_REQUEST_TIMEOUT: 30000,
         // For local testing without callbacks, use localhost
         // For testing with real callbacks, use ngrok and ensure the tunnel is running
@@ -371,6 +373,7 @@ let config: Record<string, any> = {
         MPESA_PASSKEY: process.env.MPESA_DEV_PASSKEY,
         MPESA_BASEURL: 'https://sandbox.safaricom.co.ke',
         MPESA_STK_QUERY_URL: 'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query',
+        MPESA_B2C_URL: process.env.MPESA_B2C_URL || 'https://sandbox.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
         MPESA_REQUEST_TIMEOUT: 30000,
         // For local testing without callbacks, use localhost
         // For testing with real callbacks, use ngrok and ensure the tunnel is running

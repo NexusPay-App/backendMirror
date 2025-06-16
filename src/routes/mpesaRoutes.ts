@@ -34,7 +34,8 @@ import {
     stkPushCallback,
     submitMpesaReceiptManually,
     getTransactionsRequiringIntervention,
-    testWebhookLogging
+    testWebhookLogging,
+    payWithCrypto
 } from '../controllers/mpesaController';
 import { validate } from '../middleware/validation';
 import { 
@@ -43,11 +44,13 @@ import {
     paybillValidation,
     tillValidation,
     buyCryptoValidation,
-    manualReceiptValidation
+    manualReceiptValidation,
+    validateCryptoSpending
 } from '../middleware/validators/mpesaValidators';
 import { authenticateToken } from '../middleware/authMiddleware';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 import { isAdmin } from '../middleware/roleMiddleware';
+import { cryptoSpendingProtection } from '../middleware/rateLimiting';
 
 const router = express.Router();
 
@@ -75,5 +78,13 @@ router.post('/withdraw-fees', enforceStrictAuth, isAdmin, withdrawFeesToMainWall
 
 // Test webhook logging route
 router.post('/test-webhook-logging', testWebhookLogging);
+
+// 🚀 NEW: Crypto Spending - Pay Paybills/Tills with Crypto (with comprehensive protection)
+router.post('/pay-with-crypto', 
+  ...cryptoSpendingProtection,
+  authenticateToken, 
+  validate(validateCryptoSpending), 
+  payWithCrypto
+);
 
 export default router;

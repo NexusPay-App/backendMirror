@@ -313,14 +313,58 @@
 
 //################ new Code for Migrations #####################
 
-import { Chain, TokenSymbol, TokenTransferEvent } from '../types/token';
 import { client } from './auth';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
-import { defineChain, getContract, sendTransaction, waitForReceipt, readContract } from "thirdweb";
-import { transfer, approve, allowance, balanceOf } from "thirdweb/extensions/erc20";
+import { defineChain, getContract, sendTransaction, waitForReceipt } from "thirdweb";
+import { transfer, approve, allowance } from "thirdweb/extensions/erc20";
 import config from "../config/env";
-import { keccak256, toHex } from "viem";
-import { getTokenConfig, getTokenAddress, getTokenDecimals } from "../config/tokens";
+import { keccak256, toHex } from 'viem';
+
+export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'fuse' | 'aurora' | 'lisk';
+
+export type TokenSymbol = 'USDC' | 'USDT' | 'DAI';
+
+export interface TokenTransferEvent {
+    blockNumber: string;
+    timeStamp: string;
+    hash: string;
+    nonce: string;
+    blockHash: string;
+    from: string;
+    contractAddress: string;
+    to: string;
+    value: string;
+    tokenName: string;
+    tokenSymbol: string;
+    tokenDecimal: string;
+    transactionIndex: string;
+    gas: string;
+    gasPrice: string;
+    gasUsed: string;
+    cumulativeGasUsed: string;
+    input: string;
+    confirmations: string;
+}
+
+interface TokenConfig {
+  address: string;
+  decimals: number;
+}
+
+interface ChainConfig {
+  [key: string]: TokenConfig;
+}
+
+export const getTokenConfig = (chain: Chain, token: TokenSymbol): TokenConfig | null => {
+  const chainConfig = config[chain];
+  if (!chainConfig || !chainConfig.tokenAddress) {
+    return null;
+  }
+  return {
+    address: chainConfig.tokenAddress,
+    decimals: 6 // USDC has 6 decimals
+  };
+};
 
 // Removed explicit FACTORY_ADDRESS; using Thirdweb's default factory
 // export const FACTORY_ADDRESS = "0x9B4fA2A0D77fB3B1a65e1282e26FDFA8bB5f8FDe";
@@ -542,10 +586,10 @@ export async function migrateFunds(
             address: tokenAddress,
         });
 
-        const balance = await readContract({
+        const balance = await allowance({
             contract,
-            method: "function balanceOf(address) view returns (uint256)",
-            params: [fromAddress],
+            owner: fromAddress,
+            spender: smartAccount.address,
         });
         const decimals = 6;
         const balanceInUnits = BigInt(balance.toString());
@@ -598,6 +642,7 @@ export async function getAllTokenTransferEvents(chain: Chain, walletAddress: str
         aurora: 'https://api.aurorascan.dev/api',
         lisk: 'https://api.liskscan.com/api'
     };
+
     const apiKeys = {
         arbitrum: config.ARBITRUM_EXPLORER_API_KEY || '',
         celo: config.CELO_EXPLORER_API_KEY || '',
@@ -612,22 +657,25 @@ export async function getAllTokenTransferEvents(chain: Chain, walletAddress: str
         moonbeam: config.MOONBEAM_API_KEY || '',
         fuse: config.FUSE_EXPLORER_API_KEY || '',
         aurora: config.AURORA_API_KEY || '',
-        somnia: config.SOMNIA_API_KEY || '',  // Added Somnia API key
+        somnia: config.SOMNIA_API_KEY || '',
         lisk: ''     // Lisk might use a different API structure
     };
+
     const baseURL = apiEndpoints[chain];
     const apiKey = apiKeys[chain];
-    const url = `${baseURL}?module=account&action=tokentx&address=${walletAddress}&page=1&offset=5&sort=desc&apikey=${apiKey}`;
+    const url = `${baseURL}?module=account&action=tokentx&address=${walletAddress}&page=1&offset=100&sort=desc&apikey=${apiKey}`;
 
     try {
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error('Failed to fetch data from API');
         }
+
         const data = await response.json();
         if (data.status !== '1') {
-            throw new Error(data.message);
+            throw new Error(data.message || 'Failed to fetch transfer events');
         }
+        
         return data.result as TokenTransferEvent[];
     } catch (error) {
         console.error('Error in getAllTokenTransferEvents:', error);
@@ -680,10 +728,10 @@ export async function getTokenBalance(
             address: tokenConfig.address,
         });
 
-        const balance = await readContract({
+        const balance = await allowance({
             contract,
-            method: "function balanceOf(address) view returns (uint256)",
-            params: [address],
+            owner: address,
+            spender: tokenConfig.address,
         });
 
         return Number(balance.toString()) / 10 ** tokenConfig.decimals;

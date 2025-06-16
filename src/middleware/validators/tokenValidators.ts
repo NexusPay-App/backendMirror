@@ -64,9 +64,11 @@ export const payMerchantValidation = [
       return true;
     }),
     
-  body('businessUniqueCode')
+  body('merchantId')
     .notEmpty()
-    .withMessage('Business unique code is required'),
+    .withMessage('Merchant ID is required')
+    .matches(/^NX-\d{10}$/)
+    .withMessage('Invalid merchant ID format'),
     
   body('amount')
     .notEmpty()

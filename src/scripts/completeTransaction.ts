@@ -1,7 +1,7 @@
 import { Escrow } from '../models/escrowModel';
 import { User } from '../models/models';
 import { connect } from '../services/database';
-import { sendTokenToUser } from '../services/platformWallet';
+import { sendTokenFromUser } from '../services/platformWallet';
 import { TokenSymbol } from '../types/token';
 import mongoose from 'mongoose';
 
@@ -59,7 +59,7 @@ async function completeTransaction() {
     console.log(`Attempting to send ${cryptoAmount} ${tokenType} on ${chain} to ${userWalletAddress}`);
 
     // Send token to user
-    const result = await sendTokenToUser(
+    const result = await sendTokenFromUser(
       userWalletAddress,
       cryptoAmount,
       chain,

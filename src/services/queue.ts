@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { addToTransactionQueue } from './redis';
 import { logger } from '../config/logger';
-import { TokenSymbol } from '../types';
+import { TokenSymbol } from '../types/token';
 
 /**
  * Queue a transaction for processing

@@ -49,7 +49,7 @@ export interface IBusiness extends Document {
   merchantId: string;
   walletAddress: string;
   privateKey: string;
-  userId: mongoose.Types.ObjectId; // Reference to the User
+  userId: mongoose.Types.ObjectId;
 }
 
 const businessSchema: Schema = new Schema({
@@ -82,6 +82,7 @@ const businessSchema: Schema = new Schema({
   walletAddress: {
     type: String,
     required: true,
+    unique: true,
   },
   privateKey: {
     type: String,
@@ -93,7 +94,16 @@ const businessSchema: Schema = new Schema({
     ref: 'User',
     required: true,
   },
+}, { 
+  timestamps: true,
+  strict: true
 });
 
-// Check if model already exists to prevent OverwriteModelError
+// Create indexes
+businessSchema.index({ merchantId: 1 }, { unique: true });
+businessSchema.index({ walletAddress: 1 }, { unique: true });
+businessSchema.index({ phoneNumber: 1 });
+businessSchema.index({ userId: 1 });
+
+// Export the model
 export const Business = mongoose.models.Business || mongoose.model<IBusiness>('Business', businessSchema);

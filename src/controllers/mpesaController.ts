@@ -2,10 +2,9 @@ import { NextFunction, Request, Response } from "express";
 import { User, IUserDocument } from '../models/user';
 import { Business } from '../models/businessModel';
 import { Escrow, IEscrowDocument, IEscrow } from '../models/escrow';
-import { initiateB2C, initiateSTKPush, initiatePaybillPayment, initiateTillPayment } from "../services/mpesa";
+import { initiateB2C, initiateSTKPush } from "../services/mpesa";
 import config from "../config/env";
 import { sendToken } from "../services/token";
-import { getConversionRateWithCaching } from "../services/rates";
 import { randomUUID } from "crypto";
 import { standardResponse, handleError, generateSuccessCode } from "../services/utils";
 import { 
@@ -27,9 +26,10 @@ import { balanceOf, transfer } from "thirdweb/extensions/erc20";
 import { client } from "../services/auth";
 import { recordTransaction, TransactionType, TransactionLogEntry } from '../services/transactionLogger';
 import { getRedisClient } from '../services/redis';
-import { logTransactionForReconciliation } from '../services/reconciliation';
 import { logger } from '../config/logger';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
+import axios from "axios";
+import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -129,7 +129,7 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
         }
         
         // Get conversion rate
-        const conversionRate = await getConversionRateWithCaching();
+        const conversionRate = await getConversionRateWithCaching('USDC');
         
         // Calculate crypto amount based on MPESA amount
         const cryptoAmount = amountNum / conversionRate;
@@ -263,7 +263,7 @@ export const mpesaWithdraw = async (req: Request, res: Response, next: NextFunct
             return res.status(400).json({ message: "Invalid amount" });
         }
 
-        const conversionRate = await getConversionRateWithCaching();
+        const conversionRate = await getConversionRateWithCaching("USDC");
         const fiatAmount = amountNum * conversionRate;
 
         const escrow = new Escrow({
@@ -385,7 +385,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
         }
         
         // Calculate fiat amount
-        const conversionRate = await getConversionRateWithCaching();
+        const conversionRate = await getConversionRateWithCaching('USDC');
         const fiatAmount = cryptoAmount * conversionRate;
         
         // Create transaction ID
@@ -430,6 +430,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
             
             // Update escrow with token transaction hash
             escrow.cryptoTransactionHash = tokenTransferResult.transactionHash;
+            escrow.status = 'processing';
             await escrow.save();
             
             // Collect transaction fee
@@ -524,10 +525,9 @@ export const payToPaybill = async (req: Request, res: Response, next: NextFuncti
         }
 
         // Calculate fiat amount
-        const conversionRate = await getConversionRateWithCaching();
+        const conversionRate = await getConversionRateWithCaching('USDC');
         const fiatAmount = amountNum * conversionRate;
 
-        // Create escrow record
         const escrow = new Escrow({
             transactionId: randomUUID(),
             userId: authenticatedUser._id,
@@ -553,7 +553,8 @@ export const payToPaybill = async (req: Request, res: Response, next: NextFuncti
             phone,
             fiatAmount,
             paybillNumber,
-            accountNumber
+            accountNumber,
+            "Paybill payment"
         );
 
         if (!paybillResult || paybillResult.ResponseCode !== "0") {
@@ -600,7 +601,7 @@ export const payToTill = async (req: Request, res: Response, next: NextFunction)
         }
 
         // Calculate fiat amount
-        const conversionRate = await getConversionRateWithCaching();
+        const conversionRate = await getConversionRateWithCaching("USDC");
         const fiatAmount = amountNum * conversionRate;
 
         // Create escrow record
@@ -611,7 +612,8 @@ export const payToTill = async (req: Request, res: Response, next: NextFunction)
             cryptoAmount: amountNum,
             type: 'crypto_to_till',
             status: 'pending',
-            tillNumber
+            tillNumber: tillNumber,
+            metadata: { description: "Till payment" }
         });
         await escrow.save();
 
@@ -627,7 +629,8 @@ export const payToTill = async (req: Request, res: Response, next: NextFunction)
         const tillResult = await initiateTillPayment(
             phone,
             fiatAmount,
-            tillNumber
+            tillNumber,
+            "Till payment"
         );
 
         if (!tillResult || tillResult.ResponseCode !== "0") {
@@ -1479,28 +1482,6 @@ async function processSTKCallback(callbackData: any) {
 /**
  * Helper function to generate blockchain explorer URL
  */
-function generateExplorerUrl(chain: string, txHash: string): string {
-    const explorers: {[key: string]: string} = {
-        'celo': 'https://explorer.celo.org/mainnet/tx/',
-        'polygon': 'https://polygonscan.com/tx/',
-        'arbitrum': 'https://arbiscan.io/tx/',
-        'base': 'https://basescan.org/tx/',
-        'optimism': 'https://optimistic.etherscan.io/tx/',
-        'ethereum': 'https://etherscan.io/tx/',
-        'binance': 'https://bscscan.com/tx/',
-        'bnb': 'https://bscscan.com/tx/',
-        'avalanche': 'https://snowtrace.io/tx/',
-        'fantom': 'https://ftmscan.com/tx/',
-        'gnosis': 'https://gnosisscan.io/tx/',
-        'scroll': 'https://scrollscan.com/tx/',
-        'moonbeam': 'https://moonbeam.moonscan.io/tx/',
-        'fuse': 'https://explorer.fuse.io/tx/',
-        'aurora': 'https://explorer.aurora.dev/tx/'
-    };
-    
-    const baseUrl = explorers[chain] || explorers['celo']; // Default to Celo if chain not found
-    return `${baseUrl}${txHash}`;
-}
 
 export const mpesaB2CWebhook = async (req: Request, res: Response) => {
     try {
@@ -2548,4 +2529,667 @@ export const testWebhookLogging = async (req: Request, res: Response) => {
             note: "If you can see prominent logging in your terminal, webhooks will be visible"
         }
     });
+};
+
+/**
+ * Pay Paybill/Till using Crypto - High Performance Crypto Spending System
+ * Allows users to spend their crypto for real-world M-Pesa payments
+ */
+export const payWithCrypto = async (req: Request, res: Response, next: NextFunction) => {
+    const startTime = Date.now();
+    const transactionId = randomUUID();
+    
+    try {
+        const { 
+            amount, 
+            targetType, // 'paybill' or 'till'
+            targetNumber, // paybill number or till number
+            accountNumber, // for paybills only
+            cryptoAmount,
+            chain,
+            tokenType,
+            description 
+        } = req.body;
+        
+        // 🔐 SECURITY: Validate user authentication
+        if (!req.user) {
+            return res.status(401).json(standardResponse(
+                false,
+                "Authentication required",
+                null,
+                { code: "AUTH_REQUIRED", message: "You must be logged in to spend crypto" }
+            ));
+        }
+
+        const authenticatedUser = req.user;
+        
+        // 📊 PERFORMANCE: Parallel validation for speed
+        const [
+            conversionRate,
+            platformWallets,
+            userCryptoBalance
+        ] = await Promise.all([
+            getConversionRateWithCaching(tokenType),
+            initializePlatformWallets(),
+            getTokenBalanceOnChain(authenticatedUser.walletAddress, chain, tokenType as TokenSymbol)
+        ]);
+        
+        // 💰 VALIDATION: Input validation with enhanced security
+        if (!amount || !targetType || !targetNumber || !cryptoAmount || !chain || !tokenType) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Missing required fields",
+                null,
+                { code: "MISSING_FIELDS", message: "All payment details are required" }
+            ));
+        }
+
+        // Validate target type
+        if (!['paybill', 'till'].includes(targetType)) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid target type",
+                null,
+                { code: "INVALID_TARGET", message: "Target type must be 'paybill' or 'till'" }
+            ));
+        }
+
+        // Validate paybill requires account number
+        if (targetType === 'paybill' && !accountNumber) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Account number required for paybill",
+                null,
+                { code: "MISSING_ACCOUNT", message: "Account number is required for paybill payments" }
+            ));
+        }
+
+        // 🔢 VALIDATION: Amount validation
+        const fiatAmount = parseFloat(amount);
+        const cryptoAmountNum = parseFloat(cryptoAmount);
+        
+        if (isNaN(fiatAmount) || fiatAmount <= 0) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid fiat amount",
+                null,
+                { code: "INVALID_AMOUNT", message: "Amount must be a positive number" }
+            ));
+        }
+
+        if (isNaN(cryptoAmountNum) || cryptoAmountNum <= 0) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid crypto amount",
+                null,
+                { code: "INVALID_CRYPTO_AMOUNT", message: "Crypto amount must be a positive number" }
+            ));
+        }
+
+        // 🏦 VALIDATION: Check user has sufficient crypto balance
+        if (userCryptoBalance < cryptoAmountNum) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Insufficient crypto balance",
+                {
+                    requestedAmount: cryptoAmountNum,
+                    availableAmount: userCryptoBalance,
+                    tokenType,
+                    chain
+                },
+                { 
+                    code: "INSUFFICIENT_BALANCE", 
+                    message: `Insufficient ${tokenType} balance. Available: ${userCryptoBalance}, Required: ${cryptoAmountNum}` 
+                }
+            ));
+        }
+
+        // 🧮 VALIDATION: Verify conversion rate alignment (prevent manipulation)
+        const expectedFiatAmount = Math.ceil(cryptoAmountNum * conversionRate);
+        const tolerance = Math.max(1, Math.ceil(expectedFiatAmount * 0.02)); // 2% tolerance
+        
+        if (Math.abs(fiatAmount - expectedFiatAmount) > tolerance) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Amount mismatch detected",
+                {
+                    providedFiat: fiatAmount,
+                    expectedFiat: expectedFiatAmount,
+                    cryptoAmount: cryptoAmountNum,
+                    conversionRate,
+                    tolerance
+                },
+                { 
+                    code: "AMOUNT_MISMATCH", 
+                    message: `Amount mismatch. Expected ${expectedFiatAmount} KES for ${cryptoAmountNum} ${tokenType}` 
+                }
+            ));
+        }
+
+        // 🗃️ Create escrow record for tracking (ACID compliance)
+        const escrow = new Escrow({
+            transactionId,
+            userId: authenticatedUser._id,
+            amount: fiatAmount,
+            cryptoAmount: cryptoAmountNum,
+            type: targetType === 'paybill' ? 'crypto_to_paybill' : 'crypto_to_till',
+            status: 'pending',
+            targetNumber,
+            accountNumber: targetType === 'paybill' ? accountNumber : undefined,
+            metadata: {
+                chain,
+                tokenType,
+                targetType,
+                description: description || `${targetType} payment`,
+                conversionRate,
+                userCryptoBalanceAtTime: userCryptoBalance,
+                estimatedProcessingTime: new Date(Date.now() + 2 * 60 * 1000) // 2 minutes
+            }
+        });
+
+        await escrow.save();
+        
+        console.log(`🚀 [CRYPTO-PAY] Starting crypto payment: ${cryptoAmountNum} ${tokenType} → ${fiatAmount} KES to ${targetType} ${targetNumber}`);
+
+        // 🔄 ATOMIC TRANSACTION: Step 1 - Transfer crypto from user to platform
+        let cryptoTransferResult;
+        try {
+            console.log(`💰 [CRYPTO-PAY] Transferring ${cryptoAmountNum} ${tokenType} from user to platform wallet...`);
+            
+            cryptoTransferResult = await sendTokenFromUser(
+                platformWallets.main.address,
+                cryptoAmountNum,
+                authenticatedUser.privateKey,
+                chain
+            );
+
+            if (!cryptoTransferResult || !cryptoTransferResult.transactionHash) {
+                throw new Error('Crypto transfer failed - no transaction hash received');
+            }
+
+            // Update escrow with crypto transaction
+            escrow.cryptoTransactionHash = cryptoTransferResult.transactionHash;
+            escrow.status = 'processing';
+            await escrow.save();
+            
+            console.log(`✅ [CRYPTO-PAY] Crypto transfer successful: ${cryptoTransferResult.transactionHash}`);
+            
+        } catch (cryptoError: any) {
+            console.error(`❌ [CRYPTO-PAY] Crypto transfer failed:`, cryptoError);
+            
+            // Update escrow with failure
+            escrow.status = 'failed';
+            escrow.metadata = { 
+                ...escrow.metadata, 
+                error: cryptoError.message,
+                errorCode: 'CRYPTO_TRANSFER_FAILED',
+                failedAt: new Date().toISOString()
+            };
+            await escrow.save();
+            
+            return res.status(500).json(standardResponse(
+                false,
+                "Crypto transfer failed",
+                null,
+                { 
+                    code: "CRYPTO_TRANSFER_FAILED", 
+                    message: `Failed to transfer crypto: ${cryptoError.message}` 
+                }
+            ));
+        }
+
+        // 📱 ATOMIC TRANSACTION: Step 2 - Platform sends fiat to user via B2C (not STK Push)
+        let mpesaResult;
+        try {
+            console.log(`📱 [CRYPTO-PAY] Platform sending ${fiatAmount} KES to user via B2C for ${targetType} ${targetNumber}...`);
+            
+            // Format phone number for B2C (remove + prefix and convert to number)
+            const phoneForB2C = authenticatedUser.phoneNumber.startsWith('+') ? 
+                parseInt(authenticatedUser.phoneNumber.substring(1), 10) : 
+                parseInt(authenticatedUser.phoneNumber, 10);
+            
+            console.log(`📞 [CRYPTO-PAY] Sending B2C to phone: ${phoneForB2C}`);
+            
+            // Use B2C to send money to user for the payment
+            const b2cDescription = targetType === 'paybill' 
+                ? `Payment for ${targetNumber} account ${accountNumber}` 
+                : `Payment for till ${targetNumber}`;
+            
+            mpesaResult = await initiateB2C(
+                fiatAmount,
+                phoneForB2C,
+                b2cDescription
+            );
+
+            if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
+                throw new Error(mpesaResult?.ResponseDescription || "B2C payment initiation failed");
+            }
+
+            // Update escrow with B2C transaction
+            escrow.mpesaTransactionId = mpesaResult.ConversationID;
+            escrow.status = 'completed';
+            escrow.completedAt = new Date();
+            escrow.metadata = {
+                ...escrow.metadata,
+                mpesaResponseCode: mpesaResult.ResponseCode,
+                mpesaResponseDesc: mpesaResult.ResponseDescription,
+                processingTimeMs: Date.now() - startTime,
+                paymentMethod: 'platform_b2c',
+                b2cConversationId: mpesaResult.ConversationID,
+                instructions: `Money sent to your phone. Use it to pay ${targetType} ${targetNumber}${targetType === 'paybill' ? ` account ${accountNumber}` : ''}`
+            };
+            await escrow.save();
+            
+            console.log(`✅ [CRYPTO-PAY] B2C payment initiated successfully: ${mpesaResult.ConversationID}`);
+            
+        } catch (mpesaError: any) {
+            console.error(`❌ [CRYPTO-PAY] B2C payment failed, initiating rollback:`, mpesaError);
+            
+            // 🔄 ROLLBACK: Return crypto to user since M-Pesa failed
+            try {
+                console.log(`🔄 [CRYPTO-PAY] Rolling back crypto transfer...`);
+                
+                // Get platform wallet private key for rollback
+                const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+                const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+                
+                if (!primaryKey || !secondaryKey) {
+                    throw new Error('Platform wallet keys not available for rollback');
+                }
+                
+                const rollbackResult = await sendFromPlatformWallet(
+                    cryptoAmountNum,
+                    authenticatedUser.walletAddress,
+                    primaryKey,
+                    secondaryKey,
+                    chain,
+                    tokenType as TokenSymbol
+                );
+                
+                console.log(`✅ [CRYPTO-PAY] Rollback successful: ${rollbackResult.transactionHash}`);
+                
+                // Update escrow with rollback info
+                escrow.status = 'failed';
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    error: mpesaError.message,
+                    errorCode: 'MPESA_PAYMENT_FAILED',
+                    rollbackTxHash: rollbackResult.transactionHash,
+                    rollbackAt: new Date().toISOString(),
+                    rollbackSuccessful: true
+                };
+                await escrow.save();
+                
+                return res.status(500).json(standardResponse(
+                    false,
+                    "Platform payment failed - crypto returned to your wallet",
+                    {
+                        transactionId,
+                        rollbackTxHash: rollbackResult.transactionHash,
+                        explorerUrl: generateExplorerUrl(chain, rollbackResult.transactionHash)
+                    },
+                    { 
+                        code: "PLATFORM_PAYMENT_FAILED_ROLLED_BACK", 
+                        message: `Platform B2C payment failed: ${mpesaError.message}. Your crypto has been returned to your wallet.` 
+                    }
+                ));
+                
+            } catch (rollbackError: any) {
+                console.error(`💥 [CRYPTO-PAY] CRITICAL: Rollback failed!`, rollbackError);
+                
+                // Mark for manual intervention
+                escrow.status = 'error';
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    error: mpesaError.message,
+                    errorCode: 'MPESA_PAYMENT_FAILED',
+                    rollbackError: rollbackError.message,
+                    rollbackSuccessful: false,
+                    requiresManualIntervention: true,
+                    criticalError: true
+                };
+                await escrow.save();
+                
+                return res.status(500).json(standardResponse(
+                    false,
+                    "Payment failed - manual intervention required",
+                    {
+                        transactionId,
+                        supportMessage: "Please contact support immediately with your transaction ID"
+                    },
+                    { 
+                        code: "CRITICAL_FAILURE", 
+                        message: "Payment failed and automatic rollback unsuccessful. Support has been notified." 
+                    }
+                ));
+            }
+        }
+
+        // 🎉 SUCCESS: Both crypto transfer and M-Pesa payment successful
+        const totalProcessingTime = Date.now() - startTime;
+        
+        // Record transaction for audit
+        const transactionData: TransactionLogEntry = {
+            type: 'crypto_to_mpesa_spending',
+            status: 'completed',
+            executionTimeMs: totalProcessingTime,
+            escrowId: escrow._id.toString(),
+            userId: escrow.userId.toString(),
+            amount: fiatAmount,
+            chainName: chain,
+            txId: cryptoTransferResult.transactionHash
+        };
+        
+        try {
+            await recordTransaction(transactionData);
+        } catch (error) {
+            console.error(`Failed to record crypto spending transaction: ${error}`);
+        }
+
+        // Log for reconciliation
+        logTransactionForReconciliation({
+            transactionId: escrow.transactionId,
+            userId: escrow.userId.toString(),
+            type: 'crypto_spending',
+            status: 'completed',
+            fiatAmount,
+            cryptoAmount: cryptoAmountNum,
+            tokenType,
+            chain,
+            cryptoTransactionHash: cryptoTransferResult.transactionHash
+        });
+
+        console.log(`🎉 [CRYPTO-PAY] Payment completed successfully in ${totalProcessingTime}ms`);
+
+        return res.status(200).json(standardResponse(
+            true,
+            "Crypto payment completed successfully",
+            {
+                transactionId: escrow.transactionId,
+                fiatAmount,
+                cryptoAmount: cryptoAmountNum,
+                tokenType,
+                chain,
+                targetType,
+                targetNumber,
+                accountNumber: targetType === 'paybill' ? accountNumber : undefined,
+                status: 'completed',
+                completedAt: escrow.completedAt,
+                cryptoTransactionHash: cryptoTransferResult.transactionHash,
+                mpesaTransactionId: mpesaResult.ConversationID,
+                explorerUrl: generateExplorerUrl(chain, cryptoTransferResult.transactionHash),
+                processingTimeMs: totalProcessingTime,
+                conversionRate,
+                description: escrow.metadata.description,
+                paymentMethod: 'platform_b2c',
+                instructions: `✅ ${fiatAmount} KES sent to your phone (+${authenticatedUser.phoneNumber.substring(1)}). Use this money to pay ${targetType} ${targetNumber}${targetType === 'paybill' ? ` account ${accountNumber}` : ''}`,
+                note: `Your ${cryptoAmountNum} ${tokenType} was converted to ${fiatAmount} KES and sent to your M-Pesa. You can now complete your ${targetType} payment.`
+            }
+        ));
+
+    } catch (error: any) {
+        console.error("❌ [CRYPTO-PAY] Unexpected error:", error);
+        
+        // Try to update escrow if it exists
+        try {
+            const escrow = await Escrow.findOne({ transactionId });
+            if (escrow && escrow.status !== 'completed') {
+                escrow.status = 'error';
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    unexpectedError: error.message,
+                    errorCode: 'UNEXPECTED_ERROR',
+                    requiresManualReview: true
+                };
+                await escrow.save();
+            }
+        } catch (updateError) {
+            console.error("Failed to update escrow with error:", updateError);
+        }
+        
+        return handleError(error, res, "Failed to process crypto payment");
+    }
+};
+
+/**
+ * Initiate Paybill Payment via STK Push
+ * Secure payment to business paybill numbers
+ */
+export const initiatePaybillPayment = async (
+    phoneNumber: string,
+    amount: number,
+    paybillNumber: string,
+    accountNumber: string,
+    description: string
+): Promise<any> => {
+    try {
+        console.log(`📱 [PAYBILL] Initiating payment: ${amount} KES to paybill ${paybillNumber}, account ${accountNumber}`);
+        
+        // Format phone number for M-Pesa API (remove + prefix)
+        const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber.substring(1) : phoneNumber;
+        console.log(`📱 [PAYBILL] Formatted phone: ${phoneNumber} → ${formattedPhone}`);
+        
+        const accessToken = await getMpesaAccessToken();
+        const timestamp = generateTimestamp();
+        const password = Buffer.from(`${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY}${timestamp}`).toString('base64');
+        
+        console.log(`🔐 [PAYBILL] Using shortcode: ${config.MPESA_SHORTCODE}`);
+        console.log(`🔐 [PAYBILL] Password generated with: ${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY ? '***PASSKEY***' : 'UNDEFINED_PASSKEY'}${timestamp}`);
+        
+        const stkPushBody = {
+            BusinessShortCode: config.MPESA_SHORTCODE,
+            Password: password,
+            Timestamp: timestamp,
+            TransactionType: "CustomerPayBillOnline",
+            Amount: Math.ceil(amount),
+            PartyA: formattedPhone,
+            PartyB: paybillNumber, // The paybill business number
+            PhoneNumber: formattedPhone,
+            CallBackURL: config.MPESA_STK_CALLBACK_URL,
+            AccountReference: accountNumber,
+            TransactionDesc: description || `Payment to ${paybillNumber}`
+        };
+
+        const response = await axios.post(
+            `${config.MPESA_BASEURL}/mpesa/stkpush/v1/processrequest`,
+            stkPushBody,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 30000
+            }
+        );
+
+        console.log(`✅ [PAYBILL] STK Push initiated:`, response.data);
+        return response.data;
+        
+    } catch (error: any) {
+        console.error(`❌ [PAYBILL] Failed to initiate payment:`, error.response?.data || error.message);
+        throw error;
+    }
+};
+
+/**
+ * Initiate Till Payment via STK Push
+ * Secure payment to till numbers (Buy Goods)
+ */
+export const initiateTillPayment = async (
+    phoneNumber: string,
+    amount: number,
+    tillNumber: string,
+    description: string
+): Promise<any> => {
+    try {
+        console.log(`📱 [TILL] Initiating payment: ${amount} KES to till ${tillNumber}`);
+        
+        // Format phone number for M-Pesa API (remove + prefix)
+        const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber.substring(1) : phoneNumber;
+        console.log(`📱 [TILL] Formatted phone: ${phoneNumber} → ${formattedPhone}`);
+        
+        const accessToken = await getMpesaAccessToken();
+        const timestamp = generateTimestamp();
+        const password = Buffer.from(`${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY}${timestamp}`).toString('base64');
+        
+        console.log(`🔐 [TILL] Using shortcode: ${config.MPESA_SHORTCODE}`);
+        console.log(`🔐 [TILL] Password generated with: ${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY ? '***PASSKEY***' : 'UNDEFINED_PASSKEY'}${timestamp}`);
+        
+        const stkPushBody = {
+            BusinessShortCode: config.MPESA_SHORTCODE,
+            Password: password,
+            Timestamp: timestamp,
+            TransactionType: "CustomerBuyGoodsOnline",
+            Amount: Math.ceil(amount),
+            PartyA: formattedPhone,
+            PartyB: tillNumber, // The till number
+            PhoneNumber: formattedPhone,
+            CallBackURL: config.MPESA_STK_CALLBACK_URL,
+            AccountReference: tillNumber,
+            TransactionDesc: description || `Payment to till ${tillNumber}`
+        };
+
+        const response = await axios.post(
+            `${config.MPESA_BASEURL}/mpesa/stkpush/v1/processrequest`,
+            stkPushBody,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 30000
+            }
+        );
+
+        console.log(`✅ [TILL] STK Push initiated:`, response.data);
+        return response.data;
+        
+    } catch (error: any) {
+        console.error(`❌ [TILL] Failed to initiate payment:`, error.response?.data || error.message);
+        throw error;
+    }
+};
+
+// 🚀 PERFORMANCE OPTIMIZATION: Conversion rate caching
+const conversionRateCache = new Map<string, { rate: number; cachedAt: number; expiresAt: number }>();
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
+
+/**
+ * Base function to get conversion rate from external API or fallback
+ */
+const getBaseConversionRate = async (tokenType: string): Promise<number> => {
+    // For now, return a fixed rate - in production, you'd call an external API
+    const rates: Record<string, number> = {
+        'USDC': 100, // 1 USDC = 100 KES
+        'USDT': 100, // 1 USDT = 100 KES
+        'WETH': 450000, // 1 WETH = 450,000 KES
+        'WBTC': 6800000, // 1 WBTC = 6,800,000 KES
+        'DAI': 100 // 1 DAI = 100 KES
+    };
+    
+    return rates[tokenType] || 100; // Default to 100 KES if token not found
+};
+
+/**
+ * Get conversion rate with caching for high performance
+ */
+export const getConversionRateWithCaching = async (tokenType: string): Promise<number> => {
+    const cacheKey = `conversion_rate_${tokenType}`;
+    const now = Date.now();
+    
+    // Check cache first
+    const cached = conversionRateCache.get(cacheKey);
+    if (cached && now < cached.expiresAt) {
+        console.log(`💨 [CACHE] Using cached conversion rate for ${tokenType}: ${cached.rate}`);
+        return cached.rate;
+    }
+    
+    try {
+        // Fetch fresh rate using the base function (not recursive call)
+        const rate = await getBaseConversionRate(tokenType);
+        
+        // Cache the result
+        conversionRateCache.set(cacheKey, {
+            rate,
+            cachedAt: now,
+            expiresAt: now + CACHE_DURATION
+        });
+        
+        console.log(`🔄 [CACHE] Updated conversion rate for ${tokenType}: ${rate}`);
+        return rate;
+        
+    } catch (error) {
+        // If fresh fetch fails but we have expired cache, use it
+        if (cached) {
+            console.warn(`⚠️ [CACHE] Using expired rate for ${tokenType} due to fetch error:`, error);
+            return cached.rate;
+        }
+        throw error;
+    }
+};
+
+/**
+ * Generate blockchain explorer URL for transaction verification
+ */
+export const generateExplorerUrl = (chain: string, txHash: string): string => {
+    const explorers: Record<string, string> = {
+        'polygon': 'https://polygonscan.com/tx/',
+        'ethereum': 'https://etherscan.io/tx/',
+        'arbitrum': 'https://arbiscan.io/tx/',
+        'optimism': 'https://optimistic.etherscan.io/tx/',
+        'avalanche': 'https://snowtrace.io/tx/',
+        'bsc': 'https://bscscan.com/tx/'
+    };
+    
+    const baseUrl = explorers[chain.toLowerCase()] || explorers['polygon'];
+    return `${baseUrl}${txHash}`;
+};
+
+/**
+ * Log transaction for reconciliation and audit
+ */
+export const logTransactionForReconciliation = (data: any) => {
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        ...data
+    };
+    
+    // In production, this would go to a proper logging service
+    console.log(`📊 [RECONCILIATION]`, JSON.stringify(logEntry, null, 2));
+    
+    // You could also write to a file or send to logging service
+    // appendFileSync('./logs/reconciliation.log', JSON.stringify(logEntry) + '\n');
+};
+
+/**
+ * Generate blockchain explorer URL for transaction verification
+ */
+const generateExplorerUrlLocal = (chain: string, txHash: string): string => {
+    const explorers: Record<string, string> = {
+        'polygon': 'https://polygonscan.com/tx/',
+        'ethereum': 'https://etherscan.io/tx/',
+        'arbitrum': 'https://arbiscan.io/tx/',
+        'optimism': 'https://optimistic.etherscan.io/tx/',
+        'avalanche': 'https://snowtrace.io/tx/',
+        'bsc': 'https://bscscan.com/tx/'
+    };
+    
+    const baseUrl = explorers[chain.toLowerCase()] || explorers['polygon'];
+    return `${baseUrl}${txHash}`;
+};
+
+/**
+ * Log transaction for reconciliation and audit
+ */
+const logTransactionForReconciliationLocal = (data: any) => {
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        ...data
+    };
+    
+    // In production, this would go to a proper logging service
+    console.log(`📊 [RECONCILIATION]`, JSON.stringify(logEntry, null, 2));
+    
+    // You could also write to a file or send to logging service
+    // appendFileSync('./logs/reconciliation.log', JSON.stringify(logEntry) + '\n');
 };

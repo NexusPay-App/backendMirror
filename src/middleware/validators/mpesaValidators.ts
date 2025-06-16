@@ -187,4 +187,89 @@ export const manualReceiptValidation = [
     .withMessage('Transaction ID is required')
     .isUUID()
     .withMessage('Transaction ID must be a valid UUID')
+];
+
+/**
+ * Validation rules for crypto spending (pay paybills/tills with crypto)
+ */
+export const validateCryptoSpending = [
+  body('amount')
+    .notEmpty()
+    .withMessage('Fiat amount is required')
+    .isNumeric()
+    .withMessage('Amount must be a valid number')
+    .custom((value) => {
+      const amount = parseFloat(value);
+      if (amount <= 0) {
+        throw new Error('Amount must be greater than 0');
+      }
+      if (amount > 150000) {
+        throw new Error('Amount must not exceed 150,000 KES (M-Pesa limit)');
+      }
+      return true;
+    }),
+    
+  body('cryptoAmount')
+    .notEmpty()
+    .withMessage('Crypto amount is required')
+    .isNumeric()
+    .withMessage('Crypto amount must be a valid number')
+    .custom((value) => {
+      const amount = parseFloat(value);
+      if (amount <= 0) {
+        throw new Error('Crypto amount must be greater than 0');
+      }
+      return true;
+    }),
+    
+  body('targetType')
+    .notEmpty()
+    .withMessage('Target type is required')
+    .isString()
+    .withMessage('Target type must be a string')
+    .isIn(['paybill', 'till'])
+    .withMessage('Target type must be either "paybill" or "till"'),
+    
+  body('targetNumber')
+    .notEmpty()
+    .withMessage('Target number is required')
+    .isNumeric()
+    .withMessage('Target number must contain only digits')
+    .isLength({ min: 5, max: 7 })
+    .withMessage('Target number must be 5-7 digits'),
+    
+  body('accountNumber')
+    .optional()
+    .isString()
+    .withMessage('Account number must be a string')
+    .custom((value, { req }) => {
+      // Account number is required for paybills
+      if (req.body.targetType === 'paybill' && !value) {
+        throw new Error('Account number is required for paybill payments');
+      }
+      return true;
+    }),
+    
+  body('chain')
+    .notEmpty()
+    .withMessage('Chain is required')
+    .isString()
+    .withMessage('Chain must be a string')
+    .isIn(['celo', 'polygon', 'base', 'optimism', 'bnb', 'ethereum', 'arbitrum'])
+    .withMessage('Unsupported blockchain selected. Choose one of: celo, polygon, base, optimism, bnb, ethereum, arbitrum'),
+    
+  body('tokenType')
+    .notEmpty()
+    .withMessage('Token type is required')
+    .isString()
+    .withMessage('Token type must be a string')
+    .isIn(['USDC', 'USDT', 'BTC', 'ETH'])
+    .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH'),
+    
+  body('description')
+    .optional()
+    .isString()
+    .withMessage('Description must be a string')
+    .isLength({ max: 100 })
+    .withMessage('Description must not exceed 100 characters')
 ]; 

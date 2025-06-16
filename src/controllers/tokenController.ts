@@ -1,410 +1,14 @@
-
-// import { Request, Response } from 'express';
-// import { User } from '../models/models';
-// import { Business } from '../models/businessModel';
-// import { ethers } from 'ethers';
-// import { africastalking } from '../services/auth';
-// import { sendToken } from '../services/token';
-// import { Chain } from '../types/token';
-// import { getAllTokenTransferEvents } from '../services/token';
-
-// // export const send = async (req: Request, res: Response) => {
-// //     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
-// //     if (!recipientIdentifier || !amount || !senderAddress || !chain) {
-// //         return res.status(400).send({ message: "Required parameters are missing!" });
-// //     }
-// //     console.log(`${amount}, ${senderAddress}, ${recipientIdentifier}, ${chain}`)
-// //     let recipientAddress = recipientIdentifier;
-// //     let recipientPhone = '';
-// //     if (!ethers.utils.isAddress(recipientIdentifier)) {
-// //         const user = await User.findOne({ phoneNumber: recipientIdentifier });
-// //         if (!user) {
-// //             return res.status(404).send({ message: "Recipient not found!" });
-// //         }
-// //         if (chain === 'celo' || chain == "arbitrum") {
-// //             recipientAddress = user.walletAddress;
-// //         } else {
-// //             return res.status(400).send({ message: "Unsupported chain!" });
-// //         }
-// //         recipientPhone = user.phoneNumber;
-// //     }
-
-// //     let sender
-
-// //     try {
-// //         if (chain === 'celo' || chain == 'arbitrum') {
-// //             sender = await User.findOne({ walletAddress: senderAddress });
-// //         }
-// //         else {
-// //             return res.status(400).send({ message: "Unsupported chain!" });
-// //         }
-// //         console.log("sender: ", sender)
-// //         await sendToken(recipientAddress, amount, chain, sender?.privateKey as string);
-// //         // Retrieve the sender's phone number from the database
-// //         const senderPhone = sender ? sender.phoneNumber : '';
-
-// //         // Generate the current date and time in Kenyan timezone
-// //         const formatter = new Intl.DateTimeFormat('en-KE', {
-// //             month: 'numeric',
-// //             day: 'numeric',
-// //             year: '2-digit',
-// //             hour: 'numeric',
-// //             minute: 'numeric',
-// //             second: 'numeric',
-// //             hour12: true,
-// //             timeZone: 'Africa/Nairobi'
-// //         });
-// //         const currentDateTime = formatter.format(new Date());
-
-// //         // Generate a pseudo-unique transaction code
-// //         const transactionCode = Math.random().toString(36).substring(2, 12);
-
-// //         // Format the amount for display
-// //         const amountDisplay = `${amount} USDC`;
-
-// //         // Compose SMS messages following the requested structure
-// //         const recipientMessage = `${transactionCode} Confirmed. ${amountDisplay} Received from ${senderPhone} on ${currentDateTime}.`;
-// //         const senderMessage = `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone} on ${currentDateTime}.`;
-
-// //         // Send SMS messages to both sender and recipient
-// //         if (senderPhone) {
-// //             await africastalking.SMS.send({
-// //                 to: senderPhone,
-// //                 message: senderMessage,
-// //                 from: 'NEXUSPAY'
-// //             });
-// //             console.log("sending to sender phone: ", senderPhone)
-// //         }
-
-// //         if (recipientPhone) {
-// //             await africastalking.SMS.send({
-// //                 to: recipientPhone,
-// //                 message: recipientMessage,
-// //                 from: 'NEXUSPAY'
-// //             });
-// //         }
-
-// //         res.send({ message: 'Token sent successfully and SMS notifications delivered!' });
-// //     } catch (error) {
-// //         console.error("Error in send API:", error);
-// //         res.status(500).send({ message: 'Failed to send token or SMS notifications.', error: error });
-// //     }
-// // };
-
-
-// export const send = async (req: Request, res: Response) => {
-//     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
-//     if (!recipientIdentifier || !amount || !senderAddress || !chain) {
-//         return res.status(400).send({ message: "Required parameters are missing!" });
-//     }
-    
-//     console.log("Received request:", { amount, senderAddress, recipientIdentifier, chain });
-
-//     let recipientAddress = recipientIdentifier;
-//     let recipientPhone = '';
-
-//     try {
-//         // Find sender first
-//         const sender = await User.findOne({ walletAddress: senderAddress });
-//         if (!sender) {
-//             console.error("Sender not found for address:", senderAddress);
-//             return res.status(404).send({ message: "Sender wallet not found!" });
-//         }
-
-//         // If recipient is a phone number, get their wallet address
-//         if (!ethers.utils.isAddress(recipientIdentifier)) {
-//             const recipient = await User.findOne({ phoneNumber: recipientIdentifier });
-//             if (!recipient) {
-//                 return res.status(404).send({ message: "Recipient not found!" });
-//             }
-//             recipientAddress = recipient.walletAddress;
-//             recipientPhone = recipient.phoneNumber;
-//         }
-
-//         // Validate chain
-//         if (chain !== 'celo' && chain !== 'arbitrum') {
-//             return res.status(400).send({ message: "Unsupported chain!" });
-//         }
-
-//         console.log("Sending token with params:", {
-//             recipientAddress,
-//             amount,
-//             chain,
-//             senderPrivateKey: sender.privateKey ? "exists" : "missing"
-//         });
-
-//         // Send the token
-//         await sendToken(recipientAddress, amount, chain, sender.privateKey);
-
-//         // Send SMS notifications
-//         const currentDateTime = new Date().toLocaleString('en-KE', {
-//             timeZone: 'Africa/Nairobi'
-//         });
-//         const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase();
-//         const amountDisplay = `${amount} USDC`;
-
-//         // Send SMS to recipient if we have their phone number
-//         if (recipientPhone) {
-//             await africastalking.SMS.send({
-//                 to: recipientPhone,
-//                 message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber} on ${currentDateTime}`,
-//                 from: 'NEXUSPAY'
-//             });
-//         }
-
-//         // Send SMS to sender
-//         await africastalking.SMS.send({
-//             to: sender.phoneNumber,
-//             message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone || recipientAddress} on ${currentDateTime}`,
-//             from: 'NEXUSPAY'
-//         });
-
-//         res.send({ 
-//             message: 'Token sent successfully!',
-//             transactionCode,
-//             amount: amountDisplay,
-//             recipient: recipientPhone || recipientAddress,
-//             timestamp: currentDateTime
-//         });
-
-//     } catch (error: any) { // Type the error as any
-//         console.error("Error in send API:", error);
-//         res.status(500).send({ 
-//             message: 'Failed to send token.', 
-//             error: error?.message || 'Unknown error occurred'
-//         });
-//     }
-// };
-
-
-// export const pay = async (req: Request, res: Response) => {
-//     const { senderAddress, businessUniqueCode, amount, confirm, chainName } = req.body;
-//     if (!businessUniqueCode || !amount || !senderAddress) {
-//         return res.status(400).send({ message: "Required parameters are missing!" });
-//     }
-
-//     let sender = await User.findOne({ walletAddress: senderAddress });
-//     const business = await Business.findOne({ uniqueCode: businessUniqueCode });
-//     if (!business) {
-//         return res.status(404).send({ message: "Business not found!" });
-//     }
-
-//     if (!confirm) {
-//         return res.status(200).send({
-//             message: "Please confirm the payment to the business.",
-//             businessName: business.businessName
-//         });
-//     }
-
-//     try {
-//         await sendToken(business.walletAddress, amount, chainName, sender?.privateKey as string)
-//         res.send({ message: 'Token sent successfully to the business!', paid: true });
-//     } catch (error) {
-//         console.error("Error in pay API:", error);
-//         res.status(500).send({ message: 'Failed to send token.', error: error });
-//     }
-// };
-
-
-// export const tokenTransferEvents = async (req: Request, res: Response) => {
-//     const { address, chain } = req.query;
-
-//     if (!address) {
-//         return res.status(400).send('Address is required as a query parameter.');
-//     }
-
-//     if (!chain) {
-//         return res.status(400).send('Chain is required as a query parameter.');
-//     }
-
-//     if (!['arbitrum', 'celo'].includes(chain as string)) {
-//         return res.status(400).send('Invalid chain parameter. Supported chains are arbitrum and celo.');
-//     }
-
-//     try {
-//         const events = await getAllTokenTransferEvents(chain as Chain, address as string);
-//         res.json(events);
-//     } catch (error) {
-//         console.error('Error fetching token transfer events:', error);
-//         res.status(500).send({ message: 'Internal server error', error: error });
-//     }
-// };
-
-//################ old Code #####################
-
-// import { Request, Response } from 'express';
-// import { User } from '../models/models';
-// import { Business } from '../models/businessModel';
-// import { ethers } from 'ethers';
-// import { africastalking } from '../services/auth';
-// import { sendToken, getAllTokenTransferEvents } from '../services/token';
-// import { Chain } from '../types/token';
-
-// export const send = async (req: Request, res: Response) => {
-//     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
-//     if (!recipientIdentifier || !amount || !senderAddress || !chain) {
-//         return res.status(400).send({ message: "Required parameters are missing!" });
-//     }
-    
-//     console.log("Received request:", { amount, senderAddress, recipientIdentifier, chain });
-
-//     let recipientAddress = recipientIdentifier;
-//     let recipientPhone = '';
-
-//     try {
-//         const sender = await User.findOne({ walletAddress: senderAddress });
-//         if (!sender) {
-//             console.error("Sender not found for address:", senderAddress);
-//             return res.status(404).send({ message: "Sender wallet not found!" });
-//         }
-
-//         if (!ethers.utils.isAddress(recipientIdentifier)) {
-//             const recipient = await User.findOne({ phoneNumber: recipientIdentifier });
-//             if (!recipient) {
-//                 return res.status(404).send({ message: "Recipient not found!" });
-//             }
-//             recipientAddress = recipient.walletAddress;
-//             recipientPhone = recipient.phoneNumber;
-//         }
-
-//         if (chain !== 'celo' && chain !== 'arbitrum') {
-//             return res.status(400).send({ message: "Unsupported chain!" });
-//         }
-
-//         console.log("Sending token with params:", {
-//             recipientAddress,
-//             amount,
-//             chain,
-//             senderPrivateKey: sender.privateKey ? "exists" : "missing"
-//         });
-
-//         if (!sender.privateKey) {
-//             return res.status(400).send({ message: "Sender private key not found in database!" });
-//         }
-
-//         const result = await sendToken(recipientAddress, amount, chain, sender.privateKey);
-
-//         const currentDateTime = new Date().toLocaleString('en-KE', {
-//             timeZone: 'Africa/Nairobi'
-//         });
-//         const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase();
-//         const amountDisplay = `${amount} USDC`;
-
-//         if (recipientPhone) {
-//             await africastalking.SMS.send({
-//                 to: recipientPhone,
-//                 message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber} on ${currentDateTime}`,
-//                 from: 'NEXUSPAY'
-//             });
-//         }
-
-//         await africastalking.SMS.send({
-//             to: sender.phoneNumber,
-//             message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone || recipientAddress} on ${currentDateTime}`,
-//             from: 'NEXUSPAY'
-//         });
-
-//         res.send({ 
-//             message: 'Token sent successfully!',
-//             transactionCode,
-//             amount: amountDisplay,
-//             recipient: recipientPhone || recipientAddress,
-//             timestamp: currentDateTime,
-//             transactionHash: result.transactionHash
-//         });
-
-//     } catch (error: any) {
-//         console.error("Error in send API:", error);
-//         res.status(500).send({ 
-//             message: 'Failed to send token.', 
-//             error: error.message || 'Unknown error occurred'
-//         });
-//     }
-// };
-
-// export const pay = async (req: Request, res: Response) => {
-//     const { senderAddress, businessUniqueCode, amount, confirm, chain } = req.body;
-//     if (!businessUniqueCode || !amount || !senderAddress) {
-//         return res.status(400).send({ message: "Required parameters are missing!" });
-//     }
-
-//     const sender = await User.findOne({ walletAddress: senderAddress });
-//     const business = await Business.findOne({ uniqueCode: businessUniqueCode });
-//     if (!business) {
-//         return res.status(404).send({ message: "Business not found!" });
-//     }
-//     if (!sender) {
-//         return res.status(404).send({ message: "Sender not found!" });
-//     }
-
-//     if (!confirm) {
-//         return res.status(200).send({
-//             message: "Please confirm the payment to the business.",
-//             businessName: business.businessName
-//         });
-//     }
-
-//     try {
-//         if (!sender.privateKey) {
-//             return res.status(400).send({ message: "Sender private key not found in database!" });
-//         }
-
-//         const result = await sendToken(business.walletAddress, amount, chain || 'celo', sender.privateKey);
-//         res.send({ 
-//             message: 'Token sent successfully to the business!', 
-//             paid: true, 
-//             transactionHash: result.transactionHash 
-//         });
-//     } catch (error: any) {
-//         console.error("Error in pay API:", error);
-//         res.status(500).send({ 
-//             message: 'Failed to send token.', 
-//             error: error.message || 'Unknown error occurred' 
-//         });
-//     }
-// };
-
-// export const tokenTransferEvents = async (req: Request, res: Response) => {
-//     const { address, chain } = req.query;
-
-//     if (!address) {
-//         return res.status(400).send('Address is required as a query parameter.');
-//     }
-
-//     if (!chain) {
-//         return res.status(400).send('Chain is required as a query parameter.');
-//     }
-
-//     if (!['arbitrum', 'celo'].includes(chain as string)) {
-//         return res.status(400).send('Invalid chain parameter. Supported chains are arbitrum and celo.');
-//     }
-
-//     try {
-//         const events = await getAllTokenTransferEvents(chain as Chain, address as string);
-//         res.json(events);
-//     } catch (error: any) {
-//         console.error('Error fetching token transfer events:', error);
-//         res.status(500).send({ 
-//             message: 'Internal server error', 
-//             error: error.message || 'Unknown error occurred' 
-//         });
-//     }
-// };
-
-
-//################ new Code for Migrations #####################
-
 import { Request, Response } from 'express';
 import { User } from '../models/models';
 import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
 import { africastalking, client } from '../services/auth';
-import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets } from '../services/token';
-import { Chain } from '../types/token';
+import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
 import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
 import { defineChain, getContract, readContract } from "thirdweb";
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
+import { getTokenConfig } from '../config/tokens';
 
 export const send = async (req: Request, res: Response) => {
     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
@@ -495,16 +99,16 @@ export const send = async (req: Request, res: Response) => {
 };
 
 export const pay = async (req: Request, res: Response) => {
-    const { senderAddress, businessUniqueCode, amount, confirm, chain } = req.body;
-    if (!businessUniqueCode || !amount || !senderAddress) {
+    const { senderAddress, merchantId, amount, confirm, chainName, tokenSymbol = 'USDC' } = req.body;
+    if (!merchantId || !amount || !senderAddress || !chainName) {
         console.log("Pay request failed: Missing required parameters");
         return res.status(400).send({ message: "Required parameters are missing!" });
     }
 
     const sender = await User.findOne({ walletAddress: senderAddress });
-    const business = await Business.findOne({ uniqueCode: businessUniqueCode });
+    const business = await Business.findOne({ merchantId });
     if (!business) {
-        console.log("Business not found for uniqueCode:", businessUniqueCode);
+        console.log("Business not found for merchantId:", merchantId);
         return res.status(404).send({ message: "Business not found!" });
     }
     if (!sender) {
@@ -513,7 +117,7 @@ export const pay = async (req: Request, res: Response) => {
     }
 
     if (!confirm) {
-        console.log("Payment confirmation required for:", businessUniqueCode);
+        console.log("Payment confirmation required for:", merchantId);
         return res.status(200).send({
             message: "Please confirm the payment to the business.",
             businessName: business.businessName
@@ -526,7 +130,14 @@ export const pay = async (req: Request, res: Response) => {
             return res.status(400).send({ message: "Sender private key not found in database!" });
         }
 
-        const result = await sendToken(business.walletAddress, amount, chain || 'celo', sender.privateKey);
+        const result = await sendToken(
+            business.walletAddress, 
+            amount, 
+            chainName, 
+            sender.privateKey,
+            'USDC' // Always use USDC for now
+        );
+
         console.log(`Payment successful to ${business.walletAddress}: ${result.transactionHash}`);
         res.send({ 
             message: 'Token sent successfully to the business!', 
@@ -917,5 +528,4 @@ export const getWallet = async (req: Request, res: Response) => {
         });
     }
 };
-//################ end new Code for Migrations #####################
 

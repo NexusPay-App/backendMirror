@@ -12,6 +12,10 @@ import tokenRoutes from './routes/tokenRoutes';
 import usdcRoutes from './routes/usdcRoutes';
 import mpesaRoutes from './routes/mpesaRoutes';
 import adminRoutes from './routes/adminRoutes';
+import transactionRoutes from './routes/transactionRoutes';
+import liquidityRoutes from './routes/liquidityRoutes';
+import rampRoutes from './routes/rampRoutes';
+import platformWalletRoutes from './routes/platformWalletRoutes';
 import { connect } from './services/database';
 import { Verification } from './models/verificationModel';
 import { client, africastalking } from './services/auth';
@@ -34,14 +38,40 @@ if (allowedOrigins.length === 0) {
     }
 }
 
+// Debug logging for CORS
+console.log('🔍 NODE_ENV:', process.env.NODE_ENV);
+console.log('🔍 ALLOWED_ORIGINS from env:', process.env.ALLOWED_ORIGINS);
+console.log('🔍 Final allowed origins:', allowedOrigins);
+
 // CORS middleware
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    console.log('🔍 Incoming request origin:', origin);
+    console.log('🔍 Checking against allowed origins:', allowedOrigins);
+    
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) {
+      console.log('✅ Origin allowed: no origin (same-origin or mobile app)');
+      return callback(null, true);
     }
+    
+    // Check exact matches first
+    if (allowedOrigins.includes(origin)) {
+      console.log('✅ Origin allowed (exact match):', origin);
+      return callback(null, true);
+    }
+    
+    // In development, also allow local network IPs on port 3000
+    if (process.env.NODE_ENV === 'development') {
+      const isLocalNetwork = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):3000$/.test(origin);
+      if (isLocalNetwork) {
+        console.log('✅ Origin allowed (local network):', origin);
+        return callback(null, true);
+      }
+    }
+    
+    console.log('❌ Origin rejected:', origin);
+    callback(new Error('Not allowed by CORS'));
   },
     credentials: true
 }));
@@ -80,6 +110,10 @@ app.use('/api/token', tokenRoutes);
 app.use('/api/usdc', usdcRoutes);
 app.use('/api/mpesa', mpesaRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/liquidity', liquidityRoutes);
+app.use('/api/ramp', rampRoutes);
+app.use('/api/platform-wallet', platformWalletRoutes);
 
 // Verification routes
 app.post('/api/verifications', async (req: Request, res: Response) => {
