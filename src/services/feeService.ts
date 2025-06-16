@@ -11,11 +11,24 @@ export enum TransactionType {
     LIQUIDITY_PROVISION = 'LIQUIDITY_PROVISION'
 }
 
+// Fee range type
+interface FeeRange {
+    min: number;
+    max: number;
+    fee: number;
+}
+
+// Fee structure type for ramp methods
+interface RampFeeStructure {
+    RANGES: FeeRange[];
+    MIN_FEE: number;
+}
+
 // Fee structure for different transaction types
 export const FEE_STRUCTURE = {
     // Ramp fees (On/Off ramp)
     RAMP: {
-        MOBILE_MONEY: {
+        [PaymentMethod.MOBILE_MONEY]: {
             RANGES: [
                 { min: 0, max: 100, fee: 1.5 },      // 1.5% for $0-$100
                 { min: 100, max: 500, fee: 1.2 },    // 1.2% for $100-$500
@@ -25,7 +38,7 @@ export const FEE_STRUCTURE = {
             ],
             MIN_FEE: 0.5 // Minimum 0.5%
         },
-        MPESA: {
+        [PaymentMethod.MPESA]: {
             RANGES: [
                 { min: 0, max: 100, fee: 1.2 },      // 1.2% for $0-$100
                 { min: 100, max: 500, fee: 1.0 },    // 1.0% for $100-$500
@@ -34,8 +47,18 @@ export const FEE_STRUCTURE = {
                 { min: 5000, max: Infinity, fee: 0.5 }// 0.5% for $5000+
             ],
             MIN_FEE: 0.3 // Minimum 0.3%
+        },
+        [PaymentMethod.BANK_TRANSFER]: {
+            RANGES: [
+                { min: 0, max: 100, fee: 1.0 },      // 1.0% for $0-$100
+                { min: 100, max: 500, fee: 0.8 },    // 0.8% for $100-$500
+                { min: 500, max: 2000, fee: 0.6 },   // 0.6% for $500-$2000
+                { min: 2000, max: 5000, fee: 0.4 },  // 0.4% for $2000-$5000
+                { min: 5000, max: Infinity, fee: 0.3 }// 0.3% for $5000+
+            ],
+            MIN_FEE: 0.2 // Minimum 0.2%
         }
-    },
+    } as Record<PaymentMethod, RampFeeStructure>,
 
     // Swap fees (Crypto-to-crypto)
     SWAP: {
@@ -131,24 +154,24 @@ export class FeeService {
                 if (!paymentMethod) throw new Error('Payment method required for ramp transactions');
                 const rampFeeStructure = FEE_STRUCTURE.RAMP[paymentMethod];
                 if (!rampFeeStructure) throw new Error(`Unsupported payment method: ${paymentMethod}`);
-                const range = rampFeeStructure.RANGES.find(r => amount >= r.min && amount <= r.max);
+                const range = rampFeeStructure.RANGES.find((r: FeeRange) => amount >= r.min && amount <= r.max);
                 feePercentage = range ? range.fee : rampFeeStructure.MIN_FEE;
                 fee = (amount * feePercentage) / 100;
                 break;
 
             case TransactionType.SWAP:
-                const swapRange = FEE_STRUCTURE.SWAP.RANGES.find(r => amount >= r.min && amount <= r.max);
+                const swapRange = FEE_STRUCTURE.SWAP.RANGES.find((r: FeeRange) => amount >= r.min && amount <= r.max);
                 feePercentage = swapRange ? swapRange.fee : FEE_STRUCTURE.SWAP.MIN_FEE;
                 fee = (amount * feePercentage) / 100;
                 break;
 
             case TransactionType.TRANSFER:
-                const transferRange = FEE_STRUCTURE.TRANSFER.RANGES.find(r => amount >= r.min && amount <= r.max);
+                const transferRange = FEE_STRUCTURE.TRANSFER.RANGES.find((r: FeeRange) => amount >= r.min && amount <= r.max);
                 fee = transferRange ? transferRange.fee : FEE_STRUCTURE.TRANSFER.RANGES[0].fee;
                 break;
 
             case TransactionType.MERCHANT_PAYMENT:
-                const merchantRange = FEE_STRUCTURE.MERCHANT_PAYMENT.RANGES.find(r => amount >= r.min && amount <= r.max);
+                const merchantRange = FEE_STRUCTURE.MERCHANT_PAYMENT.RANGES.find((r: FeeRange) => amount >= r.min && amount <= r.max);
                 feePercentage = merchantRange ? merchantRange.fee : FEE_STRUCTURE.MERCHANT_PAYMENT.MIN_FEE;
                 fee = (amount * feePercentage) / 100;
                 break;
@@ -244,7 +267,7 @@ export class FeeService {
         let ranges;
         switch (type) {
             case TransactionType.RAMP:
-                ranges = FEE_STRUCTURE.RAMP.MOBILE_MONEY.RANGES;
+                ranges = FEE_STRUCTURE.RAMP[PaymentMethod.MOBILE_MONEY].RANGES;
                 break;
             case TransactionType.SWAP:
                 ranges = FEE_STRUCTURE.SWAP.RANGES;

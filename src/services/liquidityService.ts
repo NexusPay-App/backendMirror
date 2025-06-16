@@ -8,6 +8,7 @@ import { sendTokenFromUser, initializePlatformWallets, SUPPORTED_CHAINS, sendFro
 import { getProvider } from '../utils/provider';
 import { TransactionVerificationService } from './transactionVerification';
 import { verifyOtp } from './otpService';
+import { LiquidityUsageTracker } from './liquidityUsageTracker';
 
 // Base yield rate per token (annual percentage)
 const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
@@ -28,10 +29,20 @@ const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
 
 // Bonus yield based on utilization (additional percentage)
 const UTILIZATION_BONUS = {
-    THRESHOLD_1: { rate: 50, bonus: 1 }, // 50% utilization = +1% APY
-    THRESHOLD_2: { rate: 75, bonus: 2 }, // 75% utilization = +2% APY
-    THRESHOLD_3: { rate: 90, bonus: 3 }  // 90% utilization = +3% APY
+    SWAP: { // Bonus for swap utilization
+        THRESHOLD_1: { rate: 30, bonus: 1 }, // 30% utilization = +1% APY
+        THRESHOLD_2: { rate: 50, bonus: 2 }, // 50% utilization = +2% APY
+        THRESHOLD_3: { rate: 70, bonus: 3 }  // 70% utilization = +3% APY
+    },
+    MPESA: { // Bonus for M-Pesa service utilization
+        THRESHOLD_1: { rate: 20, bonus: 1 }, // 20% utilization = +1% APY
+        THRESHOLD_2: { rate: 40, bonus: 2 }, // 40% utilization = +2% APY
+        THRESHOLD_3: { rate: 60, bonus: 3 }  // 60% utilization = +3% APY
+    }
 };
+
+// Minimum holding period in hours
+const MIN_HOLDING_PERIOD = 36;
 
 export interface LiquidityStats {
     totalLiquidity: number;
@@ -160,17 +171,39 @@ export class LiquidityService {
         const now = new Date();
         const timeDiff = now.getTime() - provision.lastYieldCalculation.getTime();
         const daysElapsed = timeDiff / (1000 * 60 * 60 * 24);
+        const hoursElapsed = timeDiff / (1000 * 60 * 60);
+
+        // Check minimum holding period
+        const holdingPeriod = (now.getTime() - provision.createdAt.getTime()) / (1000 * 60 * 60);
+        if (holdingPeriod < MIN_HOLDING_PERIOD) {
+            return 0;
+        }
 
         // Get base yield rate
         let yieldRate = BASE_YIELD_RATES[provision.token];
 
-        // Add utilization bonus
-        if (provision.utilizationRate >= UTILIZATION_BONUS.THRESHOLD_3.rate) {
-            yieldRate += UTILIZATION_BONUS.THRESHOLD_3.bonus;
-        } else if (provision.utilizationRate >= UTILIZATION_BONUS.THRESHOLD_2.rate) {
-            yieldRate += UTILIZATION_BONUS.THRESHOLD_2.bonus;
-        } else if (provision.utilizationRate >= UTILIZATION_BONUS.THRESHOLD_1.rate) {
-            yieldRate += UTILIZATION_BONUS.THRESHOLD_1.bonus;
+        // Get utilization rates from the tracker
+        const { swapRate, mpesaRate } = await LiquidityUsageTracker.getUtilizationRate(
+            provision.token,
+            provision.amount
+        );
+
+        // Add swap utilization bonus
+        if (swapRate >= UTILIZATION_BONUS.SWAP.THRESHOLD_3.rate) {
+            yieldRate += UTILIZATION_BONUS.SWAP.THRESHOLD_3.bonus;
+        } else if (swapRate >= UTILIZATION_BONUS.SWAP.THRESHOLD_2.rate) {
+            yieldRate += UTILIZATION_BONUS.SWAP.THRESHOLD_2.bonus;
+        } else if (swapRate >= UTILIZATION_BONUS.SWAP.THRESHOLD_1.rate) {
+            yieldRate += UTILIZATION_BONUS.SWAP.THRESHOLD_1.bonus;
+        }
+
+        // Add M-Pesa utilization bonus
+        if (mpesaRate >= UTILIZATION_BONUS.MPESA.THRESHOLD_3.rate) {
+            yieldRate += UTILIZATION_BONUS.MPESA.THRESHOLD_3.bonus;
+        } else if (mpesaRate >= UTILIZATION_BONUS.MPESA.THRESHOLD_2.rate) {
+            yieldRate += UTILIZATION_BONUS.MPESA.THRESHOLD_2.bonus;
+        } else if (mpesaRate >= UTILIZATION_BONUS.MPESA.THRESHOLD_1.rate) {
+            yieldRate += UTILIZATION_BONUS.MPESA.THRESHOLD_1.bonus;
         }
 
         // Calculate yield: principal * rate * time
@@ -201,18 +234,12 @@ export class LiquidityService {
             }
         ]);
 
-        // For now, we'll use a simple formula based on total liquidity
-        // In a real implementation, this would be based on actual usage
         const liquidityAmount = totalLiquidity[0]?.total || 0;
         if (liquidityAmount === 0) return 0;
 
-        // Mock utilization calculation (replace with actual usage data)
-        const utilizationRate = Math.min(
-            (liquidityAmount * 0.7) / liquidityAmount * 100,
-            100
-        );
-
-        return utilizationRate;
+        // Get utilization rates from the tracker
+        const { totalRate } = await LiquidityUsageTracker.getUtilizationRate(token, liquidityAmount);
+        return totalRate;
     }
 
     // Get liquidity stats for a token
@@ -238,12 +265,12 @@ export class LiquidityService {
         let currentYieldRate = baseRate;
 
         // Add utilization bonus to yield rate
-        if (utilizationRate >= UTILIZATION_BONUS.THRESHOLD_3.rate) {
-            currentYieldRate += UTILIZATION_BONUS.THRESHOLD_3.bonus;
-        } else if (utilizationRate >= UTILIZATION_BONUS.THRESHOLD_2.rate) {
-            currentYieldRate += UTILIZATION_BONUS.THRESHOLD_2.bonus;
-        } else if (utilizationRate >= UTILIZATION_BONUS.THRESHOLD_1.rate) {
-            currentYieldRate += UTILIZATION_BONUS.THRESHOLD_1.bonus;
+        if (utilizationRate >= UTILIZATION_BONUS.SWAP.THRESHOLD_3.rate) {
+            currentYieldRate += UTILIZATION_BONUS.SWAP.THRESHOLD_3.bonus;
+        } else if (utilizationRate >= UTILIZATION_BONUS.SWAP.THRESHOLD_2.rate) {
+            currentYieldRate += UTILIZATION_BONUS.SWAP.THRESHOLD_2.bonus;
+        } else if (utilizationRate >= UTILIZATION_BONUS.SWAP.THRESHOLD_1.rate) {
+            currentYieldRate += UTILIZATION_BONUS.SWAP.THRESHOLD_1.bonus;
         }
 
         return {

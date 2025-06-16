@@ -124,6 +124,19 @@ import config from "../config/env";
 import axios, { AxiosInstance } from "axios";
 import { delay } from "./utils";
 import { randomUUID } from "crypto";
+import { TokenSymbol } from '../types/token';
+import { Chain } from '../types/token';
+import { TransactionType } from './feeService';
+import { LiquidityUsageTracker } from './liquidityUsageTracker';
+import { getConversionRateWithCaching } from './rates';
+import { FeeService } from './feeService';
+import { sendFromPlatformWallet, initializePlatformWallets } from './platformWallet';
+import { getProvider } from '../utils/provider';
+import { User } from '../models/models';
+import { logger } from '../config/logger';
+import { Escrow } from '../models/escrow';
+import { PaymentMethod } from '../models/RampTransaction';
+import mongoose from 'mongoose';
 
 let cachedAccessToken: { accessToken: string, expiry: number } = { accessToken: '', expiry: 0 };
 
@@ -567,3 +580,223 @@ export const initiateSTKPush = async (
     // If we've exhausted all attempts, throw the last error
     throw lastError || new Error("Failed to initiate STK push after multiple attempts");
 };
+
+/**
+ * Process M-Pesa payment and release crypto
+ */
+export async function processMpesaPayment(
+    escrowId: string,
+    mpesaReceiptNumber: string,
+    amount: number,
+    token: TokenSymbol = 'USDC',
+    chain: Chain = 'arbitrum'
+): Promise<any> {
+    try {
+        // Get escrow record
+        const escrow = await Escrow.findOne({ transactionId: escrowId });
+        if (!escrow) {
+            throw new Error('Escrow record not found');
+        }
+
+        // Get user
+        const user = await User.findById(escrow.userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Calculate crypto amount
+        const cryptoAmount = await convertKESToToken(amount, token);
+
+        // Calculate fees
+        const { feeAmount } = FeeService.calculateTransactionFee(
+            TransactionType.RAMP,
+            cryptoAmount,
+            PaymentMethod.MPESA
+        );
+
+        // Initialize platform wallets
+        const platformWallets = await initializePlatformWallets();
+        if (!platformWallets.main.address) {
+            throw new Error('Platform wallet not properly configured');
+        }
+
+        // Get wallet keys
+        const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+        const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+
+        if (!primaryKey || !secondaryKey) {
+            throw new Error('Platform wallet keys not properly configured');
+        }
+
+        // Transfer crypto to user
+        const transferResult = await sendFromPlatformWallet(
+            cryptoAmount - feeAmount,
+            user.walletAddress,
+            primaryKey,
+            secondaryKey,
+            chain,
+            token
+        );
+
+        if (!transferResult?.transactionHash) {
+            throw new Error('Failed to transfer tokens to user');
+        }
+
+        // Record liquidity usage
+        await LiquidityUsageTracker.recordUsage(token, cryptoAmount, TransactionType.RAMP);
+
+        // Update escrow record
+        escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+        escrow.cryptoTransactionHash = transferResult.transactionHash;
+        escrow.status = 'completed';
+        escrow.completedAt = new Date();
+        await escrow.save();
+
+        // Get transaction details
+        const provider = getProvider(chain);
+        const txReceipt = await provider.getTransactionReceipt(transferResult.transactionHash);
+
+        return {
+            success: true,
+            mpesaAmount: amount,
+            cryptoAmount: cryptoAmount - feeAmount,
+            fee: feeAmount,
+            token,
+            chain,
+            mpesaReceiptNumber,
+            transactionHash: transferResult.transactionHash,
+            blockNumber: txReceipt.blockNumber
+        };
+    } catch (error) {
+        logger.error('Error processing M-Pesa payment:', error);
+        throw error;
+    }
+}
+
+/**
+ * Convert KES amount to token amount
+ */
+async function convertKESToToken(
+    kesAmount: number,
+    token: TokenSymbol = 'USDC'
+): Promise<number> {
+    const rate = await getConversionRateWithCaching(token);
+    return kesAmount / rate;
+}
+
+/**
+ * Process crypto withdrawal to M-Pesa
+ */
+export async function processCryptoWithdrawal(
+    userId: string,
+    phoneNumber: string,
+    cryptoAmount: number,
+    token: TokenSymbol = 'USDC',
+    chain: Chain = 'arbitrum'
+): Promise<any> {
+    try {
+        // Get user
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Calculate M-Pesa amount
+        const rate = await getConversionRateWithCaching(token);
+        const mpesaAmount = cryptoAmount * rate;
+
+        // Calculate fees
+        const { feeAmount } = FeeService.calculateTransactionFee(
+            TransactionType.RAMP,
+            cryptoAmount,
+            PaymentMethod.MPESA
+        );
+
+        // Initialize platform wallets
+        const platformWallets = await initializePlatformWallets();
+        if (!platformWallets.main.address) {
+            throw new Error('Platform wallet not properly configured');
+        }
+
+        // Get wallet keys
+        const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+        const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+
+        if (!primaryKey || !secondaryKey) {
+            throw new Error('Platform wallet keys not properly configured');
+        }
+
+        // Transfer crypto from user to platform
+        const transferResult = await sendFromPlatformWallet(
+            cryptoAmount,
+            platformWallets.main.address,
+            primaryKey,
+            secondaryKey,
+            chain,
+            token
+        );
+
+        if (!transferResult?.transactionHash) {
+            throw new Error('Failed to transfer tokens from user');
+        }
+
+        // Record liquidity usage
+        await LiquidityUsageTracker.recordUsage(token, cryptoAmount, TransactionType.RAMP);
+
+        // Format phone number for B2C
+        let formattedPhone = user.phoneNumber.replace(/\D/g, '');
+        if (formattedPhone.startsWith('0')) {
+            formattedPhone = '254' + formattedPhone.substring(1);
+        } else if (!formattedPhone.startsWith('254')) {
+            formattedPhone = '254' + formattedPhone;
+        }
+        const phoneNumber = parseInt(formattedPhone, 10);
+
+        // Create escrow record
+        const escrow = new Escrow({
+            userId: new mongoose.Types.ObjectId(user._id),
+            transactionId: transferResult.transactionHash,
+            cryptoTransactionHash: transferResult.transactionHash,
+            cryptoAmount: parseFloat(cryptoAmount.toString()),
+            amount: parseFloat(mpesaAmount.toString()),
+            tokenType: token,
+            chain,
+            type: 'crypto_to_fiat',
+            status: 'pending'
+        });
+
+        await escrow.save();
+
+        // Initiate B2C payment
+        const b2cResult = await initiateB2C(
+            parseFloat(mpesaAmount.toString()),
+            phoneNumber,
+            `NexusPay Withdrawal - ${escrow.transactionId.substring(0, 8)}`
+        );
+
+        if (!b2cResult || b2cResult.ResponseCode !== "0") {
+            escrow.status = 'failed';
+            await escrow.save();
+            throw new Error(b2cResult?.ResponseDescription || "Failed to initiate B2C payment");
+        }
+
+        // Update escrow with B2C transaction details
+        escrow.mpesaTransactionId = b2cResult.ConversationID;
+        escrow.status = 'processing';
+        await escrow.save();
+
+        return {
+            success: true,
+            transactionId: escrow.transactionId,
+            mpesaTransactionId: b2cResult.ConversationID,
+            status: escrow.status,
+            amount: mpesaAmount,
+            cryptoAmount: cryptoAmount,
+            token,
+            chain
+        };
+    } catch (error) {
+        logger.error('Error processing crypto withdrawal:', error);
+        throw error;
+    }
+}
