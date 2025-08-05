@@ -8,7 +8,7 @@ import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
 import { defineChain, getContract, readContract } from "thirdweb";
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
-import { getTokenConfig } from '../config/tokens';
+import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 
 export const send = async (req: Request, res: Response) => {
     const { recipientIdentifier, amount, senderAddress, chain } = req.body;
@@ -476,55 +476,78 @@ export const getWallet = async (req: Request, res: Response) => {
         };
         console.log(`Wallet details for ${normalizedPhoneNumber}:`, walletDetails);
 
-        const balances: { [key: string]: number } = {};
-        const chains = [
-            { name: 'celo', chainId: config.celo.chainId, tokenAddress: config.celo.tokenAddress },
-            { name: 'arbitrum', chainId: config.arbitrum.chainId, tokenAddress: config.arbitrum.tokenAddress },
-        ];
+        // Define supported chains and tokens
+        const supportedChains = ['arbitrum', 'polygon', 'base', 'optimism', 'celo', 'avalanche', 'bnb', 'scroll', 'gnosis', 'fantom', 'somnia', 'moonbeam', 'fuse', 'aurora', 'lisk'];
+        const supportedTokens = ['USDC', 'USDT', 'DAI', 'WETH', 'WBTC', 'MATIC', 'ARB', 'OP', 'cUSD', 'CKES'];
 
-        for (const chain of chains) {
-            try {
-                console.log(`Fetching balance for ${chain.name} - Chain ID: ${chain.chainId}, Token Address: ${chain.tokenAddress}`);
-                const contract = getContract({
-                    client,
-                    chain: defineChain(chain.chainId),
-                    address: chain.tokenAddress,
-                });
-                const balance = await readContract({
-                    contract,
-                    method: "function balanceOf(address) view returns (uint256)",
-                    params: [user.walletAddress],
-                });
-                console.log(`Raw balance on ${chain.name} for ${user.walletAddress}: ${balance}`);
-                const decimals = 6;
-                const balanceInUSDC = Number(balance) / 10 ** decimals;
-                balances[chain.name] = balanceInUSDC;
-                console.log(`Balance on ${chain.name} for ${user.walletAddress}: ${balanceInUSDC} USDC`);
-            } catch (error: any) {
-                console.error(`Failed to fetch balance on ${chain.name} for ${normalizedPhoneNumber}:`, {
-                    errorMessage: error.message,
-                    errorDetails: error.shortMessage || error.details,
-                    chainId: chain.chainId,
-                    tokenAddress: chain.tokenAddress,
-                });
-                balances[chain.name] = 0;
-                console.log(`Set balance on ${chain.name} to 0 due to fetch error`);
+        const balances: Record<string, Record<string, number>> = {};
+
+        // Get balances for each chain and token combination
+        for (const chain of supportedChains) {
+            balances[chain] = {};
+            
+            // Get supported tokens for this specific chain
+            const chainTokens = getSupportedTokens(chain as Chain);
+            
+            for (const token of chainTokens) {
+                try {
+                    console.log(`Fetching balance for ${token} on ${chain}`);
+                    const tokenConfig = getTokenConfig(chain as Chain, token as TokenSymbol);
+                    if (!tokenConfig) continue;
+
+                    const chainConfig = config[chain];
+                    if (!chainConfig?.chainId) continue;
+
+                    const contract = getContract({
+                        client,
+                        chain: defineChain(chainConfig.chainId),
+                        address: tokenConfig.address,
+                    });
+
+                    const balance = await readContract({
+                        contract,
+                        method: "function balanceOf(address) view returns (uint256)",
+                        params: [user.walletAddress],
+                    });
+
+                    const balanceInToken = Number(balance) / 10 ** tokenConfig.decimals;
+                    if (balanceInToken > 0) {
+                        balances[chain][token] = balanceInToken;
+                        console.log(`Balance on ${chain} for ${token}: ${balanceInToken}`);
+                    }
+                } catch (error: any) {
+                    console.error(`Failed to fetch ${token} balance on ${chain}:`, {
+                        errorMessage: error.message,
+                        errorDetails: error.shortMessage || error.details
+                    });
+                    // Only add to response if there was a balance
+                    if (error.message.includes("insufficient") || error.message.includes("revert")) {
+                        balances[chain][token] = 0;
+                    }
+                }
+            }
+            
+            // Remove chain if no tokens have balance
+            if (Object.keys(balances[chain]).length === 0) {
+                delete balances[chain];
             }
         }
 
         res.send({
+            success: true,
             message: "Wallet details retrieved successfully",
-            wallet: {
+            data: {
                 ...walletDetails,
                 balances,
-            },
+            }
         });
 
     } catch (error: any) {
         console.error(`Error in getWallet API for ${phoneNumber}:`, error);
         res.status(500).send({
+            success: false,
             message: "Failed to retrieve wallet details.",
-            error: error.message || "Unknown error occurred",
+            error: error.message || "Unknown error occurred"
         });
     }
 };

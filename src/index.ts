@@ -9,7 +9,6 @@ import bodyParser from 'body-parser';
 import authRoutes from './routes/authRoutes';
 import businessRoutes from './routes/businessRoutes';
 import tokenRoutes from './routes/tokenRoutes';
-import usdcRoutes from './routes/usdcRoutes';
 import mpesaRoutes from './routes/mpesaRoutes';
 import adminRoutes from './routes/adminRoutes';
 import transactionRoutes from './routes/transactionRoutes';
@@ -21,9 +20,62 @@ import { Verification } from './models/verificationModel';
 import { client, africastalking } from './services/auth';
 import { standardResponse } from './services/utils';
 import { startSchedulers, stopSchedulers } from './services/scheduler';
+import app from './app';
 
-const app: Application = express();
 const PORT = process.env.PORT || 8000;
+
+let server: any = null;
+
+// Initialize services and start server
+async function startServer() {
+    try {
+        // Initialize Thirdweb client
+        console.log('Thirdweb client initialized with secret key:', client ? 'present' : 'missing');
+        
+        // Initialize Africa's Talking
+        console.log('Africa\'s Talking initialized with API key:', africastalking ? 'present' : 'missing');
+        
+        // Connect to MongoDB
+        await connect();
+        
+        // Start the server
+        server = app.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+            console.log('Thirdweb client initialized with secret key:', client ? 'present' : 'missing');
+            console.log('Africa\'s Talking initialized:', africastalking ? 'present' : 'missing');
+        });
+        
+        // Start schedulers
+        await startSchedulers();
+        
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+}
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    stopSchedulers();
+    if (server) {
+        server.close(() => {
+            console.log('HTTP server closed');
+        });
+    }
+});
+
+process.on('SIGINT', () => {
+    console.log('SIGINT signal received: closing HTTP server');
+    stopSchedulers();
+    if (server) {
+        server.close(() => {
+            console.log('HTTP server closed');
+        });
+    }
+});
+
+startServer();
 
 // Security middlewares
 app.use(helmet());
@@ -107,7 +159,6 @@ app.use(limiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/token', tokenRoutes);
-app.use('/api/usdc', usdcRoutes);
 app.use('/api/mpesa', mpesaRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/transactions', transactionRoutes);
@@ -171,46 +222,6 @@ app.post('/api/internal/retry-transactions', async (req: Request, res: Response)
   } catch (error) {
     console.error('Error triggering manual retry:', error);
     res.status(500).json(standardResponse(false, 'Failed to trigger manual retry', null, error));
-  }
-});
-
-// Database connection and server start
-let server: any = null;
-
-connect()
-  .then(() => {
-    server = app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log("Thirdweb client initialized with secret key:", client.secretKey ? "present" : "missing");
-      console.log("Africa's Talking initialized:", africastalking.SMS ? "present" : "missing");
-      
-      // Start schedulers
-      startSchedulers();
-    });
-  })
-  .catch((err: Error) => {
-    console.error('Failed to connect to MongoDB:', err);
-    process.exit(1); // Exit with error code
-  });
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  stopSchedulers();
-  if (server) {
-    server.close(() => {
-      console.log('HTTP server closed');
-    });
-  }
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  stopSchedulers();
-  if (server) {
-    server.close(() => {
-      console.log('HTTP server closed');
-    });
   }
 });
 

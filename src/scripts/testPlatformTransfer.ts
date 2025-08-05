@@ -25,7 +25,7 @@ async function main() {
   try {
     // Test recipient address
     const testRecipient = '0xbc914553e01d07c2fc3de802dcf5f35c4b888dee';
-    const amount = 0.1; // Test with 0.1 USDC
+    const amount = 1; // Test with 0.1 USDC
     
     // Get owner keys from environment
     const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
