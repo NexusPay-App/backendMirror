@@ -305,6 +305,15 @@
                 <input type="text" id="login-identifier" placeholder="Phone or Email" style="width: 200px; padding: 8px; margin: 5px;">
                 <input type="password" id="login-password" placeholder="Password" style="width: 200px; padding: 8px; margin: 5px;">
                 <button onclick="loginWithPhone()">Login</button>
+                
+                <!-- OTP Input Section for Login -->
+                <div id="login-otp-section" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff;">
+                    <h5>📱 Enter OTP</h5>
+                    <p style="margin: 5px 0; color: #666; font-size: 14px;">Check your phone for the OTP code (also shown in server logs)</p>
+                    <input type="text" id="login-otp-input" placeholder="123456" maxlength="6" style="width: 150px; padding: 10px; margin: 5px; font-size: 16px; text-align: center; font-family: monospace;" onkeypress="if(event.key==='Enter') verifyLoginOTP()">
+                    <button onclick="verifyLoginOTP()" style="background: #28a745; padding: 10px 15px;">Verify OTP</button>
+                    <button onclick="hideLoginOTP()" style="background: #6c757d; padding: 10px 15px; margin-left: 10px;">Cancel</button>
+                </div>
             </div>
 
             <div id="otp-section" style="display: none; margin-bottom: 20px;">
@@ -550,15 +559,30 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Login response status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('Login response data:', data);
+                
                 if (data.success) {
                     resultDiv.className = 'result success';
-                    resultDiv.innerHTML = `✅ Login initiated! Check your phone for OTP.`;
                     
-                    // Show OTP section for login verification
+                    if (data.data && data.data.smsFailure) {
+                        resultDiv.innerHTML = `✅ Login initiated! SMS failed, but OTP generated. Check server logs for OTP code.`;
+                    } else {
+                        resultDiv.innerHTML = `✅ Login initiated! Check your phone for OTP.`;
+                    }
+                    
+                    // Show the new login OTP section
+                    document.getElementById('login-otp-section').style.display = 'block';
                     currentOTPContext = { type: 'login', identifier };
-                    showOTPSection('login');
+                    
+                    // Focus on OTP input
+                    setTimeout(() => {
+                        document.getElementById('login-otp-input').focus();
+                    }, 100);
                 } else {
                     resultDiv.className = 'result error';
                     resultDiv.innerHTML = `❌ Login failed: ${data.message}`;
@@ -570,7 +594,120 @@
             });
         }
 
-        // Verify OTP
+        // Verify Login OTP (new function for login-specific OTP)
+        let isVerifyingOTP = false; // Prevent duplicate requests
+        
+        function verifyLoginOTP() {
+            const otp = document.getElementById('login-otp-input').value;
+            
+            if (!otp || !currentOTPContext || currentOTPContext.type !== 'login') {
+                alert('Please enter OTP');
+                return;
+            }
+
+            // Prevent duplicate requests
+            if (isVerifyingOTP) {
+                console.log('OTP verification already in progress, ignoring duplicate request');
+                return;
+            }
+
+            isVerifyingOTP = true;
+            const verifyButton = document.querySelector('#login-otp-section button[onclick="verifyLoginOTP()"]');
+            if (verifyButton) {
+                verifyButton.disabled = true;
+                verifyButton.innerHTML = '🔄 Verifying...';
+            }
+
+            const resultDiv = document.getElementById('phone-result');
+            resultDiv.innerHTML = '🔄 Verifying login OTP...';
+            resultDiv.className = 'result';
+
+            let requestBody = { otp };
+            if (currentOTPContext.identifier.includes('@')) {
+                requestBody.email = currentOTPContext.identifier;
+            } else {
+                requestBody.phoneNumber = currentOTPContext.identifier;
+            }
+
+            console.log('Sending OTP verification request:', requestBody);
+
+            fetch(`${BACKEND_URL}/api/auth/login/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => {
+                console.log('OTP verification response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('OTP verification response data:', data);
+                
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Login successful! Welcome back!`;
+                    
+                    // Extract user and token safely (handle different response shapes)
+                    let userObj;
+                    let tokenObj;
+
+                    if (data.data) {
+                        // Case: verify-login returns data with token and user fields or flattened structure
+                        if (data.data.user) {
+                            userObj = data.data.user;
+                            tokenObj = data.data.token;
+                        } else {
+                            // Flattened structure (token alongside other user info)
+                            tokenObj = data.data.token;
+                            userObj = { ...data.data };
+                            delete userObj.token; // remove token from user fields
+                        }
+                    } else {
+                        userObj = data.user || null;
+                        tokenObj = data.token || null;
+                    }
+
+                    if (!userObj || !tokenObj) {
+                        console.error('Unexpected response shape:', data);
+                        resultDiv.className = 'result error';
+                        resultDiv.innerHTML = `❌ Unexpected response format. Please try again.`;
+                    } else {
+                        // Store user data and update UI
+                        storeUserData(userObj, tokenObj);
+                        updateUIForLoggedInUser(userObj);
+                        hideLoginOTP();
+                    }
+                    
+                    // Clear form inputs
+                    clearAuthForms();
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ OTP verification failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                console.error('OTP verification error:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            })
+            .finally(() => {
+                // Reset verification state
+                isVerifyingOTP = false;
+                if (verifyButton) {
+                    verifyButton.disabled = false;
+                    verifyButton.innerHTML = 'Verify OTP';
+                }
+            });
+        }
+
+        // Hide Login OTP section
+        function hideLoginOTP() {
+            document.getElementById('login-otp-section').style.display = 'none';
+            document.getElementById('login-otp-input').value = '';
+            currentOTPContext = null;
+        }
+
+        // Verify OTP (original function for registration)
         function verifyOTP() {
             const otp = document.getElementById('otp-input').value;
             
@@ -589,7 +726,7 @@
                 endpoint = '/api/auth/verify-register';
                 requestBody.phoneNumber = currentOTPContext.phoneNumber;
             } else if (currentOTPContext.type === 'login') {
-                endpoint = '/api/auth/verify-login';
+                endpoint = '/api/auth/login/verify';
                 if (currentOTPContext.identifier.includes('@')) {
                     requestBody.email = currentOTPContext.identifier;
                 } else {
@@ -633,21 +770,34 @@
         }
 
         function updateUIForLoggedInUser(user) {
+            if (!user) {
+                console.error('updateUIForLoggedInUser called with null/undefined');
+                return;
+            }
+            console.log('Updating UI for user:', user);
+            
             // Show wallet dashboard
             document.getElementById('auth-status').style.display = 'block';
+            
+            // Handle different user object structures
+            const userEmail = user.email || user.user?.email || 'Not set';
+            const userPhone = user.phoneNumber || user.user?.phoneNumber || 'Not set';
+            const userAuthMethods = user.authMethods || user.user?.authMethods || [];
+            const displayName = userEmail !== 'Not set' ? userEmail : userPhone;
             
             // Update user info
             document.getElementById('user-info').innerHTML = `
                 <div class="result success">
-                    <strong>👤 Welcome, ${user.email || user.phoneNumber}!</strong><br>
-                    ${user.authMethods.map(method => `<span class="auth-method">${method}</span>`).join('')}
+                    <strong>👤 Welcome, ${displayName}!</strong><br>
+                    ${userAuthMethods.map(method => `<span class="auth-method">${method}</span>`).join('')}
                 </div>
             `;
 
             // Update wallet details
+            const walletAddress = user.walletAddress || user.user?.walletAddress || 'Not available';
             document.getElementById('wallet-details').innerHTML = `
                 <div style="font-family: monospace; font-size: 12px; background: #e9ecef; padding: 10px; border-radius: 5px; word-break: break-all;">
-                    <strong>Address:</strong> ${user.walletAddress}
+                    <strong>Address:</strong> ${walletAddress}
                 </div>
             `;
 
@@ -683,6 +833,8 @@
             document.getElementById('reg-password').value = '';
             document.getElementById('login-identifier').value = '';
             document.getElementById('login-password').value = '';
+            document.getElementById('login-otp-input').value = '';
+            document.getElementById('login-otp-section').style.display = 'none';
         }
 
         function logout() {
@@ -844,23 +996,26 @@
             const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
             
             // Show current auth methods
+            const authMethodsList = (user.authMethods || []).map(method => `<span class="auth-method">${method}</span>`).join('');
             document.getElementById('current-auth-methods').innerHTML = `
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
                     <h4>🔐 Current Authentication Methods</h4>
-                    <div>${user.authMethods.map(method => `<span class="auth-method">${method}</span>`).join('')}</div>
+                    <div>${authMethodsList || '<em>No methods linked</em>'}</div>
                     <div style="margin-top: 10px; font-size: 12px;">
                         📧 Email: ${user.email || 'Not set'}<br>
                         📱 Phone: ${user.phoneNumber || 'Not set'}<br>
-                        🔑 Password: ${user.hasPassword ? 'Set' : 'Not set'}
+                        🔑 Password: ${(user.hasPassword || !!user.password) ? 'Set' : 'Not set'}
                     </div>
                 </div>
             `;
             
             // Show appropriate options based on current auth methods
-            if (!user.hasPhoneNumber && user.authMethods.includes('google')) {
+            const hasPhone = user.hasPhoneNumber || !!user.phoneNumber;
+            const authMethods = user.authMethods || [];
+            if (!hasPhone && authMethods.includes('google')) {
                 document.getElementById('add-phone-section-modal').style.display = 'block';
                 document.getElementById('add-google-section-modal').style.display = 'none';
-            } else if (user.hasPhoneNumber && !user.authMethods.includes('google')) {
+            } else if (hasPhone && !authMethods.includes('google')) {
                 document.getElementById('add-phone-section-modal').style.display = 'none';
                 document.getElementById('add-google-section-modal').style.display = 'block';
             } else {

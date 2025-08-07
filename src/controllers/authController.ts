@@ -352,6 +352,15 @@ export const login = async (req: Request, res: Response) => {
         console.log(`📱 Phone verified: ${user.isPhoneVerified}`);
         console.log('======================================\n');
 
+        // Check if user has a password (Google OAuth users might not have one)
+        if (!user.password) {
+            console.log('❌ User has no password (Google OAuth account)');
+            return res.status(401).json(standardResponse(
+                false, 
+                "This account was created with Google. Please sign in with Google or add a password first."
+            ));
+        }
+
         // Verify password
         const isValidPassword = await bcrypt.compare(password, user.password);
         console.log(`🔑 Password valid: ${isValidPassword}`);
@@ -421,10 +430,10 @@ export const login = async (req: Request, res: Response) => {
                 
                 if (recipients.length === 0 || recipient.status !== "Success") {
                     console.log(`❌ SMS sending failed but login OTP was generated: ${otp}`);
-                    return res.status(500).json(standardResponse(
-                        false,
-                        "Failed to send OTP via SMS, but check server logs for OTP code",
-                        { phoneNumber }
+                    return res.status(200).json(standardResponse(
+                        true,
+                        "OTP generated successfully. SMS failed, but check server logs for OTP code.",
+                        { phoneNumber, smsFailure: true }
                     ));
                 }
                 
@@ -436,7 +445,11 @@ export const login = async (req: Request, res: Response) => {
             } catch (error) {
                 console.error("❌ Error sending SMS OTP:", error);
                 console.log(`❌ SMS sending error but login OTP was generated: ${otp}`);
-                return handleError(error, res, "Failed to send login verification code. Please check server logs for OTP.");
+                return res.status(200).json(standardResponse(
+                    true,
+                    "OTP generated successfully. SMS service error, but check server logs for OTP code.",
+                    { phoneNumber, smsFailure: true }
+                ));
             }
         }
     } catch (error) {

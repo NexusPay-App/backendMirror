@@ -29,8 +29,8 @@ const logger = pino({
   }
 });
 
-// Initialize Redis client for caching
-const redis = new Redis(config.REDIS_URL);
+// Use centralized Redis client for caching
+import { redis, isRedisConnected } from '../config/redis';
 
 // Redis cache configuration
 const REDIS_PREFIX = process.env.REDIS_PREFIX || 'platform';
@@ -1024,6 +1024,11 @@ export async function clearDuplicateTransactions(): Promise<number> {
  */
 async function processQueueWithPriority(queueKey: string): Promise<void> {
   try {
+    // Skip queue processing if Redis is not connected
+    if (!isRedisConnected()) {
+      return;
+    }
+
     // Try to acquire a lock to prevent multiple instances processing the same queue
     const lockAcquired = await redis.set(
       `${queueKey}:lock`,
@@ -1565,6 +1570,11 @@ function isValidAmount(amount: number): boolean {
  */
 export async function processScheduledRetries(): Promise<void> {
   try {
+    // Skip retry processing if Redis is not connected
+    if (!isRedisConnected()) {
+      return;
+    }
+
     const now = Date.now();
     
     // Get all transactions scheduled for retry before now
@@ -1935,6 +1945,11 @@ function generateExplorerUrl(chainName: string, hash: string): string {
 export async function processTransactionQueue(): Promise<void> {
   logger.info('Starting transaction queue processing');
   
+  // Skip queue processing if Redis is not connected
+  if (!isRedisConnected()) {
+    return;
+  }
+  
   try {
     // Process high priority transactions first
     await processQueueWithPriority(HIGH_PRIORITY_QUEUE_KEY);
@@ -1995,6 +2010,12 @@ export function scheduleQueueProcessing(intervalMs: number = 60000): NodeJS.Time
 export async function clearFailedTransactionsAndRestart(): Promise<void> {
   try {
     logger.info('🧹 Clearing failed transactions and restarting queue...');
+    
+    // Skip cleanup if Redis is not connected
+    if (!isRedisConnected()) {
+      logger.info('Redis not connected, skipping queue cleanup');
+      return;
+    }
     
     // Clear all processing queues
     const processingQueues = [

@@ -7,7 +7,7 @@ import config from '../config/env';
 import pino from 'pino';
 
 // Initialize Redis client
-const redis = new Redis(config.REDIS_URL);
+import { redis, isRedisConnected } from '../config/redis';
 
 // Configure logger
 const logger = pino({

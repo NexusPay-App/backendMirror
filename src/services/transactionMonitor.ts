@@ -12,7 +12,7 @@ const logger = pino({
 });
 
 // Initialize Redis client for monitoring data
-const redis = new Redis(config.REDIS_URL);
+import { redis, isRedisConnected } from '../config/redis';
 
 // Monitoring configuration
 const MONITORING_CONFIG = {
