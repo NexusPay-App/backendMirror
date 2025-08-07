@@ -9,12 +9,13 @@ export const sendTokenValidation = [
     .notEmpty()
     .withMessage('Recipient identifier is required')
     .custom((value) => {
-      // Check if it's a valid wallet address or a valid phone number
+      // Check if it's a valid wallet address, phone number, or email
       const isPhoneNumber = /^\+[1-9]\d{1,14}$/.test(value);
       const isAddress = ethers.utils.isAddress(value);
+      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
       
-      if (!isPhoneNumber && !isAddress) {
-        throw new Error('Recipient must be a valid wallet address or phone number in E.164 format');
+      if (!isPhoneNumber && !isAddress && !isEmail) {
+        throw new Error('Recipient must be a valid wallet address, phone number in E.164 format, or email address');
       }
       
       return true;

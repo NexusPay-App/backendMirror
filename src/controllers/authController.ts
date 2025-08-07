@@ -8,6 +8,7 @@ import { handleError, standardResponse } from "../services/utils";
 import config from '../config/env';
 import { sendEmail, verifyOTP } from '../services/email';
 import { registerVerifiedSession, invalidateSession } from '../middleware/strictAuthMiddleware';
+import { verifyGoogleToken, GoogleUserInfo } from '../services/googleAuth';
 
 export const initiateRegisterUser = async (req: Request, res: Response) => {
     const { phoneNumber } = req.body;
@@ -685,5 +686,449 @@ export const logout = async (req: Request, res: Response) => {
     } catch (error) {
         console.error("Error in logout:", error);
         return handleError(error, res, "Error during logout");
+    }
+};
+
+/**
+ * Google Sign In/Sign Up
+ */
+export const googleAuth = async (req: Request, res: Response) => {
+    try {
+        const { idToken } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Google ID token is required",
+                null,
+                { code: "MISSING_TOKEN", message: "Google ID token is required" }
+            ));
+        }
+
+        // Verify Google token
+        let googleUser: GoogleUserInfo;
+        try {
+            googleUser = await verifyGoogleToken(idToken);
+        } catch (error) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid Google token",
+                null,
+                { code: "INVALID_TOKEN", message: "Failed to verify Google token" }
+            ));
+        }
+
+        // Check if user exists with this Google ID
+        let user = await User.findOne({ googleId: googleUser.id });
+
+        if (user) {
+            // Existing user - sign in
+            user.lastLogin = new Date();
+            await user.save();
+
+            const token = jwt.sign(
+                { userId: user._id, phoneNumber: user.phoneNumber, email: user.email },
+                config.JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+
+            return res.json(standardResponse(
+                true,
+                "Google sign in successful",
+                {
+                    token,
+                    user: {
+                        id: user._id,
+                        email: user.email,
+                        phoneNumber: user.phoneNumber,
+                        walletAddress: user.walletAddress,
+                        role: user.role,
+                        isVerified: user.isVerified,
+                        isPhoneVerified: user.isPhoneVerified,
+                        isEmailVerified: user.isEmailVerified,
+                        authMethods: user.authMethods,
+                        hasPassword: !!user.password,
+                        hasPhoneNumber: !!user.phoneNumber
+                    }
+                }
+            ));
+        }
+
+        // Check if user exists with this email but no Google ID
+        const existingEmailUser = await User.findOne({ email: googleUser.email });
+        if (existingEmailUser) {
+            // Link Google account to existing user
+            existingEmailUser.googleId = googleUser.id;
+            if (!existingEmailUser.authMethods.includes('google')) {
+                existingEmailUser.authMethods.push('google');
+            }
+            existingEmailUser.isEmailVerified = true;
+            existingEmailUser.lastLogin = new Date();
+            await existingEmailUser.save();
+
+            const token = jwt.sign(
+                { userId: existingEmailUser._id, phoneNumber: existingEmailUser.phoneNumber, email: existingEmailUser.email },
+                config.JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+
+            return res.json(standardResponse(
+                true,
+                "Google account linked successfully",
+                {
+                    token,
+                    user: {
+                        id: existingEmailUser._id,
+                        email: existingEmailUser.email,
+                        phoneNumber: existingEmailUser.phoneNumber,
+                        walletAddress: existingEmailUser.walletAddress,
+                        role: existingEmailUser.role,
+                        isVerified: existingEmailUser.isVerified,
+                        isPhoneVerified: existingEmailUser.isPhoneVerified,
+                        isEmailVerified: existingEmailUser.isEmailVerified,
+                        authMethods: existingEmailUser.authMethods,
+                        hasPassword: !!existingEmailUser.password,
+                        hasPhoneNumber: !!existingEmailUser.phoneNumber
+                    }
+                }
+            ));
+        }
+
+        // New user - create account
+        const { walletAddress, pk: privateKey } = await createAccount();
+
+        const newUser = new User({
+            email: googleUser.email,
+            googleId: googleUser.id,
+            walletAddress,
+            privateKey,
+            authMethods: ['google'],
+            isEmailVerified: true,
+            isVerified: true,
+            role: 'user',
+            lastLogin: new Date()
+        });
+
+        await newUser.save();
+
+        const token = jwt.sign(
+            { userId: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },
+            config.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        return res.status(201).json(standardResponse(
+            true,
+            "Google sign up successful",
+            {
+                token,
+                user: {
+                    id: newUser._id,
+                    email: newUser.email,
+                    phoneNumber: newUser.phoneNumber,
+                    walletAddress: newUser.walletAddress,
+                    role: newUser.role,
+                    isVerified: newUser.isVerified,
+                    isPhoneVerified: newUser.isPhoneVerified,
+                    isEmailVerified: newUser.isEmailVerified,
+                    authMethods: newUser.authMethods,
+                    hasPassword: false,
+                    hasPhoneNumber: false
+                }
+            }
+        ));
+
+    } catch (error) {
+        console.error("Error in Google authentication:", error);
+        return handleError(error, res, "Google authentication failed");
+    }
+};
+
+/**
+ * Add phone number and password to Google-authenticated account
+ */
+export const addPhoneAndPassword = async (req: Request, res: Response) => {
+    try {
+        const { phoneNumber, password } = req.body;
+
+        if (!req.user) {
+            return res.status(401).json(standardResponse(
+                false,
+                "Authentication required",
+                null,
+                { code: "AUTH_REQUIRED", message: "You must be logged in to perform this action" }
+            ));
+        }
+
+        if (!phoneNumber || !password) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Phone number and password are required",
+                null,
+                { code: "MISSING_FIELDS", message: "Both phone number and password are required" }
+            ));
+        }
+
+        // Check if phone number is already taken
+        const existingPhone = await User.findOne({ phoneNumber, _id: { $ne: req.user.userId } });
+        if (existingPhone) {
+            return res.status(409).json(standardResponse(
+                false,
+                "Phone number already registered",
+                null,
+                { code: "PHONE_EXISTS", message: "This phone number is already associated with another account" }
+            ));
+        }
+
+        const user = await User.findById(req.user.userId);
+        if (!user) {
+            return res.status(404).json(standardResponse(
+                false,
+                "User not found",
+                null,
+                { code: "USER_NOT_FOUND", message: "User account not found" }
+            ));
+        }
+
+        // Send OTP for phone verification
+        const otp = generateOTP();
+        otpStore[phoneNumber] = otp;
+
+        console.log(`🔑 PHONE VERIFICATION OTP FOR ${phoneNumber}: ${otp}`);
+
+        try {
+            const smsResponse: any = await africastalking.SMS.send({
+                to: [phoneNumber],
+                message: `Your NexusPay phone verification code is: ${otp}`,
+                from: 'NEXUSPAY'
+            });
+
+            const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
+            if (recipients.length === 0 || recipients[0].status !== "Success") {
+                return res.status(400).json(standardResponse(
+                    false,
+                    "Failed to send verification OTP",
+                    null,
+                    { code: "SMS_FAILED", message: "Could not send SMS verification code" }
+                ));
+            }
+
+            // Store temporary data for verification
+            otpStore[`${phoneNumber}_password`] = password;
+            otpStore[`${phoneNumber}_userId`] = user._id.toString();
+
+            return res.json(standardResponse(
+                true,
+                "Verification OTP sent to your phone number",
+                { phoneNumber }
+            ));
+
+        } catch (error) {
+            console.error("Error sending OTP:", error);
+            return res.status(500).json(standardResponse(
+                false,
+                "Failed to send verification OTP",
+                null,
+                { code: "SMS_ERROR", message: "SMS service error" }
+            ));
+        }
+
+    } catch (error) {
+        console.error("Error in addPhoneAndPassword:", error);
+        return handleError(error, res, "Failed to add phone and password");
+    }
+};
+
+/**
+ * Verify phone number and complete phone/password setup
+ */
+export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
+    try {
+        const { phoneNumber, otp } = req.body;
+
+        if (!phoneNumber || !otp) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Phone number and OTP are required",
+                null,
+                { code: "MISSING_FIELDS", message: "Phone number and OTP are required" }
+            ));
+        }
+
+        // Verify OTP
+        const storedOtp = otpStore[phoneNumber];
+        if (!storedOtp || storedOtp !== otp) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid or expired OTP",
+                null,
+                { code: "INVALID_OTP", message: "The OTP provided is invalid or has expired" }
+            ));
+        }
+
+        // Get stored data
+        const password = otpStore[`${phoneNumber}_password`];
+        const userId = otpStore[`${phoneNumber}_userId`];
+
+        if (!password || !userId) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Verification session expired",
+                null,
+                { code: "SESSION_EXPIRED", message: "Please restart the phone verification process" }
+            ));
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json(standardResponse(
+                false,
+                "User not found",
+                null,
+                { code: "USER_NOT_FOUND", message: "User account not found" }
+            ));
+        }
+
+        // Update user with phone and password
+        user.phoneNumber = phoneNumber;
+        user.password = password; // Will be hashed by pre-save hook
+        user.isPhoneVerified = true;
+        
+        if (!user.authMethods.includes('phone')) {
+            user.authMethods.push('phone');
+        }
+
+        await user.save();
+
+        // Clean up OTP store
+        delete otpStore[phoneNumber];
+        delete otpStore[`${phoneNumber}_password`];
+        delete otpStore[`${phoneNumber}_userId`];
+
+        return res.json(standardResponse(
+            true,
+            "Phone number and password added successfully",
+            {
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    walletAddress: user.walletAddress,
+                    role: user.role,
+                    isVerified: user.isVerified,
+                    isPhoneVerified: user.isPhoneVerified,
+                    isEmailVerified: user.isEmailVerified,
+                    authMethods: user.authMethods,
+                    hasPassword: true,
+                    hasPhoneNumber: true
+                }
+            }
+        ));
+
+    } catch (error) {
+        console.error("Error in verifyPhoneAndPassword:", error);
+        return handleError(error, res, "Phone verification failed");
+    }
+};
+
+/**
+ * Link Google account to existing phone/password account
+ */
+export const linkGoogleAccount = async (req: Request, res: Response) => {
+    try {
+        const { idToken } = req.body;
+
+        if (!req.user) {
+            return res.status(401).json(standardResponse(
+                false,
+                "Authentication required",
+                null,
+                { code: "AUTH_REQUIRED", message: "You must be logged in to perform this action" }
+            ));
+        }
+
+        if (!idToken) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Google ID token is required",
+                null,
+                { code: "MISSING_TOKEN", message: "Google ID token is required" }
+            ));
+        }
+
+        // Verify Google token
+        let googleUser: GoogleUserInfo;
+        try {
+            googleUser = await verifyGoogleToken(idToken);
+        } catch (error) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid Google token",
+                null,
+                { code: "INVALID_TOKEN", message: "Failed to verify Google token" }
+            ));
+        }
+
+        const user = await User.findById(req.user.userId);
+        if (!user) {
+            return res.status(404).json(standardResponse(
+                false,
+                "User not found",
+                null,
+                { code: "USER_NOT_FOUND", message: "User account not found" }
+            ));
+        }
+
+        // Check if Google account is already linked to another user
+        const existingGoogleUser = await User.findOne({ 
+            googleId: googleUser.id, 
+            _id: { $ne: user._id } 
+        });
+        
+        if (existingGoogleUser) {
+            return res.status(409).json(standardResponse(
+                false,
+                "Google account already linked to another user",
+                null,
+                { code: "GOOGLE_LINKED", message: "This Google account is already associated with another NexusPay account" }
+            ));
+        }
+
+        // Link Google account
+        user.googleId = googleUser.id;
+        if (!user.email) {
+            user.email = googleUser.email;
+            user.isEmailVerified = true;
+        }
+        
+        if (!user.authMethods.includes('google')) {
+            user.authMethods.push('google');
+        }
+
+        await user.save();
+
+        return res.json(standardResponse(
+            true,
+            "Google account linked successfully",
+            {
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    walletAddress: user.walletAddress,
+                    role: user.role,
+                    isVerified: user.isVerified,
+                    isPhoneVerified: user.isPhoneVerified,
+                    isEmailVerified: user.isEmailVerified,
+                    authMethods: user.authMethods,
+                    hasPassword: !!user.password,
+                    hasPhoneNumber: !!user.phoneNumber
+                }
+            }
+        ));
+
+    } catch (error) {
+        console.error("Error linking Google account:", error);
+        return handleError(error, res, "Failed to link Google account");
     }
 };

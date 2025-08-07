@@ -30,13 +30,20 @@ export const send = async (req: Request, res: Response) => {
         }
 
         if (!ethers.utils.isAddress(recipientIdentifier)) {
-            const recipient = await User.findOne({ phoneNumber: recipientIdentifier });
+            // Try to find recipient by phone number first
+            let recipient = await User.findOne({ phoneNumber: recipientIdentifier });
+            
+            // If not found by phone, try email
+            if (!recipient && recipientIdentifier.includes('@')) {
+                recipient = await User.findOne({ email: recipientIdentifier });
+            }
+            
             if (!recipient) {
-                console.log("Recipient not found for phoneNumber:", recipientIdentifier);
-                return res.status(404).send({ message: "Recipient not found!" });
+                console.log("Recipient not found for identifier:", recipientIdentifier);
+                return res.status(404).send({ message: "Recipient not found! Make sure the phone number or email is registered with NexusPay." });
             }
             recipientAddress = recipient.walletAddress;
-            recipientPhone = recipient.phoneNumber;
+            recipientPhone = recipient.phoneNumber || '';
         }
 
         if (chain !== 'celo' && chain !== 'arbitrum') {
@@ -64,21 +71,39 @@ export const send = async (req: Request, res: Response) => {
         const transactionCode = Math.random().toString(36).substring(2, 12).toUpperCase();
         const amountDisplay = `${amount} USDC`;
 
+        // Get recipient details for notifications
+        let recipientForDisplay = recipientPhone || recipientIdentifier;
+        if (!ethers.utils.isAddress(recipientIdentifier)) {
+            const recipient = await User.findOne({ 
+                $or: [
+                    { phoneNumber: recipientIdentifier },
+                    { email: recipientIdentifier }
+                ]
+            });
+            if (recipient) {
+                recipientForDisplay = recipient.phoneNumber || recipient.email || recipientIdentifier;
+            }
+        }
+
+        // Send SMS to recipient if they have a phone number
         if (recipientPhone) {
             await africastalking.SMS.send({
                 to: recipientPhone,
-                message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber} on ${currentDateTime}`,
+                message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber || sender.email || 'NexusPay user'} on ${currentDateTime}`,
                 from: 'NEXUSPAY'
             });
             console.log(`SMS sent to recipient: ${recipientPhone}`);
         }
 
-        await africastalking.SMS.send({
-            to: sender.phoneNumber,
-            message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientPhone || recipientAddress} on ${currentDateTime}`,
-            from: 'NEXUSPAY'
-        });
-        console.log(`SMS sent to sender: ${sender.phoneNumber}`);
+        // Send SMS to sender if they have a phone number
+        if (sender.phoneNumber) {
+            await africastalking.SMS.send({
+                to: sender.phoneNumber,
+                message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientForDisplay} on ${currentDateTime}`,
+                from: 'NEXUSPAY'
+            });
+            console.log(`SMS sent to sender: ${sender.phoneNumber}`);
+        }
 
         res.send({ 
             message: 'Token sent successfully!',
