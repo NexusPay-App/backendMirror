@@ -52,6 +52,15 @@
         button:hover { background: #0056b3; }
         .google-btn { background: #db4437; }
         .google-btn:hover { background: #c23321; }
+        .auth-method {
+            background: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin: 2px;
+            display: inline-block;
+        }
         
         /* Modal Styles */
         .modal {
@@ -330,18 +339,8 @@
         <div class="test-section" id="google-auth-section">
             <h3>🔍 Google OAuth Authentication</h3>
             
-            <div id="g_id_onload"
-                 data-client_id="YOUR_GOOGLE_CLIENT_ID"
-                 data-callback="handleCredentialResponse"
-                 data-auto_prompt="false">
-            </div>
-            <div class="g_id_signin" 
-                 data-type="standard"
-                 data-size="large"
-                 data-theme="outline"
-                 data-text="sign_in_with"
-                 data-shape="rectangular"
-                 data-logo_alignment="left">
+            <!-- Google Sign-In will be initialized programmatically -->
+            <div class="g_id_signin">
             </div>
             
             <div id="google-result" class="result" style="display: none;"></div>
@@ -396,7 +395,7 @@
 
     <script>
         // Auto-fetch Google Client ID from backend
-        let GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
+        let GOOGLE_CLIENT_ID = null;
         const BACKEND_URL = 'http://localhost:8000';
         const FRONTEND_URL = 'http://localhost:3000';
 
@@ -409,39 +408,62 @@
                 if (data.success && data.data.clientId) {
                     GOOGLE_CLIENT_ID = data.data.clientId;
                     console.log('✅ Google Client ID loaded from backend:', GOOGLE_CLIENT_ID);
-                    
-                    // Update the Google Sign-In button with the real Client ID
-                    const googleOnload = document.getElementById('g_id_onload');
-                    if (googleOnload) {
-                        googleOnload.setAttribute('data-client_id', GOOGLE_CLIENT_ID);
-                    }
-                    
                     return true;
                 } else {
                     console.error('❌ Failed to load Google config:', data.message);
-                    console.log('🔄 Falling back to hardcoded Client ID for testing...');
-                    // Fallback to hardcoded Client ID for testing
-                    GOOGLE_CLIENT_ID = '733823334129-9ltqtfuq3pp510n29iun2on45ib4abi7.apps.googleusercontent.com';
-                    
-                    const googleOnload = document.getElementById('g_id_onload');
-                    if (googleOnload) {
-                        googleOnload.setAttribute('data-client_id', GOOGLE_CLIENT_ID);
-                    }
-                    
-                    return true;
+                    return false;
                 }
             } catch (error) {
                 console.error('❌ Error loading Google config:', error);
-                console.log('🔄 Falling back to hardcoded Client ID for testing...');
-                // Fallback to hardcoded Client ID for testing
-                GOOGLE_CLIENT_ID = '733823334129-9ltqtfuq3pp510n29iun2on45ib4abi7.apps.googleusercontent.com';
+                return false;
+            }
+        }
+
+        // Initialize Google Sign-In after client ID is loaded
+        function initializeGoogleSignIn() {
+            if (!GOOGLE_CLIENT_ID) {
+                console.error('❌ Cannot initialize Google Sign-In: No client ID');
+                return false;
+            }
+
+            if (!window.google || !window.google.accounts) {
+                console.error('❌ Google SDK not loaded');
+                return false;
+            }
+
+            try {
+                console.log('🔄 Initializing Google Sign-In with client ID:', GOOGLE_CLIENT_ID);
                 
-                const googleOnload = document.getElementById('g_id_onload');
-                if (googleOnload) {
-                    googleOnload.setAttribute('data-client_id', GOOGLE_CLIENT_ID);
-                }
+                // Initialize first
+                window.google.accounts.id.initialize({
+                    client_id: GOOGLE_CLIENT_ID,
+                    callback: handleCredentialResponse,
+                    auto_prompt: false,
+                    use_fedcm_for_prompt: false
+                });
+
+                // Small delay to ensure initialization completes
+                setTimeout(() => {
+                    // Then render the button
+                    const signInDiv = document.querySelector('.g_id_signin');
+                    if (signInDiv) {
+                        window.google.accounts.id.renderButton(signInDiv, {
+                            theme: 'outline',
+                            size: 'large',
+                            type: 'standard',
+                            text: 'sign_in_with',
+                            shape: 'rectangular'
+                        });
+                        console.log('✅ Google Sign-In button rendered successfully');
+                    } else {
+                        console.error('❌ No .g_id_signin element found for rendering');
+                    }
+                }, 100);
                 
                 return true;
+            } catch (error) {
+                console.error('❌ Error initializing Google Sign-In:', error);
+                return false;
             }
         }
 
@@ -454,14 +476,37 @@
             
             const resultDiv = document.getElementById('google-result');
             resultDiv.style.display = 'block';
-            resultDiv.innerHTML = '🔄 Processing Google sign-in...';
+            
+            // Check if this is for linking to existing account
+            const isLinking = currentOTPContext && currentOTPContext.type === 'link-google';
+            const token = localStorage.getItem('nexuspay_token');
+            
+            if (isLinking) {
+                if (!token) {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = '❌ Authentication required for linking. Please log in again.';
+                    currentOTPContext = null;
+                    return;
+                }
+                resultDiv.innerHTML = '🔄 Linking Google account to your existing account...';
+            } else {
+                resultDiv.innerHTML = '🔄 Processing Google sign-in...';
+            }
+
+            // Determine endpoint and headers
+            const endpoint = isLinking ? `${BACKEND_URL}/api/auth/google/link` : `${BACKEND_URL}/api/auth/google`;
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            if (isLinking && token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
 
             // Send ID token to your backend
-            fetch(`${BACKEND_URL}/api/auth/google`, {
+            fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: headers,
                 body: JSON.stringify({
                     idToken: response.credential
                 })
@@ -471,16 +516,53 @@
                 console.log('Backend Response:', data);
                 
                 if (data.success) {
-                    resultDiv.className = 'result success';
-                    resultDiv.innerHTML = `✅ SUCCESS! Google Authentication Complete\n\n🎉 Welcome ${data.data.user.email}!`;
+                    if (isLinking) {
+                        // Handle successful linking
+                        resultDiv.className = 'result success';
+                        resultDiv.innerHTML = `✅ SUCCESS! Google account linked to your phone account!\n\n🎉 Welcome ${data.data.user.email}!`;
+                        
+                        // Update stored user data (no new token for linking)
+                        const existingToken = localStorage.getItem('nexuspay_token');
+                        storeUserData(data.data.user, existingToken);
+                        updateUIForLoggedInUser(data.data.user);
+                        
+                        // Refresh account settings if modal is open
+                        if (document.getElementById('account-settings-modal').style.display === 'block') {
+                            setTimeout(() => {
+                                showAccountSettings();
+                            }, 500);
+                        }
+                        
+                        // Clear linking context
+                        currentOTPContext = null;
+                    } else {
+                        // Handle new account or login
+                        resultDiv.className = 'result success';
+                        resultDiv.innerHTML = `✅ SUCCESS! Google Authentication Complete\n\n🎉 Welcome ${data.data.user.email}!`;
 
-                    // Store user data and update UI
-                    storeUserData(data.data.user, data.data.token);
-                    updateUIForLoggedInUser(data.data.user);
-                    
+                        // Store user data and update UI
+                        storeUserData(data.data.user, data.data.token);
+                        updateUIForLoggedInUser(data.data.user);
+                    }
                 } else {
-                    resultDiv.className = 'result error';
-                    resultDiv.innerHTML = `❌ ERROR: ${data.message}\n\nError Details:\n${JSON.stringify(data.error, null, 2)}`;
+                    // Handle specific error cases
+                    if (isLinking && (data.message === 'Token expired' || data.message === 'Authentication required')) {
+                        resultDiv.className = 'result error';
+                        resultDiv.innerHTML = `❌ Your session has expired. Please log in again and try linking your Google account.`;
+                        
+                        // Clear expired data
+                        localStorage.removeItem('nexuspay_token');
+                        localStorage.removeItem('nexuspay_user');
+                        currentOTPContext = null;
+                        
+                        // Refresh page to show login form
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 3000);
+                    } else {
+                        resultDiv.className = 'result error';
+                        resultDiv.innerHTML = `❌ ERROR: ${data.message}\n\nError Details:\n${JSON.stringify(data.error, null, 2)}`;
+                    }
                 }
             })
             .catch(error => {
@@ -948,9 +1030,39 @@
         }
 
         function linkGoogleAccount() {
-            alert('Click the Google sign-in button that will appear to link your Google account');
-            // This will be handled by the Google sign-in flow with a different context
+            // Set linking context
             currentOTPContext = { type: 'link-google' };
+            console.log('🔗 Setting linking context for Google account');
+            
+            // Find and click the existing Google Sign-In button
+            const googleButton = document.querySelector('.g_id_signin');
+            if (googleButton) {
+                console.log('🔗 Found Google Sign-In button, triggering click...');
+                
+                // Scroll to the button so user can see it
+                googleButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Highlight the button briefly
+                googleButton.style.border = '3px solid #4285f4';
+                googleButton.style.borderRadius = '8px';
+                
+                setTimeout(() => {
+                    // Remove highlighting
+                    googleButton.style.border = '';
+                    googleButton.style.borderRadius = '';
+                    
+                    // Trigger the button click
+                    const buttonElement = googleButton.querySelector('div[role="button"]') || googleButton;
+                    if (buttonElement) {
+                        buttonElement.click();
+                        console.log('✅ Google Sign-In button clicked for linking');
+                    }
+                }, 500);
+                
+            } else {
+                console.error('❌ Google Sign-In button not found');
+                alert('❌ Google Sign-In button not found. Please refresh the page and try again.');
+            }
         }
 
         // Modal Functions
@@ -1167,6 +1279,8 @@ ${note ? `• Note: ${note}` : ''}`;
             resultDiv.style.display = 'block';
             resultDiv.innerHTML = '🔄 Adding phone and password...';
 
+            console.log('🔍 DEBUG: Sending data:', { phoneNumber: phone, password: password.length + ' chars' });
+
             fetch(`${BACKEND_URL}/api/auth/settings/add-phone-password`, {
                 method: 'POST',
                 headers: { 
@@ -1175,18 +1289,34 @@ ${note ? `• Note: ${note}` : ''}`;
                 },
                 body: JSON.stringify({ phoneNumber: phone, password })
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('🔍 DEBUG: Response status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('🔍 DEBUG: Full response:', data);
                 if (data.success) {
                     resultDiv.className = 'result success';
-                    resultDiv.innerHTML = `✅ Phone verification initiated! Check your phone for OTP.`;
+                    if (data.data && data.data.testMode) {
+                        resultDiv.innerHTML = `✅ Phone verification initiated! <br><div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;"><strong>🧪 TEST MODE:</strong><br>SMS service not configured. OTP logged in server console:<br><strong>Phone: ${phone}</strong><br>Check terminal for OTP code.</div>`;
+                    } else {
+                        resultDiv.innerHTML = `✅ Phone verification initiated! Check your phone for OTP.`;
+                    }
                     
                     // Show phone verification section
                     document.getElementById('verify-phone-section-modal').style.display = 'block';
                     currentOTPContext = { type: 'add-phone', phoneNumber: phone };
                 } else {
                     resultDiv.className = 'result error';
-                    resultDiv.innerHTML = `❌ Failed to add phone: ${data.message}`;
+                    // Show detailed validation errors if available
+                    if (data.error && data.error.details) {
+                        const errorDetails = Array.isArray(data.error.details) 
+                            ? data.error.details.map(err => err.msg || err.message).join('<br>')
+                            : data.error.details;
+                        resultDiv.innerHTML = `❌ Validation failed:<br>${errorDetails}`;
+                    } else {
+                        resultDiv.innerHTML = `❌ Failed to add phone: ${data.message}`;
+                    }
                 }
             })
             .catch(error => {
@@ -1347,34 +1477,35 @@ ${JSON.stringify(data, null, 2)}`;
             
             if (!configLoaded) {
                 console.log('⚠️ Failed to load Google configuration from backend');
-            } else {
-                console.log('✅ Google configuration loaded successfully');
-                
-                // Wait a bit for Google SDK to load, then initialize
-                setTimeout(() => {
-                    if (window.google && window.google.accounts) {
-                        console.log('✅ Google SDK loaded, initializing...');
-                        window.google.accounts.id.initialize({
-                            client_id: GOOGLE_CLIENT_ID,
-                            callback: handleCredentialResponse
-                        });
-                        
-                        // Render the sign-in button
-                        const signInDiv = document.querySelector('.g_id_signin');
-                        if (signInDiv) {
-                            window.google.accounts.id.renderButton(signInDiv, {
-                                theme: 'outline',
-                                size: 'large',
-                                type: 'standard',
-                                text: 'sign_in_with',
-                                shape: 'rectangular'
-                            });
-                        }
-                    } else {
-                        console.log('⏳ Google SDK still loading...');
-                    }
-                }, 1000);
+                return;
             }
+
+            console.log('✅ Google configuration loaded successfully');
+            
+            // Wait for Google SDK to load, then initialize
+            let attempts = 0;
+            const maxAttempts = 20; // 10 seconds max
+            
+            const initInterval = setInterval(() => {
+                attempts++;
+                
+                if (window.google && window.google.accounts) {
+                    clearInterval(initInterval);
+                    console.log('✅ Google SDK loaded, initializing...');
+                    
+                    if (initializeGoogleSignIn()) {
+                        console.log('✅ Google Sign-In initialization complete');
+                    } else {
+                        console.error('❌ Failed to initialize Google Sign-In');
+                    }
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(initInterval);
+                    console.error('❌ Google SDK failed to load after 10 seconds');
+                    console.log('⚠️ Google SDK failed to load. Please refresh the page.');
+                } else {
+                    console.log(`⏳ Waiting for Google SDK... (${attempts}/${maxAttempts})`);
+                }
+            }, 500);
         };
     </script>
 </body>

@@ -740,7 +740,7 @@ export const googleAuth = async (req: Request, res: Response) => {
             await user.save();
 
             const token = jwt.sign(
-                { userId: user._id, phoneNumber: user.phoneNumber, email: user.email },
+                { id: user._id, phoneNumber: user.phoneNumber, email: user.email },
                 config.JWT_SECRET,
                 { expiresIn: '7d' }
             );
@@ -780,7 +780,7 @@ export const googleAuth = async (req: Request, res: Response) => {
             await existingEmailUser.save();
 
             const token = jwt.sign(
-                { userId: existingEmailUser._id, phoneNumber: existingEmailUser.phoneNumber, email: existingEmailUser.email },
+                { id: existingEmailUser._id, phoneNumber: existingEmailUser.phoneNumber, email: existingEmailUser.email },
                 config.JWT_SECRET,
                 { expiresIn: '7d' }
             );
@@ -825,7 +825,7 @@ export const googleAuth = async (req: Request, res: Response) => {
         await newUser.save();
 
         const token = jwt.sign(
-            { userId: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },
+            { id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },
             config.JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -883,7 +883,7 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
         }
 
         // Check if phone number is already taken
-        const existingPhone = await User.findOne({ phoneNumber, _id: { $ne: req.user.userId } });
+        const existingPhone = await User.findOne({ phoneNumber, _id: { $ne: req.user._id } });
         if (existingPhone) {
             return res.status(409).json(standardResponse(
                 false,
@@ -893,7 +893,7 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
             ));
         }
 
-        const user = await User.findById(req.user.userId);
+        const user = await User.findById(req.user._id);
         if (!user) {
             return res.status(404).json(standardResponse(
                 false,
@@ -917,18 +917,20 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
             });
 
             const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-            if (recipients.length === 0 || recipients[0].status !== "Success") {
-                return res.status(400).json(standardResponse(
-                    false,
-                    "Failed to send verification OTP",
-                    null,
-                    { code: "SMS_FAILED", message: "Could not send SMS verification code" }
-                ));
-            }
-
-            // Store temporary data for verification
+            let smsSuccess = recipients.length > 0 && recipients[0].status === "Success";
+            
+            // Store temporary data for verification regardless of SMS status
             otpStore[`${phoneNumber}_password`] = password;
             otpStore[`${phoneNumber}_userId`] = user._id.toString();
+
+            if (!smsSuccess) {
+                console.log("⚠️ SMS failed but OTP generated for testing. Check server logs.");
+                return res.json(standardResponse(
+                    true,
+                    "Verification OTP generated (check server logs for testing)",
+                    { phoneNumber, testMode: true }
+                ));
+            }
 
             return res.json(standardResponse(
                 true,
@@ -938,11 +940,16 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
 
         } catch (error) {
             console.error("Error sending OTP:", error);
-            return res.status(500).json(standardResponse(
-                false,
-                "Failed to send verification OTP",
-                null,
-                { code: "SMS_ERROR", message: "SMS service error" }
+            
+            // Store temporary data for verification even if SMS completely fails
+            otpStore[`${phoneNumber}_password`] = password;
+            otpStore[`${phoneNumber}_userId`] = user._id.toString();
+            
+            console.log("⚠️ SMS service error but OTP generated for testing. Check server logs.");
+            return res.json(standardResponse(
+                true,
+                "Verification OTP generated (check server logs for testing)",
+                { phoneNumber, testMode: true }
             ));
         }
 
@@ -1082,7 +1089,7 @@ export const linkGoogleAccount = async (req: Request, res: Response) => {
             ));
         }
 
-        const user = await User.findById(req.user.userId);
+        const user = await User.findById(req.user._id);
         if (!user) {
             return res.status(404).json(standardResponse(
                 false,

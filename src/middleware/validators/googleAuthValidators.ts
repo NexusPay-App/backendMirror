@@ -12,8 +12,8 @@ export const addPhonePasswordValidation = [
     body('phoneNumber')
         .notEmpty()
         .withMessage('Phone number is required')
-        .matches(/^\+254[17]\d{8}$/)
-        .withMessage('Phone number must be a valid Kenyan number starting with +254'),
+        .matches(/^\+254[0-9]\d{8}$/)
+        .withMessage('Phone number must be a valid Kenyan number (e.g., +254712345678)'),
     body('password')
         .isLength({ min: 6 })
         .withMessage('Password must be at least 6 characters long')
