@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { User } from '../models/models';
 import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
-import { africastalking, client } from '../services/auth';
+import { africastalking, client, createAccount } from '../services/auth';
 import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
 import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
 import { defineChain, getContract, readContract } from "thirdweb";
@@ -475,104 +475,195 @@ export const migrate = async (req: Request, res: Response) => {
     }
 };
 
-export const getWallet = async (req: Request, res: Response) => {
-    const { phoneNumber } = req.query;
-
-    if (!phoneNumber || typeof phoneNumber !== 'string') {
-        console.log("Get wallet request failed: Phone number missing or invalid");
-        return res.status(400).send({ message: "Phone number is required as a query parameter." });
-    }
-
+export const getReceiveInfo = async (req: Request, res: Response) => {
     try {
-        console.log(`Fetching wallet details for phoneNumber (raw): ${phoneNumber}`);
-        const normalizedPhoneNumber = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`;
-        console.log(`Fetching wallet details for phoneNumber (normalized): ${normalizedPhoneNumber}`);
-
-        const user = await User.findOne({ phoneNumber: normalizedPhoneNumber });
+        // Get authenticated user from middleware
+        const user = (req as any).user;
+        
         if (!user) {
-            console.log(`User not found for phoneNumber: ${normalizedPhoneNumber}`);
-            return res.status(404).send({ message: "Phone number not registered." });
+            return res.status(401).json({
+                success: false,
+                message: "User not authenticated",
+                data: null,
+                error: {
+                    code: "UNAUTHORIZED",
+                    message: "Authentication required"
+                }
+            });
         }
 
-        const walletDetails = {
-            phoneNumber: user.phoneNumber,
-            unifiedWalletAddress: user.walletAddress,
-            isUnified: user.isUnified,
-        };
-        console.log(`Wallet details for ${normalizedPhoneNumber}:`, walletDetails);
-
-        // Define supported chains and tokens
-        const supportedChains = ['arbitrum', 'polygon', 'base', 'optimism', 'celo', 'avalanche', 'bnb', 'scroll', 'gnosis', 'fantom', 'somnia', 'moonbeam', 'fuse', 'aurora', 'lisk'];
-        const supportedTokens = ['USDC', 'USDT', 'DAI', 'WETH', 'WBTC', 'MATIC', 'ARB', 'OP', 'cUSD', 'CKES'];
-
-        const balances: Record<string, Record<string, number>> = {};
-
-        // Get balances for each chain and token combination
-        for (const chain of supportedChains) {
-            balances[chain] = {};
+        // Check if user has a wallet address, if not create one
+        if (!user.walletAddress) {
+            console.log(`Creating wallet for user ${user._id} who doesn't have one`);
             
-            // Get supported tokens for this specific chain
-            const chainTokens = getSupportedTokens(chain as Chain);
-            
-            for (const token of chainTokens) {
-                try {
-                    console.log(`Fetching balance for ${token} on ${chain}`);
-                    const tokenConfig = getTokenConfig(chain as Chain, token as TokenSymbol);
-                    if (!tokenConfig) continue;
-
-                    const chainConfig = config[chain];
-                    if (!chainConfig?.chainId) continue;
-
-                    const contract = getContract({
-                        client,
-                        chain: defineChain(chainConfig.chainId),
-                        address: tokenConfig.address,
-                    });
-
-                    const balance = await readContract({
-                        contract,
-                        method: "function balanceOf(address) view returns (uint256)",
-                        params: [user.walletAddress],
-                    });
-
-                    const balanceInToken = Number(balance) / 10 ** tokenConfig.decimals;
-                    if (balanceInToken > 0) {
-                        balances[chain][token] = balanceInToken;
-                        console.log(`Balance on ${chain} for ${token}: ${balanceInToken}`);
+            try {
+                const { walletAddress, pk: privateKey } = await createAccount();
+                
+                // Update user with new wallet
+                await User.findByIdAndUpdate(user._id, {
+                    walletAddress,
+                    privateKey
+                });
+                
+                // Update the user object for this request
+                user.walletAddress = walletAddress;
+                user.privateKey = privateKey;
+                
+                console.log(`Wallet created for user ${user._id}: ${walletAddress}`);
+            } catch (error) {
+                console.error('Error creating wallet for user:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: "Failed to create wallet",
+                    data: null,
+                    error: {
+                        code: "WALLET_CREATION_FAILED",
+                        message: "Could not create wallet address"
                     }
-                } catch (error: any) {
-                    console.error(`Failed to fetch ${token} balance on ${chain}:`, {
-                        errorMessage: error.message,
-                        errorDetails: error.shortMessage || error.details
-                    });
-                    // Only add to response if there was a balance
-                    if (error.message.includes("insufficient") || error.message.includes("revert")) {
-                        balances[chain][token] = 0;
+                });
+            }
+        }
+
+        // Supported chains for receiving crypto
+        const supportedChains = [
+            { name: 'Arbitrum', id: 'arbitrum', chainId: 42161 },
+            { name: 'Polygon', id: 'polygon', chainId: 137 },
+            { name: 'Base', id: 'base', chainId: 8453 },
+            { name: 'Optimism', id: 'optimism', chainId: 10 },
+            { name: 'Celo', id: 'celo', chainId: 42220 },
+            { name: 'Avalanche', id: 'avalanche', chainId: 43114 },
+            { name: 'BNB Chain', id: 'bnb', chainId: 56 },
+            { name: 'Scroll', id: 'scroll', chainId: 534352 },
+            { name: 'Gnosis', id: 'gnosis', chainId: 100 }
+        ];
+
+        const receiveInfo = {
+            walletAddress: user.walletAddress,
+            phoneNumber: user.phoneNumber,
+            email: user.email || null,
+            supportedChains,
+            note: "This wallet address works across all supported chains. Make sure to select the correct network when sending."
+        };
+
+        return res.json({
+            success: true,
+            message: "Receive information retrieved successfully",
+            data: receiveInfo
+        });
+
+    } catch (error: any) {
+        console.error('Error in getReceiveInfo:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to retrieve receive information",
+            data: null,
+            error: {
+                code: "SERVER_ERROR",
+                message: error.message || "An unexpected error occurred"
+            }
+        });
+    }
+};
+
+export const getUserBalance = async (req: Request, res: Response) => {
+    try {
+        // Get authenticated user from middleware
+        const user = (req as any).user;
+        
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "User not authenticated",
+                data: null,
+                error: {
+                    code: "UNAUTHORIZED",
+                    message: "Authentication required"
+                }
+            });
+        }
+
+        // Supported chains and tokens
+        const supportedChains = ['arbitrum', 'polygon', 'base', 'optimism', 'celo', 'avalanche', 'bnb', 'scroll', 'gnosis'];
+        const balances: Record<string, Record<string, number>> = {};
+        let totalUSDValue = 0;
+
+        // Get balances for each chain
+        for (const chain of supportedChains) {
+            try {
+                // Get supported tokens for this specific chain
+                const chainTokens = getSupportedTokens(chain as Chain);
+                
+                if (chainTokens.length === 0) continue;
+                
+                balances[chain] = {};
+                
+                for (const token of chainTokens) {
+                    try {
+                        const tokenConfig = getTokenConfig(chain as Chain, token as TokenSymbol);
+                        if (!tokenConfig) continue;
+
+                        const chainConfig = config[chain];
+                        if (!chainConfig?.chainId) continue;
+
+                        const contract = getContract({
+                            client,
+                            chain: defineChain(chainConfig.chainId),
+                            address: tokenConfig.address,
+                        });
+
+                        const balance = await readContract({
+                            contract,
+                            method: "function balanceOf(address) view returns (uint256)",
+                            params: [user.walletAddress],
+                        });
+
+                        const balanceInToken = Number(balance) / 10 ** tokenConfig.decimals;
+                        
+                        if (balanceInToken > 0) {
+                            balances[chain][token] = balanceInToken;
+                            
+                            // Add to total USD value (assuming stablecoins are ~$1)
+                            if (['USDC', 'USDT', 'DAI', 'cUSD'].includes(token)) {
+                                totalUSDValue += balanceInToken;
+                            }
+                        }
+                    } catch (error: any) {
+                        // Skip tokens that fail to fetch
+                        console.error(`Failed to fetch ${token} balance on ${chain}:`, error.message);
                     }
                 }
-            }
-            
-            // Remove chain if no tokens have balance
-            if (Object.keys(balances[chain]).length === 0) {
-                delete balances[chain];
+                
+                // Remove chain if no tokens have balance
+                if (Object.keys(balances[chain]).length === 0) {
+                    delete balances[chain];
+                }
+            } catch (error: any) {
+                console.error(`Failed to process chain ${chain}:`, error.message);
             }
         }
 
-        res.send({
+        return res.json({
             success: true,
-            message: "Wallet details retrieved successfully",
+            message: "User balance retrieved successfully",
             data: {
-                ...walletDetails,
+                walletAddress: user.walletAddress,
+                totalUSDValue: Math.round(totalUSDValue * 100) / 100, // Round to 2 decimals
                 balances,
+                chainsWithBalance: Object.keys(balances).length,
+                lastUpdated: new Date().toISOString()
             }
         });
 
     } catch (error: any) {
-        console.error(`Error in getWallet API for ${phoneNumber}:`, error);
-        res.status(500).send({
+        console.error('Error in getUserBalance:', error);
+        return res.status(500).json({
             success: false,
-            message: "Failed to retrieve wallet details.",
-            error: error.message || "Unknown error occurred"
+            message: "Failed to retrieve user balance",
+            data: null,
+            error: {
+                code: "SERVER_ERROR",
+                message: error.message || "An unexpected error occurred"
+            }
         });
     }
 };
