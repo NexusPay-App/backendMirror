@@ -29,6 +29,8 @@ import {
     mpesaQueueWebhook,
     buyCrypto,
     getTransactionStatus,
+    getLiquidityCheck,
+    getMultiChainLiquidityOverview,
     getPlatformWalletStatus,
     withdrawFeesToMainWallet,
     stkPushCallback,
@@ -61,12 +63,14 @@ router.post('/queue-timeout', mpesaQueueWebhook);
 router.post('/callback', stkPushCallback);
 
 // User routes (strict authentication required)
-router.post('/deposit', enforceStrictAuth, validate(depositValidation), mpesaDeposit);
+router.post('/deposit', authenticateToken, validate(depositValidation), mpesaDeposit);
 router.post('/withdraw', enforceStrictAuth, validate(withdrawValidation), mpesaWithdraw);
 router.post('/pay/paybill', enforceStrictAuth, validate(paybillValidation), payToPaybill);
 router.post('/pay/till', enforceStrictAuth, validate(tillValidation), payToTill);
-router.post('/buy-crypto', enforceStrictAuth, validate(buyCryptoValidation), buyCrypto);
+router.post('/buy-crypto', authenticateToken, validate(buyCryptoValidation), buyCrypto);
 router.get('/transaction/:transactionId', enforceStrictAuth, getTransactionStatus);
+router.get('/liquidity-check/:tokenType/:chain', authenticateToken, getLiquidityCheck);
+router.get('/liquidity-overview', authenticateToken, getMultiChainLiquidityOverview);
 
 // Manual intervention routes (for failed automatic processing)
 router.post('/submit-receipt', enforceStrictAuth, validate(manualReceiptValidation), submitMpesaReceiptManually);

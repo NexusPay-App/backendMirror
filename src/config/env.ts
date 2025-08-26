@@ -146,13 +146,12 @@ let config: Record<string, any> = {
         MPESA_STK_QUERY_URL: 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query',
         MPESA_B2C_URL: process.env.MPESA_B2C_URL || 'https://api.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
         MPESA_REQUEST_TIMEOUT: 30000,
-        // For local testing without callbacks, use localhost
-        // For testing with real callbacks, use ngrok and ensure the tunnel is running
-        // To start ngrok: ngrok http 8000
-        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://304d-41-90-185-42.ngrok-free.app",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://304d-41-90-185-42.ngrok-free.app/hooks/mpesa",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/b2c-callback",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/queue-timeout",
+        // For production, use a stable webhook service like webhook.site or ngrok with fixed subdomain
+        // To get a stable URL: ngrok http 8000 --subdomain=nexuspay-mpesa
+        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://nexuspay-mpesa.ngrok.io",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
+        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback",
+        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
         MPESA_INITIATOR_NAME: process.env.MPESA_DEV_INITIATOR_NAME,
         MPESA_SECURITY_CREDENTIAL: process.env.MPESA_DEV_SECURITY_CREDENTIAL,
         // Chain Explorer API Keys
@@ -383,13 +382,12 @@ let config: Record<string, any> = {
         MPESA_STK_QUERY_URL: 'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query',
         MPESA_B2C_URL: process.env.MPESA_B2C_URL || 'https://sandbox.safaricom.co.ke/mpesa/b2c/v1/paymentrequest',
         MPESA_REQUEST_TIMEOUT: 30000,
-        // For local testing without callbacks, use localhost
-        // For testing with real callbacks, use ngrok and ensure the tunnel is running
-        // To start ngrok: ngrok http 8000
-        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://304d-41-90-185-42.ngrok-free.app",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://304d-41-90-185-42.ngrok-free.app/hooks/mpesa",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/b2c-callback",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://304d-41-90-185-42.ngrok-free.app/api/mpesa/queue-timeout",
+        // For production, use a stable webhook service like webhook.site or ngrok with fixed subdomain
+        // To get a stable URL: ngrok http 8000 --subdomain=nexuspay-mpesa
+        MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://nexuspay-mpesa.ngrok.io",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
+        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback",
+        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
         celo: {
             chainId: 44787,
             tokenAddress: "0x3572c9ce620f80032Ee3b101d75300186a0D7787"
