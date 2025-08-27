@@ -3,7 +3,7 @@ import config from '../config/env';
 import { randomUUID } from 'crypto';
 
 // Initialize Redis client
-const redis = new Redis(config.REDIS_URL);
+import { redis, isRedisConnected } from '../config/redis';
 
 // Cache keys and settings
 const CACHE_DURATION = 10 * 60; // 10 minutes in seconds

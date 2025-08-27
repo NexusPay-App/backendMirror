@@ -10,7 +10,11 @@ import {
   verifyLogin, 
   requestAccountDeletion, 
   confirmAccountDeletion,
-  logout
+  logout,
+  googleAuth,
+  addPhoneAndPassword,
+  verifyPhoneAndPassword,
+  linkGoogleAccount
 } from '../controllers/authController';
 import { validate } from '../middleware/validation';
 import {
@@ -24,6 +28,12 @@ import {
   phoneOtpVerifyValidation,
   phoneLoginVerifyValidation
 } from '../middleware/validators/authValidators';
+import {
+  googleAuthValidation,
+  addPhonePasswordValidation,
+  verifyPhonePasswordValidation,
+  linkGoogleValidation
+} from '../middleware/validators/googleAuthValidators';
 import { authenticate } from '../middleware/auth';
 import { registerVerifiedSession } from '../middleware/strictAuthMiddleware';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
@@ -250,5 +260,27 @@ router.post('/password-reset', validate(passwordResetValidation), resetPassword)
 // Account deletion routes
 router.post('/account-deletion/request', authenticate, requestAccountDeletion);
 router.post('/account-deletion/confirm', authenticate, confirmAccountDeletion);
+
+// Google authentication routes
+router.post('/google', validate(googleAuthValidation), googleAuth);
+router.post('/google/link', authenticate, validate(linkGoogleValidation), linkGoogleAccount);
+
+// Account settings routes (for adding phone/password after Google signup)
+router.post('/settings/add-phone-password', authenticate, validate(addPhonePasswordValidation), addPhoneAndPassword);
+router.post('/settings/verify-phone-password', validate(verifyPhonePasswordValidation), verifyPhoneAndPassword);
+
+// Google configuration endpoint for frontend
+router.get('/google-config', (req, res) => {
+  const config = require('../config/env').default;
+  res.status(200).json({
+    success: true,
+    message: 'Google configuration retrieved',
+    data: {
+      clientId: config.GOOGLE_CLIENT_ID,
+      redirectUri: config.GOOGLE_REDIRECT_URI
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 
 export default router;

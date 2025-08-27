@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusPay Google Auth Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .result {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success { border-left: 4px solid #28a745; }
+        .error { border-left: 4px solid #dc3545; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .google-btn { background: #db4437; }
+        .google-btn:hover { background: #c23321; }
+        .auth-method {
+            background: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin: 2px;
+            display: inline-block;
+        }
+        
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 30px;
+            border: none;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .close:hover { color: #000; }
+        
+        /* Wallet Dashboard Styles */
+        .wallet-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #007bff;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .action-buttons button {
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        /* Form Styles */
+        .form-group {
+            margin: 15px 0;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        /* Chain Display */
+        .chain-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .chain-item {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 12px;
+        }
+        
+        /* Receive Info Styles */
+        .receive-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .share-options {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .share-options button {
+            flex: 1;
+        }
+        
+        /* Auth Methods Display */
+        .auth-method {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin: 2px;
+            font-size: 12px;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .action-buttons {
+                flex-direction: column;
+            }
+            .share-options {
+                flex-direction: column;
+            }
+            .modal-content {
+                width: 95%;
+                margin: 10% auto;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 NexusPay Google Auth Test</h1>
+        
+        <!-- Authentication Status & Wallet Dashboard -->
+        <div class="test-section" id="auth-status" style="display: none;">
+            <h3>💳 Wallet Dashboard</h3>
+            <div id="user-info"></div>
+            
+            <!-- Wallet Information -->
+            <div id="wallet-info" class="wallet-section">
+                <h4>🏦 Your Wallet</h4>
+                <div id="wallet-details"></div>
+                <div id="supported-chains"></div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="action-buttons">
+                <button onclick="showSendFunds()" style="background: #28a745;">💸 Send Funds</button>
+                <button onclick="showReceiveFunds()" style="background: #17a2b8;">📥 Receive Funds</button>
+                <button onclick="showAccountSettings()" style="background: #6f42c1;">⚙️ Account Settings</button>
+                <button onclick="logout()" style="background: #dc3545;">🚪 Logout</button>
+            </div>
+        </div>
+
+        <!-- Send Funds Modal -->
+        <div id="send-funds-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeSendFunds()">&times;</span>
+                <h3>💸 Send Funds</h3>
+                
+                <div class="form-group">
+                    <label>Recipient (Phone, Email, or Wallet Address):</label>
+                    <input type="text" id="recipient" placeholder="+254712345678 or user@example.com or 0x..." style="width: 100%; padding: 10px; margin: 5px 0;">
+                </div>
+                
+                <div class="form-group">
+                    <label>Amount (USDC):</label>
+                    <input type="number" id="send-amount" placeholder="10.50" step="0.01" style="width: 100%; padding: 10px; margin: 5px 0;">
+                </div>
+                
+                <div class="form-group">
+                    <label>Chain:</label>
+                    <select id="send-chain" style="width: 100%; padding: 10px; margin: 5px 0;">
+                        <option value="arbitrum">Arbitrum</option>
+                        <option value="polygon">Polygon</option>
+                        <option value="optimism">Optimism</option>
+                        <option value="base">Base</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Note (optional):</label>
+                    <input type="text" id="send-note" placeholder="Payment for..." style="width: 100%; padding: 10px; margin: 5px 0;">
+                </div>
+                
+                <button onclick="sendFunds()" style="background: #28a745; width: 100%; padding: 12px; margin: 10px 0;">Send Funds</button>
+                <div id="send-result" class="result" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Receive Funds Modal -->
+        <div id="receive-funds-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeReceiveFunds()">&times;</span>
+                <h3>📥 Receive Funds</h3>
+                
+                <div class="receive-info">
+                    <h4>Your Receiving Information:</h4>
+                    <div id="receive-details"></div>
+                </div>
+                
+                <div class="share-options">
+                    <button onclick="copyWalletAddress()" style="background: #17a2b8;">📋 Copy Wallet Address</button>
+                    <button onclick="shareEmail()" style="background: #6f42c1;">📧 Share Email</button>
+                    <button onclick="sharePhone()" style="background: #fd7e14;">📱 Share Phone</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Account Settings Modal -->
+        <div id="account-settings-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeAccountSettings()">&times;</span>
+                <h3>⚙️ Account Settings</h3>
+                
+                <div id="current-auth-methods"></div>
+                
+                <!-- Add Phone & Password (for Google users) -->
+                <div id="add-phone-section-modal" style="display: none;">
+                    <h4>📱 Add Phone & Password</h4>
+                    <p>Add a phone number to enable M-Pesa transactions and alternative login.</p>
+                    <input type="tel" id="settings-phone" placeholder="+254712345678" style="width: 100%; padding: 10px; margin: 5px 0;">
+                    <input type="password" id="settings-password" placeholder="Create password" style="width: 100%; padding: 10px; margin: 5px 0;">
+                    <button onclick="addPhoneAndPassword()" style="background: #28a745; width: 100%; padding: 10px; margin: 10px 0;">Add Phone & Password</button>
+                </div>
+                
+                <!-- Link Google Account (for phone users) -->
+                <div id="add-google-section-modal" style="display: none;">
+                    <h4>🔗 Link Google Account</h4>
+                    <p>Link your Google account for easier sign-in.</p>
+                    <button onclick="linkGoogleAccount()" class="google-btn" style="width: 100%; padding: 10px; margin: 10px 0;">Link Google Account</button>
+                </div>
+                
+                <!-- Phone Verification -->
+                <div id="verify-phone-section-modal" style="display: none;">
+                    <h4>📱 Verify Phone Number</h4>
+                    <p>Enter the OTP sent to your phone:</p>
+                    <input type="text" id="settings-otp" placeholder="123456" style="width: 100%; padding: 10px; margin: 5px 0;">
+                    <button onclick="verifyPhoneInSettings()" style="background: #17a2b8; width: 100%; padding: 10px; margin: 10px 0;">Verify Phone</button>
+                </div>
+                
+                <div id="settings-result" class="result" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Phone & Password Authentication -->
+        <div class="test-section" id="phone-auth-section">
+            <h3>📱 Phone & Password Authentication</h3>
+            
+            <div style="margin-bottom: 20px;">
+                <h4>Register with Phone & Password</h4>
+                <input type="tel" id="reg-phone" placeholder="+254712345678" style="width: 200px; padding: 8px; margin: 5px;">
+                <input type="email" id="reg-email" placeholder="email@example.com (optional)" style="width: 200px; padding: 8px; margin: 5px;">
+                <input type="password" id="reg-password" placeholder="Password" style="width: 200px; padding: 8px; margin: 5px;">
+                <button onclick="registerWithPhone()">Register</button>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4>Login with Phone/Email & Password</h4>
+                <input type="text" id="login-identifier" placeholder="Phone or Email" style="width: 200px; padding: 8px; margin: 5px;">
+                <input type="password" id="login-password" placeholder="Password" style="width: 200px; padding: 8px; margin: 5px;">
+                <button onclick="loginWithPhone()">Login</button>
+                
+                <!-- OTP Input Section for Login -->
+                <div id="login-otp-section" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff;">
+                    <h5>📱 Enter OTP</h5>
+                    <p style="margin: 5px 0; color: #666; font-size: 14px;">Check your phone for the OTP code (also shown in server logs)</p>
+                    <input type="text" id="login-otp-input" placeholder="123456" maxlength="6" style="width: 150px; padding: 10px; margin: 5px; font-size: 16px; text-align: center; font-family: monospace;" onkeypress="if(event.key==='Enter') verifyLoginOTP()">
+                    <button onclick="verifyLoginOTP()" style="background: #28a745; padding: 10px 15px;">Verify OTP</button>
+                    <button onclick="hideLoginOTP()" style="background: #6c757d; padding: 10px 15px; margin-left: 10px;">Cancel</button>
+                </div>
+            </div>
+
+            <div id="otp-section" style="display: none; margin-bottom: 20px;">
+                <h4>Enter OTP</h4>
+                <input type="text" id="otp-input" placeholder="123456" style="width: 150px; padding: 8px; margin: 5px;">
+                <button onclick="verifyOTP()">Verify OTP</button>
+                <div id="otp-type" style="display: none;"></div>
+            </div>
+
+            <div id="phone-result" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- Google OAuth Authentication -->
+        <div class="test-section" id="google-auth-section">
+            <h3>🔍 Google OAuth Authentication</h3>
+            
+            <!-- Google Sign-In will be initialized programmatically -->
+            <div class="g_id_signin">
+            </div>
+            
+            <div id="google-result" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- Account Linking -->
+        <div class="test-section" id="linking-section" style="display: none;">
+            <h3>🔗 Account Linking</h3>
+            
+            <div id="add-phone-section" style="display: none; margin-bottom: 20px;">
+                <h4>Add Phone & Password to Google Account</h4>
+                <input type="tel" id="link-phone" placeholder="+254712345678" style="width: 200px; padding: 8px; margin: 5px;">
+                <input type="password" id="link-password" placeholder="Password" style="width: 200px; padding: 8px; margin: 5px;">
+                <button onclick="addPhoneToGoogleAccount()">Add Phone & Password</button>
+            </div>
+
+            <div id="add-google-section" style="display: none; margin-bottom: 20px;">
+                <h4>Link Google Account</h4>
+                <button onclick="linkGoogleAccount()" class="google-btn">Link Google Account</button>
+            </div>
+
+            <div id="verify-phone-section" style="display: none; margin-bottom: 20px;">
+                <h4>Verify Phone Addition</h4>
+                <input type="text" id="verify-phone-otp" placeholder="123456" style="width: 150px; padding: 8px; margin: 5px;">
+                <button onclick="verifyPhoneAddition()">Verify Phone</button>
+            </div>
+
+            <div id="linking-result" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- API Testing -->
+        <div class="test-section">
+            <h3>🧪 API Tests</h3>
+            <button onclick="testHealthEndpoint()">Test Health</button>
+            <button onclick="testEmailTransfer()">Test Email Transfer</button>
+            <button onclick="testGoogleConfig()">Test Google Config</button>
+            
+            <div id="test-results" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Account Creation Flow</h3>
+            <p>After successful Google sign-in:</p>
+            <ol>
+                <li>✅ User account created with email + crypto wallet</li>
+                <li>✅ JWT token issued for authentication</li>
+                <li>✅ Can immediately receive crypto via email</li>
+                <li>⏳ Can add phone/password later for M-Pesa access</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Auto-fetch Google Client ID from backend
+        let GOOGLE_CLIENT_ID = null;
+        const BACKEND_URL = 'http://localhost:8000';
+        const FRONTEND_URL = 'http://localhost:3000';
+
+        // Fetch Google config from backend
+        async function loadGoogleConfig() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/auth/google-config`);
+                const data = await response.json();
+                
+                if (data.success && data.data.clientId) {
+                    GOOGLE_CLIENT_ID = data.data.clientId;
+                    console.log('✅ Google Client ID loaded from backend:', GOOGLE_CLIENT_ID);
+                    return true;
+                } else {
+                    console.error('❌ Failed to load Google config:', data.message);
+                    return false;
+                }
+            } catch (error) {
+                console.error('❌ Error loading Google config:', error);
+                return false;
+            }
+        }
+
+        // Initialize Google Sign-In after client ID is loaded
+        function initializeGoogleSignIn() {
+            if (!GOOGLE_CLIENT_ID) {
+                console.error('❌ Cannot initialize Google Sign-In: No client ID');
+                return false;
+            }
+
+            if (!window.google || !window.google.accounts) {
+                console.error('❌ Google SDK not loaded');
+                return false;
+            }
+
+            try {
+                console.log('🔄 Initializing Google Sign-In with client ID:', GOOGLE_CLIENT_ID);
+                
+                // Initialize first
+                window.google.accounts.id.initialize({
+                    client_id: GOOGLE_CLIENT_ID,
+                    callback: handleCredentialResponse,
+                    auto_prompt: false,
+                    use_fedcm_for_prompt: false
+                });
+
+                // Small delay to ensure initialization completes
+                setTimeout(() => {
+                    // Then render the button
+                    const signInDiv = document.querySelector('.g_id_signin');
+                    if (signInDiv) {
+                        window.google.accounts.id.renderButton(signInDiv, {
+                            theme: 'outline',
+                            size: 'large',
+                            type: 'standard',
+                            text: 'sign_in_with',
+                            shape: 'rectangular'
+                        });
+                        console.log('✅ Google Sign-In button rendered successfully');
+                    } else {
+                        console.error('❌ No .g_id_signin element found for rendering');
+                    }
+                }, 100);
+                
+                return true;
+            } catch (error) {
+                console.error('❌ Error initializing Google Sign-In:', error);
+                return false;
+            }
+        }
+
+        // Global variables for OTP handling
+        let currentOTPContext = null;
+
+        // Handle Google Sign-In response
+        function handleCredentialResponse(response) {
+            console.log('Google Sign-In Response:', response);
+            
+            const resultDiv = document.getElementById('google-result');
+            resultDiv.style.display = 'block';
+            
+            // Check if this is for linking to existing account
+            const isLinking = currentOTPContext && currentOTPContext.type === 'link-google';
+            const token = localStorage.getItem('nexuspay_token');
+            
+            if (isLinking) {
+                if (!token) {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = '❌ Authentication required for linking. Please log in again.';
+                    currentOTPContext = null;
+                    return;
+                }
+                resultDiv.innerHTML = '🔄 Linking Google account to your existing account...';
+            } else {
+                resultDiv.innerHTML = '🔄 Processing Google sign-in...';
+            }
+
+            // Determine endpoint and headers
+            const endpoint = isLinking ? `${BACKEND_URL}/api/auth/google/link` : `${BACKEND_URL}/api/auth/google`;
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            if (isLinking && token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            // Send ID token to your backend
+            fetch(endpoint, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    idToken: response.credential
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Backend Response:', data);
+                
+                if (data.success) {
+                    if (isLinking) {
+                        // Handle successful linking
+                        resultDiv.className = 'result success';
+                        resultDiv.innerHTML = `✅ SUCCESS! Google account linked to your phone account!\n\n🎉 Welcome ${data.data.user.email}!`;
+                        
+                        // Update stored user data (no new token for linking)
+                        const existingToken = localStorage.getItem('nexuspay_token');
+                        storeUserData(data.data.user, existingToken);
+                        updateUIForLoggedInUser(data.data.user);
+                        
+                        // Refresh account settings if modal is open
+                        if (document.getElementById('account-settings-modal').style.display === 'block') {
+                            setTimeout(() => {
+                                showAccountSettings();
+                            }, 500);
+                        }
+                        
+                        // Clear linking context
+                        currentOTPContext = null;
+                    } else {
+                        // Handle new account or login
+                        resultDiv.className = 'result success';
+                        resultDiv.innerHTML = `✅ SUCCESS! Google Authentication Complete\n\n🎉 Welcome ${data.data.user.email}!`;
+
+                        // Store user data and update UI
+                        storeUserData(data.data.user, data.data.token);
+                        updateUIForLoggedInUser(data.data.user);
+                    }
+                } else {
+                    // Handle specific error cases
+                    if (isLinking && (data.message === 'Token expired' || data.message === 'Authentication required')) {
+                        resultDiv.className = 'result error';
+                        resultDiv.innerHTML = `❌ Your session has expired. Please log in again and try linking your Google account.`;
+                        
+                        // Clear expired data
+                        localStorage.removeItem('nexuspay_token');
+                        localStorage.removeItem('nexuspay_user');
+                        currentOTPContext = null;
+                        
+                        // Refresh page to show login form
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 3000);
+                    } else {
+                        resultDiv.className = 'result error';
+                        resultDiv.innerHTML = `❌ ERROR: ${data.message}\n\nError Details:\n${JSON.stringify(data.error, null, 2)}`;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ NETWORK ERROR: ${error.message}`;
+            });
+        }
+
+        // Phone & Password Registration
+        function registerWithPhone() {
+            const phone = document.getElementById('reg-phone').value;
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+            
+            if (!phone || !password) {
+                alert('Phone number and password are required');
+                return;
+            }
+
+            const resultDiv = document.getElementById('phone-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Registering...';
+
+            const requestBody = { phoneNumber: phone, password };
+            if (email) requestBody.email = email;
+
+            fetch(`${BACKEND_URL}/api/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Registration initiated! Check your phone for OTP.`;
+                    
+                    // Show OTP section for registration verification
+                    currentOTPContext = { type: 'register', phoneNumber: phone };
+                    showOTPSection('register');
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Registration failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        // Phone & Password Login
+        function loginWithPhone() {
+            const identifier = document.getElementById('login-identifier').value;
+            const password = document.getElementById('login-password').value;
+            
+            if (!identifier || !password) {
+                alert('Phone/Email and password are required');
+                return;
+            }
+
+            const resultDiv = document.getElementById('phone-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Logging in...';
+
+            const requestBody = { password };
+            if (identifier.includes('@')) {
+                requestBody.email = identifier;
+            } else {
+                requestBody.phoneNumber = identifier;
+            }
+
+            fetch(`${BACKEND_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => {
+                console.log('Login response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Login response data:', data);
+                
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    
+                    if (data.data && data.data.smsFailure) {
+                        resultDiv.innerHTML = `✅ Login initiated! SMS failed, but OTP generated. Check server logs for OTP code.`;
+                    } else {
+                        resultDiv.innerHTML = `✅ Login initiated! Check your phone for OTP.`;
+                    }
+                    
+                    // Show the new login OTP section
+                    document.getElementById('login-otp-section').style.display = 'block';
+                    currentOTPContext = { type: 'login', identifier };
+                    
+                    // Focus on OTP input
+                    setTimeout(() => {
+                        document.getElementById('login-otp-input').focus();
+                    }, 100);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Login failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        // Verify Login OTP (new function for login-specific OTP)
+        let isVerifyingOTP = false; // Prevent duplicate requests
+        
+        function verifyLoginOTP() {
+            const otp = document.getElementById('login-otp-input').value;
+            
+            if (!otp || !currentOTPContext || currentOTPContext.type !== 'login') {
+                alert('Please enter OTP');
+                return;
+            }
+
+            // Prevent duplicate requests
+            if (isVerifyingOTP) {
+                console.log('OTP verification already in progress, ignoring duplicate request');
+                return;
+            }
+
+            isVerifyingOTP = true;
+            const verifyButton = document.querySelector('#login-otp-section button[onclick="verifyLoginOTP()"]');
+            if (verifyButton) {
+                verifyButton.disabled = true;
+                verifyButton.innerHTML = '🔄 Verifying...';
+            }
+
+            const resultDiv = document.getElementById('phone-result');
+            resultDiv.innerHTML = '🔄 Verifying login OTP...';
+            resultDiv.className = 'result';
+
+            let requestBody = { otp };
+            if (currentOTPContext.identifier.includes('@')) {
+                requestBody.email = currentOTPContext.identifier;
+            } else {
+                requestBody.phoneNumber = currentOTPContext.identifier;
+            }
+
+            console.log('Sending OTP verification request:', requestBody);
+
+            fetch(`${BACKEND_URL}/api/auth/login/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => {
+                console.log('OTP verification response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('OTP verification response data:', data);
+                
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Login successful! Welcome back!`;
+                    
+                    // Extract user and token safely (handle different response shapes)
+                    let userObj;
+                    let tokenObj;
+
+                    if (data.data) {
+                        // Case: verify-login returns data with token and user fields or flattened structure
+                        if (data.data.user) {
+                            userObj = data.data.user;
+                            tokenObj = data.data.token;
+                        } else {
+                            // Flattened structure (token alongside other user info)
+                            tokenObj = data.data.token;
+                            userObj = { ...data.data };
+                            delete userObj.token; // remove token from user fields
+                        }
+                    } else {
+                        userObj = data.user || null;
+                        tokenObj = data.token || null;
+                    }
+
+                    if (!userObj || !tokenObj) {
+                        console.error('Unexpected response shape:', data);
+                        resultDiv.className = 'result error';
+                        resultDiv.innerHTML = `❌ Unexpected response format. Please try again.`;
+                    } else {
+                        // Store user data and update UI
+                        storeUserData(userObj, tokenObj);
+                        updateUIForLoggedInUser(userObj);
+                        hideLoginOTP();
+                    }
+                    
+                    // Clear form inputs
+                    clearAuthForms();
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ OTP verification failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                console.error('OTP verification error:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            })
+            .finally(() => {
+                // Reset verification state
+                isVerifyingOTP = false;
+                if (verifyButton) {
+                    verifyButton.disabled = false;
+                    verifyButton.innerHTML = 'Verify OTP';
+                }
+            });
+        }
+
+        // Hide Login OTP section
+        function hideLoginOTP() {
+            document.getElementById('login-otp-section').style.display = 'none';
+            document.getElementById('login-otp-input').value = '';
+            currentOTPContext = null;
+        }
+
+        // Verify OTP (original function for registration)
+        function verifyOTP() {
+            const otp = document.getElementById('otp-input').value;
+            
+            if (!otp || !currentOTPContext) {
+                alert('Please enter OTP');
+                return;
+            }
+
+            const resultDiv = document.getElementById('phone-result');
+            resultDiv.innerHTML = '🔄 Verifying OTP...';
+
+            let endpoint = '';
+            let requestBody = { otp };
+
+            if (currentOTPContext.type === 'register') {
+                endpoint = '/api/auth/verify-register';
+                requestBody.phoneNumber = currentOTPContext.phoneNumber;
+            } else if (currentOTPContext.type === 'login') {
+                endpoint = '/api/auth/login/verify';
+                if (currentOTPContext.identifier.includes('@')) {
+                    requestBody.email = currentOTPContext.identifier;
+                } else {
+                    requestBody.phoneNumber = currentOTPContext.identifier;
+                }
+            }
+
+            fetch(`${BACKEND_URL}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ ${currentOTPContext.type === 'register' ? 'Registration' : 'Login'} successful!`;
+                    
+                    // Store user data and update UI
+                    storeUserData(data.data.user, data.data.token);
+                    updateUIForLoggedInUser(data.data.user);
+                    hideOTPSection();
+                    
+                    // Clear form inputs
+                    clearAuthForms();
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ OTP verification failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        // Utility Functions
+        function storeUserData(user, token) {
+            localStorage.setItem('nexuspay_token', token);
+            localStorage.setItem('nexuspay_user', JSON.stringify(user));
+        }
+
+        function updateUIForLoggedInUser(user) {
+            if (!user) {
+                console.error('updateUIForLoggedInUser called with null/undefined');
+                return;
+            }
+            console.log('Updating UI for user:', user);
+            
+            // Show wallet dashboard
+            document.getElementById('auth-status').style.display = 'block';
+            
+            // Handle different user object structures
+            const userEmail = user.email || user.user?.email || 'Not set';
+            const userPhone = user.phoneNumber || user.user?.phoneNumber || 'Not set';
+            const userAuthMethods = user.authMethods || user.user?.authMethods || [];
+            const displayName = userEmail !== 'Not set' ? userEmail : userPhone;
+            
+            // Update user info
+            document.getElementById('user-info').innerHTML = `
+                <div class="result success">
+                    <strong>👤 Welcome, ${displayName}!</strong><br>
+                    ${userAuthMethods.map(method => `<span class="auth-method">${method}</span>`).join('')}
+                </div>
+            `;
+
+            // Update wallet details
+            const walletAddress = user.walletAddress || user.user?.walletAddress || 'Not available';
+            document.getElementById('wallet-details').innerHTML = `
+                <div style="font-family: monospace; font-size: 12px; background: #e9ecef; padding: 10px; border-radius: 5px; word-break: break-all;">
+                    <strong>Address:</strong> ${walletAddress}
+                </div>
+            `;
+
+            // Show supported chains
+            const supportedChains = ['Arbitrum', 'Polygon', 'Optimism', 'Base', 'BNB Chain', 'Avalanche'];
+            document.getElementById('supported-chains').innerHTML = `
+                <h5>🔗 Supported Networks</h5>
+                <div class="chain-list">
+                    ${supportedChains.map(chain => `<div class="chain-item">${chain}</div>`).join('')}
+                </div>
+            `;
+
+            // Hide auth forms
+            document.getElementById('phone-auth-section').style.display = 'none';
+            document.getElementById('google-auth-section').style.display = 'none';
+            document.getElementById('linking-section').style.display = 'none';
+        }
+
+        function showOTPSection(type) {
+            document.getElementById('otp-section').style.display = 'block';
+            document.getElementById('otp-type').innerHTML = `Verifying ${type}...`;
+        }
+
+        function hideOTPSection() {
+            document.getElementById('otp-section').style.display = 'none';
+            document.getElementById('otp-input').value = '';
+            currentOTPContext = null;
+        }
+
+        function clearAuthForms() {
+            document.getElementById('reg-phone').value = '';
+            document.getElementById('reg-email').value = '';
+            document.getElementById('reg-password').value = '';
+            document.getElementById('login-identifier').value = '';
+            document.getElementById('login-password').value = '';
+            document.getElementById('login-otp-input').value = '';
+            document.getElementById('login-otp-section').style.display = 'none';
+        }
+
+        function logout() {
+            localStorage.removeItem('nexuspay_token');
+            localStorage.removeItem('nexuspay_user');
+            
+            // Reset UI
+            document.getElementById('auth-status').style.display = 'none';
+            document.getElementById('linking-section').style.display = 'none';
+            document.getElementById('phone-auth-section').style.display = 'block';
+            document.getElementById('google-auth-section').style.display = 'block';
+            
+            // Clear results
+            document.getElementById('phone-result').style.display = 'none';
+            document.getElementById('google-result').style.display = 'none';
+            document.getElementById('linking-result').style.display = 'none';
+            
+            hideOTPSection();
+            clearAuthForms();
+        }
+
+        // Account Linking Functions
+        function addPhoneToGoogleAccount() {
+            const phone = document.getElementById('link-phone').value;
+            const password = document.getElementById('link-password').value;
+            const token = localStorage.getItem('nexuspay_token');
+            
+            if (!phone || !password) {
+                alert('Phone number and password are required');
+                return;
+            }
+
+            if (!token) {
+                alert('Please login first');
+                return;
+            }
+
+            const resultDiv = document.getElementById('linking-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Adding phone and password...';
+
+            fetch(`${BACKEND_URL}/api/auth/settings/add-phone-password`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ phoneNumber: phone, password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Phone verification initiated! Check your phone for OTP.`;
+                    
+                    // Show phone verification section
+                    document.getElementById('verify-phone-section').style.display = 'block';
+                    currentOTPContext = { type: 'add-phone', phoneNumber: phone };
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Failed to add phone: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        function verifyPhoneAddition() {
+            const otp = document.getElementById('verify-phone-otp').value;
+            
+            if (!otp || !currentOTPContext || currentOTPContext.type !== 'add-phone') {
+                alert('Please enter OTP');
+                return;
+            }
+
+            const resultDiv = document.getElementById('linking-result');
+            resultDiv.innerHTML = '🔄 Verifying phone addition...';
+
+            fetch(`${BACKEND_URL}/api/auth/settings/verify-phone-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumber: currentOTPContext.phoneNumber,
+                    otp
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Phone and password added successfully!`;
+                    
+                    // Update stored user data
+                    storeUserData(data.data.user, localStorage.getItem('nexuspay_token'));
+                    updateUIForLoggedInUser(data.data.user);
+                    
+                    // Hide verification section
+                    document.getElementById('verify-phone-section').style.display = 'none';
+                    currentOTPContext = null;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Phone verification failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        function linkGoogleAccount() {
+            // Set linking context
+            currentOTPContext = { type: 'link-google' };
+            console.log('🔗 Setting linking context for Google account');
+            
+            // Find and click the existing Google Sign-In button
+            const googleButton = document.querySelector('.g_id_signin');
+            if (googleButton) {
+                console.log('🔗 Found Google Sign-In button, triggering click...');
+                
+                // Scroll to the button so user can see it
+                googleButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Highlight the button briefly
+                googleButton.style.border = '3px solid #4285f4';
+                googleButton.style.borderRadius = '8px';
+                
+                setTimeout(() => {
+                    // Remove highlighting
+                    googleButton.style.border = '';
+                    googleButton.style.borderRadius = '';
+                    
+                    // Trigger the button click
+                    const buttonElement = googleButton.querySelector('div[role="button"]') || googleButton;
+                    if (buttonElement) {
+                        buttonElement.click();
+                        console.log('✅ Google Sign-In button clicked for linking');
+                    }
+                }, 500);
+                
+            } else {
+                console.error('❌ Google Sign-In button not found');
+                alert('❌ Google Sign-In button not found. Please refresh the page and try again.');
+            }
+        }
+
+        // Modal Functions
+        function showSendFunds() {
+            document.getElementById('send-funds-modal').style.display = 'block';
+        }
+
+        function closeSendFunds() {
+            document.getElementById('send-funds-modal').style.display = 'none';
+            clearSendForm();
+        }
+
+        function showReceiveFunds() {
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            
+            document.getElementById('receive-details').innerHTML = `
+                <div style="background: #e9ecef; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                    <strong>💳 Wallet Address:</strong><br>
+                    <div style="font-family: monospace; font-size: 12px; word-break: break-all; margin: 5px 0;">${user.walletAddress}</div>
+                </div>
+                ${user.email ? `
+                <div style="background: #d4edda; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                    <strong>📧 Email:</strong> ${user.email}<br>
+                    <small>Others can send you funds using this email</small>
+                </div>
+                ` : ''}
+                ${user.phoneNumber ? `
+                <div style="background: #d1ecf1; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                    <strong>📱 Phone:</strong> ${user.phoneNumber}<br>
+                    <small>Others can send you funds using this phone number</small>
+                </div>
+                ` : ''}
+            `;
+            
+            document.getElementById('receive-funds-modal').style.display = 'block';
+        }
+
+        function closeReceiveFunds() {
+            document.getElementById('receive-funds-modal').style.display = 'none';
+        }
+
+        function showAccountSettings() {
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            
+            // Show current auth methods
+            const authMethodsList = (user.authMethods || []).map(method => `<span class="auth-method">${method}</span>`).join('');
+            document.getElementById('current-auth-methods').innerHTML = `
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                    <h4>🔐 Current Authentication Methods</h4>
+                    <div>${authMethodsList || '<em>No methods linked</em>'}</div>
+                    <div style="margin-top: 10px; font-size: 12px;">
+                        📧 Email: ${user.email || 'Not set'}<br>
+                        📱 Phone: ${user.phoneNumber || 'Not set'}<br>
+                        🔑 Password: ${(user.hasPassword || !!user.password) ? 'Set' : 'Not set'}
+                    </div>
+                </div>
+            `;
+            
+            // Show appropriate options based on current auth methods
+            const hasPhone = user.hasPhoneNumber || !!user.phoneNumber;
+            const authMethods = user.authMethods || [];
+            if (!hasPhone && authMethods.includes('google')) {
+                document.getElementById('add-phone-section-modal').style.display = 'block';
+                document.getElementById('add-google-section-modal').style.display = 'none';
+            } else if (hasPhone && !authMethods.includes('google')) {
+                document.getElementById('add-phone-section-modal').style.display = 'none';
+                document.getElementById('add-google-section-modal').style.display = 'block';
+            } else {
+                document.getElementById('add-phone-section-modal').style.display = 'none';
+                document.getElementById('add-google-section-modal').style.display = 'none';
+            }
+            
+            document.getElementById('account-settings-modal').style.display = 'block';
+        }
+
+        function closeAccountSettings() {
+            document.getElementById('account-settings-modal').style.display = 'none';
+            document.getElementById('verify-phone-section-modal').style.display = 'none';
+            clearSettingsForm();
+        }
+
+        // Send Funds Function
+        function sendFunds() {
+            const recipient = document.getElementById('recipient').value;
+            const amount = document.getElementById('send-amount').value;
+            const chain = document.getElementById('send-chain').value;
+            const note = document.getElementById('send-note').value;
+            const token = localStorage.getItem('nexuspay_token');
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            
+            if (!recipient || !amount) {
+                alert('Recipient and amount are required');
+                return;
+            }
+
+            if (!token) {
+                alert('Please login first');
+                return;
+            }
+
+            const resultDiv = document.getElementById('send-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Sending funds...';
+
+            fetch(`${BACKEND_URL}/api/token/sendToken`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    recipientIdentifier: recipient,
+                    amount: parseFloat(amount),
+                    senderAddress: user.walletAddress,
+                    chain: chain,
+                    note: note
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Funds sent successfully!
+                    
+Transaction Details:
+• To: ${recipient}
+• Amount: ${amount} USDC
+• Chain: ${chain}
+• Transaction ID: ${data.data.transactionId || 'Pending'}
+${note ? `• Note: ${note}` : ''}`;
+                    
+                    // Clear form after success
+                    setTimeout(() => {
+                        closeSendFunds();
+                    }, 3000);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Failed to send funds: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        // Utility Functions for New UI
+        function copyWalletAddress() {
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            navigator.clipboard.writeText(user.walletAddress).then(() => {
+                alert('✅ Wallet address copied to clipboard!');
+            }).catch(() => {
+                alert('❌ Failed to copy wallet address');
+            });
+        }
+
+        function shareEmail() {
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            if (user.email) {
+                navigator.clipboard.writeText(user.email).then(() => {
+                    alert('✅ Email address copied to clipboard!');
+                }).catch(() => {
+                    alert('❌ Failed to copy email address');
+                });
+            } else {
+                alert('❌ Email not set');
+            }
+        }
+
+        function sharePhone() {
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            if (user.phoneNumber) {
+                navigator.clipboard.writeText(user.phoneNumber).then(() => {
+                    alert('✅ Phone number copied to clipboard!');
+                }).catch(() => {
+                    alert('❌ Failed to copy phone number');
+                });
+            } else {
+                alert('❌ Phone number not set');
+            }
+        }
+
+        function clearSendForm() {
+            document.getElementById('recipient').value = '';
+            document.getElementById('send-amount').value = '';
+            document.getElementById('send-note').value = '';
+            document.getElementById('send-result').style.display = 'none';
+        }
+
+        function clearSettingsForm() {
+            document.getElementById('settings-phone').value = '';
+            document.getElementById('settings-password').value = '';
+            document.getElementById('settings-otp').value = '';
+            document.getElementById('settings-result').style.display = 'none';
+        }
+
+        // Updated Account Linking Functions for Modal
+        function addPhoneAndPassword() {
+            const phone = document.getElementById('settings-phone').value;
+            const password = document.getElementById('settings-password').value;
+            const token = localStorage.getItem('nexuspay_token');
+            
+            if (!phone || !password) {
+                alert('Phone number and password are required');
+                return;
+            }
+
+            if (!token) {
+                alert('Please login first');
+                return;
+            }
+
+            const resultDiv = document.getElementById('settings-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Adding phone and password...';
+
+            console.log('🔍 DEBUG: Sending data:', { phoneNumber: phone, password: password.length + ' chars' });
+
+            fetch(`${BACKEND_URL}/api/auth/settings/add-phone-password`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ phoneNumber: phone, password })
+            })
+            .then(response => {
+                console.log('🔍 DEBUG: Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('🔍 DEBUG: Full response:', data);
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    if (data.data && data.data.testMode) {
+                        resultDiv.innerHTML = `✅ Phone verification initiated! <br><div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;"><strong>🧪 TEST MODE:</strong><br>SMS service not configured. OTP logged in server console:<br><strong>Phone: ${phone}</strong><br>Check terminal for OTP code.</div>`;
+                    } else {
+                        resultDiv.innerHTML = `✅ Phone verification initiated! Check your phone for OTP.`;
+                    }
+                    
+                    // Show phone verification section
+                    document.getElementById('verify-phone-section-modal').style.display = 'block';
+                    currentOTPContext = { type: 'add-phone', phoneNumber: phone };
+                } else {
+                    resultDiv.className = 'result error';
+                    // Show detailed validation errors if available
+                    if (data.error && data.error.details) {
+                        const errorDetails = Array.isArray(data.error.details) 
+                            ? data.error.details.map(err => err.msg || err.message).join('<br>')
+                            : data.error.details;
+                        resultDiv.innerHTML = `❌ Validation failed:<br>${errorDetails}`;
+                    } else {
+                        resultDiv.innerHTML = `❌ Failed to add phone: ${data.message}`;
+                    }
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        function verifyPhoneInSettings() {
+            const otp = document.getElementById('settings-otp').value;
+            
+            if (!otp || !currentOTPContext || currentOTPContext.type !== 'add-phone') {
+                alert('Please enter OTP');
+                return;
+            }
+
+            const resultDiv = document.getElementById('settings-result');
+            resultDiv.innerHTML = '🔄 Verifying phone addition...';
+
+            fetch(`${BACKEND_URL}/api/auth/settings/verify-phone-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumber: currentOTPContext.phoneNumber,
+                    otp
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Phone and password added successfully!`;
+                    
+                    // Update stored user data
+                    storeUserData(data.data.user, localStorage.getItem('nexuspay_token'));
+                    updateUIForLoggedInUser(data.data.user);
+                    
+                    // Close modal after success
+                    setTimeout(() => {
+                        closeAccountSettings();
+                    }, 2000);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Phone verification failed: ${data.message}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ Network error: ${error.message}`;
+            });
+        }
+
+        // Test health endpoint
+        function testHealthEndpoint() {
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing health endpoint...';
+
+            fetch(`${BACKEND_URL}/api/health`)
+                .then(response => response.json())
+                .then(data => {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Health Check Passed
+
+Response:
+${JSON.stringify(data, null, 2)}`;
+                })
+                .catch(error => {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Health Check Failed: ${error.message}`;
+                });
+        }
+
+        // Test Google config endpoint
+        function testGoogleConfig() {
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing Google config endpoint...';
+
+            fetch(`${BACKEND_URL}/api/auth/google-config`)
+                .then(response => response.json())
+                .then(data => {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Google Config Retrieved
+
+Response:
+${JSON.stringify(data, null, 2)}`;
+                })
+                .catch(error => {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Google Config Test Failed: ${error.message}`;
+                });
+        }
+
+        // Test email transfer validation
+        function testEmailTransfer() {
+            const token = localStorage.getItem('nexuspay_token');
+            if (!token) {
+                alert('Please sign in with Google first to get a token');
+                return;
+            }
+
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing email transfer validation...';
+
+            fetch(`${BACKEND_URL}/api/token/sendToken`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    recipientIdentifier: 'test@example.com',
+                    amount: 10,
+                    senderAddress: user.walletAddress,
+                    chain: 'arbitrum'
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Email Transfer Validation Working
+
+Response:
+${JSON.stringify(data, null, 2)}`;
+                })
+                .catch(error => {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Email Transfer Test Failed: ${error.message}`;
+                });
+        }
+
+        // Initialize everything when page loads
+        window.onload = async function() {
+            console.log('🚀 Loading NexusPay Authentication Interface...');
+            
+            // Check if user is already logged in
+            const token = localStorage.getItem('nexuspay_token');
+            const userData = localStorage.getItem('nexuspay_user');
+            
+            if (token && userData) {
+                try {
+                    const user = JSON.parse(userData);
+                    console.log('✅ Found existing session for:', user.email || user.phoneNumber);
+                    updateUIForLoggedInUser(user);
+                } catch (error) {
+                    console.log('❌ Invalid stored user data, clearing...');
+                    localStorage.removeItem('nexuspay_token');
+                    localStorage.removeItem('nexuspay_user');
+                }
+            }
+            
+            // Load Google config from backend
+            const configLoaded = await loadGoogleConfig();
+            
+            if (!configLoaded) {
+                console.log('⚠️ Failed to load Google configuration from backend');
+                return;
+            }
+
+            console.log('✅ Google configuration loaded successfully');
+            
+            // Wait for Google SDK to load, then initialize
+            let attempts = 0;
+            const maxAttempts = 20; // 10 seconds max
+            
+            const initInterval = setInterval(() => {
+                attempts++;
+                
+                if (window.google && window.google.accounts) {
+                    clearInterval(initInterval);
+                    console.log('✅ Google SDK loaded, initializing...');
+                    
+                    if (initializeGoogleSignIn()) {
+                        console.log('✅ Google Sign-In initialization complete');
+                    } else {
+                        console.error('❌ Failed to initialize Google Sign-In');
+                    }
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(initInterval);
+                    console.error('❌ Google SDK failed to load after 10 seconds');
+                    console.log('⚠️ Google SDK failed to load. Please refresh the page.');
+                } else {
+                    console.log(`⏳ Waiting for Google SDK... (${attempts}/${maxAttempts})`);
+                }
+            }, 500);
+        };
+    </script>
+</body>
+</html>

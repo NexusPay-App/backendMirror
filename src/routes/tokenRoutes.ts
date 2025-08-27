@@ -19,7 +19,8 @@ import {
   tokenTransferEvents, 
   unify, 
   migrate, 
-  getWallet 
+  getReceiveInfo,
+  getUserBalance 
 } from '../controllers/tokenController';
 import { validate } from '../middleware/validation';
 import {
@@ -28,6 +29,7 @@ import {
   tokenTransferEventsValidation
 } from '../middleware/validators/tokenValidators';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
+import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -39,7 +41,10 @@ router.get('/tokenTransferEvents', enforceStrictAuth, validate(tokenTransferEven
 // Account management routes - all require strict authentication
 router.post('/unify', enforceStrictAuth, unify);
 router.post('/migrate', enforceStrictAuth, migrate);
-router.get('/wallet', enforceStrictAuth, getWallet);
+
+// User wallet endpoints - clean and sleek for UI (basic auth only)
+router.get('/receive', authenticate, getReceiveInfo);
+router.get('/balance', authenticate, getUserBalance);
 
 export default router;
 

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusPay Google Auth Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .result {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success { border-left: 4px solid #28a745; }
+        .error { border-left: 4px solid #dc3545; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .google-btn { background: #db4437; }
+        .google-btn:hover { background: #c23321; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 NexusPay Google Auth Test</h1>
+        
+        <div class="test-section">
+            <h3>📋 Setup Instructions</h3>
+            <ol>
+                <li>Replace <code>YOUR_GOOGLE_CLIENT_ID</code> below with your actual Client ID</li>
+                <li>Make sure your server is running on port 8000</li>
+                <li>Add Google credentials to your .env file</li>
+                <li>Click "Sign in with Google" to test</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>🔐 Google Sign-In Test</h3>
+            
+            <!-- Google Sign-In will be initialized programmatically -->
+            <div class="g_id_signin">
+            </div>
+            
+            <div id="google-result" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 Manual API Tests</h3>
+            <button onclick="testHealthEndpoint()">Test Health Endpoint</button>
+            <button onclick="testGoogleEndpoint()">Test Google Auth Endpoint</button>
+            <button onclick="testEmailTransfer()">Test Email Transfer Validation</button>
+            
+            <div id="test-results" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Account Creation Flow</h3>
+            <p>After successful Google sign-in:</p>
+            <ol>
+                <li>✅ User account created with email + crypto wallet</li>
+                <li>✅ JWT token issued for authentication</li>
+                <li>✅ Can immediately receive crypto via email</li>
+                <li>⏳ Can add phone/password later for M-Pesa access</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Auto-fetch Google Client ID from backend
+        let GOOGLE_CLIENT_ID = null;
+        const BACKEND_URL = 'http://localhost:8000';
+
+        // Fetch Google config from backend
+        async function loadGoogleConfig() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/auth/google-config`);
+                const data = await response.json();
+                
+                if (data.success && data.data.clientId) {
+                    GOOGLE_CLIENT_ID = data.data.clientId;
+                    console.log('✅ Google Client ID loaded from backend:', GOOGLE_CLIENT_ID);
+                    return true;
+                } else {
+                    console.error('❌ Failed to load Google config:', data.message);
+                    return false;
+                }
+            } catch (error) {
+                console.error('❌ Error loading Google config:', error);
+                return false;
+            }
+        }
+
+        // Initialize Google Sign-In after client ID is loaded
+        function initializeGoogleSignIn() {
+            if (!GOOGLE_CLIENT_ID) {
+                console.error('❌ Cannot initialize Google Sign-In: No client ID');
+                return false;
+            }
+
+            if (!window.google || !window.google.accounts) {
+                console.error('❌ Google SDK not loaded');
+                return false;
+            }
+
+            try {
+                console.log('🔄 Initializing Google Sign-In with client ID:', GOOGLE_CLIENT_ID);
+                
+                window.google.accounts.id.initialize({
+                    client_id: GOOGLE_CLIENT_ID,
+                    callback: handleCredentialResponse,
+                    auto_prompt: false
+                });
+
+                // Render the sign-in button
+                const signInDiv = document.querySelector('.g_id_signin');
+                if (signInDiv) {
+                    window.google.accounts.id.renderButton(signInDiv, {
+                        theme: 'outline',
+                        size: 'large',
+                        type: 'standard',
+                        text: 'sign_in_with',
+                        shape: 'rectangular'
+                    });
+                    console.log('✅ Google Sign-In button rendered successfully');
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('❌ Error initializing Google Sign-In:', error);
+                return false;
+            }
+        }
+
+        // Handle Google Sign-In response
+        function handleCredentialResponse(response) {
+            console.log('Google Sign-In Response:', response);
+            
+            const resultDiv = document.getElementById('google-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Processing Google sign-in...';
+
+            // Send ID token to your backend
+            fetch(`${BACKEND_URL}/api/auth/google`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    idToken: response.credential
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Backend Response:', data);
+                
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ SUCCESS! Account Created/Login Successful
+
+🎉 Welcome ${data.data.user.email}!
+
+📋 Account Details:
+• User ID: ${data.data.user.id}
+• Email: ${data.data.user.email}
+• Phone: ${data.data.user.phoneNumber || 'Not set'}
+• Wallet: ${data.data.user.walletAddress}
+• Verified: ${data.data.user.isVerified}
+• Auth Methods: ${data.data.user.authMethods.join(', ')}
+• Has Password: ${data.data.user.hasPassword}
+• Has Phone: ${data.data.user.hasPhoneNumber}
+
+🔑 JWT Token: ${data.data.token.substring(0, 50)}...
+
+${!data.data.user.hasPhoneNumber ? 
+    '⚠️ Add phone number for M-Pesa access' : 
+    '✅ Ready for all features including M-Pesa'}`;
+
+                    // Store token for further testing
+                    localStorage.setItem('nexuspay_token', data.data.token);
+                    localStorage.setItem('nexuspay_user', JSON.stringify(data.data.user));
+                    
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ ERROR: ${data.message}
+
+Error Details:
+${JSON.stringify(data.error, null, 2)}`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ NETWORK ERROR: ${error.message}
+
+Make sure:
+1. Your server is running on port 8000
+2. CORS is configured properly
+3. Google credentials are in your .env file`;
+            });
+        }
+
+        // Test health endpoint
+        function testHealthEndpoint() {
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing health endpoint...';
+
+            fetch(`${BACKEND_URL}/api/health`)
+                .then(response => response.json())
+                .then(data => {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Health Check Passed
+
+Response:
+${JSON.stringify(data, null, 2)}`;
+                })
+                .catch(error => {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Health Check Failed: ${error.message}`;
+                });
+        }
+
+        // Test Google auth endpoint with fake token
+        function testGoogleEndpoint() {
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing Google auth endpoint...';
+
+            fetch(`${BACKEND_URL}/api/auth/google`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken: 'fake_token_for_testing' })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Endpoint Working (Expected to fail with fake token)
+
+Response:
+${JSON.stringify(data, null, 2)}`;
+                })
+                .catch(error => {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Endpoint Test Failed: ${error.message}`;
+                });
+        }
+
+        // Test email transfer validation
+        function testEmailTransfer() {
+            const token = localStorage.getItem('nexuspay_token');
+            if (!token) {
+                alert('Please sign in with Google first to get a token');
+                return;
+            }
+
+            const user = JSON.parse(localStorage.getItem('nexuspay_user') || '{}');
+            
+            const resultDiv = document.getElementById('test-results');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing email transfer validation...';
+
+            fetch(`${BACKEND_URL}/api/token/sendToken`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    recipientIdentifier: 'test@example.com',
+                    amount: 10,
+                    senderAddress: user.walletAddress,
+                    chain: 'arbitrum'
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `✅ Email Transfer Validation Working
+
+Response:
+${JSON.stringify(data, null, 2)}`;
+                })
+                .catch(error => {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ Email Transfer Test Failed: ${error.message}`;
+                });
+        }
+
+        // Initialize everything when page loads
+        window.onload = async function() {
+            console.log('🚀 Loading NexusPay Google Auth Test...');
+            
+            // Load Google config from backend
+            const configLoaded = await loadGoogleConfig();
+            
+            if (!configLoaded) {
+                alert('⚠️ Failed to load Google configuration from backend. Make sure your server is running and has Google credentials in .env file!');
+                return;
+            }
+
+            console.log('✅ Google configuration loaded successfully');
+            
+            // Wait for Google SDK to load, then initialize
+            let attempts = 0;
+            const maxAttempts = 20; // 10 seconds max
+            
+            const initInterval = setInterval(() => {
+                attempts++;
+                
+                if (window.google && window.google.accounts) {
+                    clearInterval(initInterval);
+                    console.log('✅ Google SDK loaded, initializing...');
+                    
+                    if (initializeGoogleSignIn()) {
+                        console.log('✅ Google Sign-In initialization complete');
+                    } else {
+                        console.error('❌ Failed to initialize Google Sign-In');
+                    }
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(initInterval);
+                    console.error('❌ Google SDK failed to load after 10 seconds');
+                    alert('⚠️ Google SDK failed to load. Please refresh the page.');
+                } else {
+                    console.log(`⏳ Waiting for Google SDK... (${attempts}/${maxAttempts})`);
+                }
+            }, 500);
+        };
+    </script>
+</body>
+</html>

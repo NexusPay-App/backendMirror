@@ -18,6 +18,7 @@ import platformWalletRoutes from './routes/platformWalletRoutes';
 import { connect } from './services/database';
 import { Verification } from './models/verificationModel';
 import { client, africastalking } from './services/auth';
+import config from './config/env';
 import { standardResponse } from './services/utils';
 import { startSchedulers, stopSchedulers } from './services/scheduler';
 import app from './app';
@@ -196,6 +197,7 @@ app.get('/api/health', (req: Request, res: Response) => {
     timestamp: Date.now()
   }));
 });
+
 
 // Add a manual trigger for MPESA retry (for testing)
 app.post('/api/internal/retry-transactions', async (req: Request, res: Response) => {

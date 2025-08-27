@@ -2,6 +2,7 @@ import LiquidityProvider from '../models/LiquidityProvider';
 import { LiquidityUsageTracker } from './liquidityUsageTracker';
 import { TokenSymbol } from '../types/token';
 import { logger } from '../config/logger';
+import { TransactionType } from './feeService';
 
 // Base yield rate per token (annual percentage)
 const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
@@ -58,9 +59,13 @@ export async function calculateYield(
             return 0;
         }
 
-        // Get liquidity usage metrics
-        const usageMetrics = await LiquidityUsageTracker.recordUsage(token, amount, TransactionType.SWAP);
-        const { swapVolume, mpesaVolume, totalVolume } = usageMetrics;
+        // Record usage and get metrics separately
+        await LiquidityUsageTracker.recordUsage(token, amount, TransactionType.SWAP);
+        
+        // For now, use default utilization rates until we have actual metrics
+        const swapVolume = amount * 0.3; // 30% default
+        const mpesaVolume = amount * 0.2; // 20% default
+        const totalVolume = amount;
 
         // Calculate utilization rates
         const swapUtilization = (swapVolume / totalVolume) * 100;

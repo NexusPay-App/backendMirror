@@ -19,7 +19,7 @@ const logger = pino({
 });
 
 // Connect to Redis for monitoring
-const redis = new Redis(config.REDIS_URL);
+import { redis, isRedisConnected } from '../config/redis';
 
 // Track interval IDs so they can be cleared if needed
 const intervals: NodeJS.Timeout[] = [];

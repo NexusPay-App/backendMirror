@@ -14,36 +14,8 @@ type TransactionTemplateFunction = (otp: string, amount: string, token: string) 
 // In-memory OTP store as fallback when Redis is unavailable
 const inMemoryOtpStore: Record<string, { otp: string, expiry: number }> = {};
 
-// Setup Redis client with better error handling
-let redis: Redis | null = null;
-let useRedis = true;
-
-try {
-    redis = new Redis(config.REDIS_URL, {
-        maxRetriesPerRequest: 3,
-        retryStrategy: (times) => {
-            return Math.min(times * 50, 2000);
-        }
-    });
-
-    // Handle Redis connection events
-    redis.on('connect', () => {
-        console.log('✅ Connected to Redis');
-        useRedis = true;
-    });
-
-    redis.on('error', (err: Error) => {
-        console.error('❌ Redis connection error:', err);
-        if (useRedis) {
-            console.log('⚠️ Switching to in-memory OTP storage');
-            useRedis = false;
-        }
-    });
-} catch (error) {
-    console.error('❌ Failed to initialize Redis:', error);
-    useRedis = false;
-    console.log('⚠️ Using in-memory OTP storage');
-}
+// Use centralized Redis client
+import { redis, isRedisConnected } from '../config/redis';
 
 // Create a transporter using Gmail
 const transporter = nodemailer.createTransport({
@@ -193,7 +165,7 @@ async function storeOTP(email: string, otp: string, purpose: string): Promise<vo
         const key = `otp:${purpose}:${email}`;
         const expirySeconds = getExpiryTime(purpose);
         
-        if (useRedis && redis) {
+        if (isRedisConnected()) {
             // Store in Redis with expiry
             await redis.set(key, otp, 'EX', expirySeconds);
             console.log(`✅ OTP stored in Redis for ${email} (${purpose}): ${otp}`);
@@ -238,7 +210,7 @@ export async function verifyOTP(email: string, otp: string, purpose: keyof typeo
     try {
         const key = `otp:${purpose}:${email}`;
         
-        if (useRedis && redis) {
+        if (isRedisConnected()) {
             // Verify from Redis
             const storedOTP = await redis.get(key);
             if (storedOTP === otp) {

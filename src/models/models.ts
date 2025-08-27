@@ -31,12 +31,12 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IUser extends Document {
-  phoneNumber: string;
-  email: string;
+  phoneNumber?: string;
+  email?: string;
   isEmailVerified: boolean;
   isPhoneVerified: boolean;
   walletAddress: string;
-  password: string;
+  password?: string;
   privateKey: string;
   tempOtp?: string;
   otpExpires?: number;
@@ -44,6 +44,8 @@ export interface IUser extends Document {
   lockoutUntil?: number;
   isUnified: boolean;
   role?: string;
+  googleId?: string;
+  authMethods: ('phone' | 'email' | 'google')[];
   createdAt: Date;
   lastLoginAt?: Date;
 }
@@ -79,7 +81,7 @@ const userSchema: Schema = new Schema({
   },
   password: {
     type: String,
-    required: true,
+    required: false,
   },
   privateKey: {
     type: String,
@@ -112,6 +114,15 @@ const userSchema: Schema = new Schema({
     enum: ['user', 'admin', 'support'],
     default: 'user'
   },
+  googleId: {
+    type: String,
+    sparse: true,
+    unique: true
+  },
+  authMethods: [{
+    type: String,
+    enum: ['phone', 'email', 'google']
+  }],
   createdAt: {
     type: Date,
     default: Date.now,
@@ -119,6 +130,22 @@ const userSchema: Schema = new Schema({
   lastLoginAt: {
     type: Date
   }
+});
+
+// Add validation for password field - only required for non-Google auth
+userSchema.pre('save', function(next) {
+  // For Google OAuth users, password is not required
+  if (this.googleId && !this.password) {
+    // Google OAuth user without password is allowed
+    return next();
+  }
+  
+  // For non-Google users, password is required
+  if (!this.googleId && !this.password) {
+    return next(new Error('Password is required for non-Google authentication'));
+  }
+  
+  next();
 });
 
 // Check if model already exists to prevent OverwriteModelError

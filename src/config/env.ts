@@ -246,6 +246,10 @@ let config: Record<string, any> = {
         // Additional API Keys for secure operation
         COINMARKETCAP_API_KEY: process.env.COINMARKETCAP_API_KEY,
         ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
+        // Google OAuth Configuration
+        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+        GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     },
     production: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -361,6 +365,10 @@ let config: Record<string, any> = {
         // Additional API Keys for secure operation
         COINMARKETCAP_API_KEY: process.env.COINMARKETCAP_API_KEY,
         ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
+        // Google OAuth Configuration
+        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+        GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     },
     test: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -459,6 +467,10 @@ let config: Record<string, any> = {
         // Additional API Keys for secure operation
         COINMARKETCAP_API_KEY: process.env.COINMARKETCAP_API_KEY,
         ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY,
+        // Google OAuth Configuration
+        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+        GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     }
 };
 
