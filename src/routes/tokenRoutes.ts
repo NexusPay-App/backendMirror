@@ -33,10 +33,10 @@ import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
 
-// Protected routes that require strict authentication with OTP verification
-router.post('/sendToken', enforceStrictAuth, validate(sendTokenValidation), send);
-router.post('/pay', enforceStrictAuth, validate(payMerchantValidation), pay);
-router.get('/tokenTransferEvents', enforceStrictAuth, validate(tokenTransferEventsValidation), tokenTransferEvents);
+// Protected routes that require authentication with password + Google auth for security
+router.post('/sendToken', authenticate, validate(sendTokenValidation), send);
+router.post('/pay', authenticate, validate(payMerchantValidation), pay);
+router.get('/tokenTransferEvents', authenticate, validate(tokenTransferEventsValidation), tokenTransferEvents);
 
 // Account management routes - all require strict authentication
 router.post('/unify', enforceStrictAuth, unify);

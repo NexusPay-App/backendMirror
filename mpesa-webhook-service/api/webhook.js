@@ -14,7 +14,15 @@ module.exports = async (req, res) => {
 
   try {
     // Get backend URL from environment variable
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.BACKEND_URL;
+    
+    if (!backendUrl) {
+      console.error('❌ BACKEND_URL environment variable not set');
+      return res.status(500).json({
+        success: false,
+        message: 'Webhook service not configured properly'
+      });
+    }
     
     console.log('🚀 M-Pesa Webhook Received:', {
       method: req.method,

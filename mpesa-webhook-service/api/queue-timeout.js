@@ -11,7 +11,15 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.BACKEND_URL;
+    
+    if (!backendUrl) {
+      console.error('❌ BACKEND_URL environment variable not set');
+      return res.exit(500).json({
+        success: false,
+        message: 'Webhook service not configured properly'
+      });
+    }
     const fullBackendUrl = `${backendUrl}/api/mpesa/queue-timeout`;
     
     console.log('⏰ Queue Timeout received:', {

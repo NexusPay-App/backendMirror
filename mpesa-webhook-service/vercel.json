@@ -4,8 +4,5 @@
     "api/webhook.js": {
       "maxDuration": 30
     }
-  },
-  "env": {
-    "BACKEND_URL": "@nexuspay-backend-url"
   }
 }
