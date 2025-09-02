@@ -508,3 +508,129 @@ export const withdrawFeesToMainWallet = async (req: Request, res: Response) => {
     return handleError(error, res, 'Failed to withdraw fees to main wallet');
   }
 }; 
+
+/**
+ * Manually trigger transaction status correction
+ * This endpoint allows admins to fix transaction statuses based on blockchain data
+ */
+export const triggerTransactionStatusCorrection = async (req: Request, res: Response) => {
+  try {
+    // Check if user is admin
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json(standardResponse(
+        false,
+        'Admin access required',
+        null,
+        { code: 'ADMIN_ACCESS_REQUIRED', message: 'Only administrators can trigger transaction status correction' }
+      ));
+    }
+
+    console.log('🔧 Admin triggered transaction status correction...');
+
+    // Find all transactions that have blockchain hashes but are marked as failed or error
+    const failedTransactionsWithHashes = await Escrow.find({
+      cryptoTransactionHash: { $exists: true, $ne: null },
+      status: { $in: ['failed', 'error'] }
+    });
+
+    console.log(`📊 Found ${failedTransactionsWithHashes.length} transactions with blockchain hashes marked as failed/error`);
+
+    let correctedCount = 0;
+    let errorCount = 0;
+
+    // Process each transaction
+    for (const tx of failedTransactionsWithHashes) {
+      try {
+        console.log(`🔄 Processing transaction: ${tx.transactionId}`);
+        
+        // Update the transaction status to completed
+        await Escrow.findByIdAndUpdate(tx._id, {
+          status: 'completed',
+          completedAt: tx.completedAt || new Date(),
+          'metadata.statusCorrected': true,
+          'metadata.correctedAt': new Date(),
+          'metadata.originalStatus': tx.status,
+          'metadata.correctionReason': 'Blockchain hash exists, transaction was successful'
+        });
+        
+        console.log(`✅ Corrected transaction ${tx.transactionId}: ${tx.status} → completed`);
+        correctedCount++;
+        
+      } catch (error) {
+        console.error(`❌ Error correcting transaction ${tx.transactionId}:`, error);
+        errorCount++;
+      }
+    }
+
+    // Also check for transactions marked as completed but have no blockchain hash
+    const completedTransactionsWithoutHashes = await Escrow.find({
+      cryptoTransactionHash: { $exists: false },
+      status: 'completed'
+    });
+
+    let markedAsFailed = 0;
+
+    for (const tx of completedTransactionsWithoutHashes) {
+      const transactionAge = Math.floor((Date.now() - new Date(tx.createdAt).getTime()) / (1000 * 60 * 60)); // hours
+      
+      // If transaction is older than 24 hours and has no blockchain hash, mark as failed
+      if (transactionAge > 24) {
+        try {
+          await Escrow.findByIdAndUpdate(tx._id, {
+            status: 'failed',
+            'metadata.statusCorrected': true,
+            'metadata.correctedAt': new Date(),
+            'metadata.originalStatus': 'completed',
+            'metadata.correctionReason': 'No blockchain hash found after 24 hours'
+          });
+          
+          console.log(`✅ Marked transaction ${tx.transactionId} as failed (no blockchain hash after 24h)`);
+          markedAsFailed++;
+        } catch (error) {
+          console.error(`❌ Error marking transaction ${tx.transactionId} as failed:`, error);
+        }
+      }
+    }
+
+    return res.json(standardResponse(
+      true,
+      'Transaction status correction completed successfully',
+      {
+        summary: {
+          totalProcessed: failedTransactionsWithHashes.length,
+          successfullyCorrected: correctedCount,
+          errorsEncountered: errorCount,
+          markedAsFailed: markedAsFailed,
+          completedWithoutHashes: completedTransactionsWithoutHashes.length
+        },
+        details: {
+          correctedTransactions: correctedCount > 0 ? failedTransactionsWithHashes.map(tx => ({
+            transactionId: tx.transactionId,
+            originalStatus: tx.status,
+            newStatus: 'completed',
+            blockchainHash: tx.cryptoTransactionHash,
+            type: tx.type,
+            amount: tx.cryptoAmount
+          })) : [],
+          failedTransactions: markedAsFailed > 0 ? completedTransactionsWithoutHashes
+            .filter(tx => {
+              const transactionAge = Math.floor((Date.now() - new Date(tx.createdAt).getTime()) / (1000 * 60 * 60));
+              return transactionAge > 24;
+            })
+            .map(tx => ({
+              transactionId: tx.transactionId,
+              originalStatus: 'completed',
+              newStatus: 'failed',
+              reason: 'No blockchain hash found after 24 hours',
+              type: tx.type,
+              amount: tx.cryptoAmount
+            })) : []
+        }
+      }
+    ));
+
+  } catch (error) {
+    console.error('❌ Error in transaction status correction:', error);
+    return handleError(error, res, 'Failed to trigger transaction status correction');
+  }
+}; 

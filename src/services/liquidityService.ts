@@ -23,8 +23,7 @@ const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
     TRX: 3,
     SOL: 6,
     OP: 5,
-    cUSD: 5,
-    CKES: 4
+    cUSD: 5
 };
 
 // Bonus yield based on utilization (additional percentage)

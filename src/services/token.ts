@@ -427,63 +427,92 @@ export async function sendToken(
         const chain = defineChain(chainConfig.chainId);
         const tokenAddress = tokenConfig.address;
 
-        // Initialize accounts and contract
+        // Initialize accounts
         const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-        const wallet = smartWallet({
-            chain,
-            // factoryAddress removed to use default
-            sponsorGas: true, // Enable gas sponsorship
-        });
-        const smartAccount = await wallet.connect({ client, personalAccount });
-        const contract = getContract({
-            client,
-            chain,
-            address: tokenAddress,
-        });
+        // Prepare contract handle (reused in both flows)
+        const contract = getContract({ client, chain, address: tokenAddress });
 
-        // Convert amount to token units
+        // Convert amount to token units (used for allowance check in smart account flow)
         const decimals = tokenConfig.decimals;
         const amountInUnits = BigInt(Math.floor(amount * 10 ** decimals));
 
-        // Check and handle allowance
-        let currentAllowance: bigint = BigInt(0);
-        try {
-            currentAllowance = await allowance({
-                contract,
-                owner: personalAccount.address,
-                spender: smartAccount.address,
+        // Helper to perform transfer via smart wallet (gas sponsored)
+        const transferWithSmartAccount = async () => {
+            const wallet = smartWallet({
+                chain,
+                sponsorGas: true,
             });
-        } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error("Allowance check failed, assuming 0:", errorMessage);
-        }
+            const smartAccount = await wallet.connect({ client, personalAccount });
 
-        if (currentAllowance < amountInUnits) {
-            console.log("Insufficient allowance. Approving transfer...");
-            const approveTx = await sendTransaction({
-                transaction: approve({
+            // Check and handle allowance (smart account needs allowance from personal account)
+            let currentAllowance: bigint = BigInt(0);
+            try {
+                currentAllowance = await allowance({
                     contract,
+                    owner: personalAccount.address,
                     spender: smartAccount.address,
+                });
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error("Allowance check failed, assuming 0:", errorMessage);
+            }
+
+            if (currentAllowance < amountInUnits) {
+                console.log("Insufficient allowance. Approving transfer...");
+                const approveTx = await sendTransaction({
+                    transaction: approve({
+                        contract,
+                        spender: smartAccount.address,
+                        amount: amount,
+                    }),
+                    account: smartAccount,
+                });
+                await waitForReceipt(approveTx);
+                console.log(`✅ Approval transaction completed: ${approveTx.transactionHash}`);
+            }
+
+            // Execute transfer through smart account
+            const transferTx = await sendTransaction({
+                transaction: transfer({
+                    contract,
+                    to: recipientAddress,
                     amount: amount,
                 }),
                 account: smartAccount,
             });
-            await waitForReceipt(approveTx);
-            console.log(`✅ Approval transaction completed: ${approveTx.transactionHash}`);
+            await waitForReceipt(transferTx);
+            return transferTx.transactionHash;
+        };
+
+        // Helper to perform direct EOA transfer (no paymaster)
+        const transferWithEOA = async () => {
+            console.log("Falling back to direct EOA transfer (no gas sponsorship)");
+            const transferTx = await sendTransaction({
+                transaction: transfer({
+                    contract,
+                    to: recipientAddress,
+                    amount: amount,
+                }),
+                account: personalAccount,
+            });
+            await waitForReceipt(transferTx);
+            return transferTx.transactionHash;
+        };
+
+        // Try sponsored gas first; on mainnet paymaster error, fallback to EOA transfer
+        let txHash: string;
+        try {
+            txHash = await transferWithSmartAccount();
+        } catch (e: any) {
+            const msg = (e?.message || "").toString();
+            const isPaymasterDisabled = msg.includes("Mainnets not enabled for this account") || msg.includes("thirdweb_getUserOperationGasPrice") || e?.code === 401;
+            if (isPaymasterDisabled) {
+                console.warn("Thirdweb paymaster not enabled for mainnets. Retrying without gas sponsorship...");
+                txHash = await transferWithEOA();
+            } else {
+                throw e;
+            }
         }
-
-        // Execute transfer
-        const transferTx = await sendTransaction({
-            transaction: transfer({
-                contract,
-                to: recipientAddress,
-                amount: amount,
-            }),
-            account: smartAccount,
-        });
-
-        const txHash = transferTx.transactionHash;
-        await waitForReceipt(transferTx);
         
         // Enhanced success logging with transaction hash
         console.log(`✅ Token Transfer Successful:`);

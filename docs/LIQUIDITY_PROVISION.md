@@ -37,7 +37,7 @@ The NexusPay Liquidity Provision system allows users to provide liquidity to the
    - Native gas token: AVAX
 
 7. Celo
-   - Basic token support (USDC, USDT, CKES)
+   - Basic token support (USDC, USDT)
    - Native gas token: CELO
 
 8. Scroll

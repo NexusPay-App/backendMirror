@@ -7,6 +7,9 @@ import {
 } from '../services/platformWallet';
 import { PLATFORM_FEE_WALLET } from '../config/platformWallet';
 import { handleError } from '../services/utils';
+import { Escrow } from '../models/escrowModel';
+import { randomUUID } from 'crypto';
+import mongoose from 'mongoose';
 
 // Get platform wallet balance for a specific token and chain
 export const getWalletBalance = async (req: Request, res: Response): Promise<Response> => {
@@ -114,6 +117,31 @@ export const withdrawFees = async (req: Request, res: Response): Promise<Respons
             token
         );
 
+        // Record the platform wallet transaction
+        const transactionId = randomUUID();
+        const escrow = new Escrow({
+            transactionId,
+            userId: req.user?._id || new mongoose.Types.ObjectId(), // Admin operation
+            amount: 0, // No fiat amount for platform operations
+            cryptoAmount: amount,
+            type: 'platform_operation',
+            status: 'completed',
+            cryptoTransactionHash: result.transactionHash,
+            completedAt: new Date(),
+            metadata: {
+                operation: 'withdraw_fees',
+                toAddress,
+                chain,
+                token,
+                amount,
+                adminOperation: true,
+                platformWallet: true
+            }
+        });
+        await escrow.save();
+
+        console.log(`✅ Platform wallet transaction recorded: ${transactionId}`);
+
         return res.json({
             success: true,
             message: 'Withdrawal completed successfully',
@@ -122,7 +150,8 @@ export const withdrawFees = async (req: Request, res: Response): Promise<Respons
                 chain,
                 token,
                 amount,
-                toAddress
+                toAddress,
+                transactionId
             }
         });
 
@@ -157,6 +186,31 @@ export const transferFees = async (req: Request, res: Response): Promise<Respons
             token
         );
 
+        // Record the platform wallet transaction
+        const transactionId = randomUUID();
+        const escrow = new Escrow({
+            transactionId,
+            userId: req.user?._id || new mongoose.Types.ObjectId(), // Admin operation
+            amount: 0, // No fiat amount for platform operations
+            cryptoAmount: amount,
+            type: 'platform_operation',
+            status: 'completed',
+            cryptoTransactionHash: result.transactionHash,
+            completedAt: new Date(),
+            metadata: {
+                operation: 'transfer_fees',
+                toAddress,
+                chain,
+                token,
+                amount,
+                adminOperation: true,
+                platformWallet: true
+            }
+        });
+        await escrow.save();
+
+        console.log(`✅ Platform wallet transaction recorded: ${transactionId}`);
+
         return res.json({
             success: true,
             message: 'Transfer completed successfully',
@@ -165,7 +219,8 @@ export const transferFees = async (req: Request, res: Response): Promise<Respons
                 chain,
                 token,
                 amount,
-                toAddress
+                toAddress,
+                transactionId
             }
         });
 

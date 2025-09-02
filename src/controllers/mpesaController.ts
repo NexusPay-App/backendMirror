@@ -30,6 +30,8 @@ import { logger } from '../config/logger';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import axios from "axios";
 import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
+import { getConversionRateWithCaching as getKESRate } from '../services/rates'
+const getConversionRateWithCaching = getKESRate
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -1972,7 +1974,7 @@ export const stkPushCallback = async (req: Request, res: Response) => {
     const transactionId = escrow.transactionId;
         
     // Extract metadata if present
-    const { directBuy, chain, tokenType, successCode } = escrow.metadata || {};
+    const { directBuy, chain, tokenType } = escrow.metadata || {};
     const cryptoAmount = escrow.cryptoAmount;
     
     logger.info(`Processing STK callback for transaction ${transactionId}`);
@@ -2008,163 +2010,116 @@ export const stkPushCallback = async (req: Request, res: Response) => {
         // Continue anyway, as the payment was successful
       }
       
-      // Update escrow with MPESA details
-            escrow.mpesaReceiptNumber = mpesaReceiptNumber;
-      escrow.status = directBuy ? 'reserved' : 'completed';
-            await escrow.save();
-      
-      // Record transaction
-      const transactionData: TransactionLogEntry = {
-        type: 'mpesa_to_crypto',
-        status: 'processing',
-        executionTimeMs: escrow.createdAt ? Date.now() - new Date(escrow.createdAt).getTime() : 0,
-        escrowId: escrow._id.toString(),
-        userId: escrow.userId.toString(),
-        amount: escrow.amount,
-        mpesaReceiptNumber,
-        chainName: chain || 'unknown',
-        txId: undefined // Set to undefined initially, will be updated later if available
-    };
-    
-    try {
-        await recordTransaction(transactionData);
-    } catch (error) {
-        logger.error(`Failed to record transaction: ${error}`);
-    }
-      
-      // Determine if we should release crypto
-      const shouldReleaseCrypto = directBuy === true;
-            
-            if (shouldReleaseCrypto) {
-                try {
-                    // Get the user
-                    const user = await User.findById(escrow.userId);
-                    
-                    if (!user) {
-            logger.error(`User not found for escrow transaction: ${escrow.transactionId}`);
-                        escrow.status = 'error';
-                        escrow.metadata = { 
-                            ...escrow.metadata, 
-                            error: !user ? 'User not found' : 'Wallet address not found',
-                            errorCode: !user ? 'USER_NOT_FOUND' : 'WALLET_NOT_FOUND',
-                            mpesaPaymentReceived: true
-                        };
-                        await escrow.save();
-                        return;
-                    }
-                    
-          if (!user.walletAddress) {
-            logger.error(`User ${user._id} does not have a wallet address`);
-            escrow.status = 'error';
-            escrow.metadata = { 
-              ...escrow.metadata, 
-              error: 'Wallet address not found',
-              errorCode: 'WALLET_NOT_FOUND',
-              mpesaPaymentReceived: true
-            };
-            await escrow.save();
-            return;
-          }
-          
-          logger.info(`Initiating crypto transfer to user wallet:`);
-          logger.info(`- User ID: ${user._id}`);
-          logger.info(`- Wallet: ${user.walletAddress}`);
-          logger.info(`- Amount: ${cryptoAmount} ${tokenType} on ${chain}`);
-                    
-          // Queue the crypto transfer for processing
-          // This is more efficient than direct transfer in the callback
-          const txId = await queueTransaction(
-                        user.walletAddress,
-                        cryptoAmount,
-                        chain,
-                        tokenType as TokenSymbol,
-                        'high', // Priority level for faster processing
-                        escrow._id.toString(), // Pass escrow ID to prevent duplicates
-                        escrow.transactionId // Pass original transaction ID
-                    );
-                    
-          // Update escrow with queued transaction
-          escrow.status = 'pending';
-          escrow.metadata = {
-            ...escrow.metadata,
-            queuedTxId: txId,
-            mpesaPaymentReceived: true,
-            mpesaReceiptNumber
+      // Mark escrow as processing while we perform on-chain transfer
+      escrow.status = 'processing';
+      escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+      await escrow.save();
+
+      // Immediate crypto release (no queuing)
+      try {
+        // Get the user
+        const user = await User.findById(escrow.userId);
+        if (!user || !user.walletAddress) {
+          const errMsg = !user ? 'User not found' : 'Wallet address not found';
+          logger.error(`${errMsg} for escrow transaction: ${escrow.transactionId}`);
+          escrow.status = 'error';
+          escrow.metadata = { 
+            ...escrow.metadata, 
+            error: errMsg,
+            errorCode: !user ? 'USER_NOT_FOUND' : 'WALLET_NOT_FOUND',
+            mpesaPaymentReceived: true
           };
-                    await escrow.save();
-                    
-          logger.info(`Crypto transfer queued with ID ${txId} for transaction ${transactionId}`);
-          
-          // Record the transfer for audit
-          const transactionData = {
-            type: 'escrow_to_user',
-            status: 'pending',
-            txId,
-            escrowId: escrow._id.toString(),
-            userId: user._id.toString(),
-            toAddress: user.walletAddress,
-            amount: cryptoAmount,
-                        tokenType,
-            chainName: chain || 'unknown'
-          };
-          recordTransaction(transactionData);
-        } catch (error: any) {
-          logger.error(`Error initiating crypto transfer: ${error.message}`);
-                    
-          // Update escrow with error
-                    escrow.status = 'error';
-                    escrow.metadata = { 
-                        ...escrow.metadata, 
-            error: error.message,
-            errorCode: 'CRYPTO_TRANSFER_FAILED',
-                        mpesaPaymentReceived: true,
-            mpesaReceiptNumber
-                    };
-                    await escrow.save();
-                    
-          // Record failed transaction for recovery
-          const transactionData = {
-            type: 'escrow_to_user',
-            status: 'failed',
-            escrowId: escrow._id.toString(),
-                        userId: escrow.userId.toString(),
-            amount: cryptoAmount,
-                        tokenType,
-            chainName: chain || 'unknown',
-            error: error.message
-          };
-          recordTransaction(transactionData);
-                }
-            } else {
-        logger.info(`Not a direct buy, skipping crypto transfer for ${transactionId}`);
-            }
-        } else {
-      // Payment failed
-      logger.warn(`Payment failed for transaction ${transactionId}: ${resultDesc}`);
-      
-      // Update escrow
-            escrow.status = 'failed';
-            escrow.metadata = { 
-                ...escrow.metadata, 
-        failureReason: resultDesc,
-        failureCode: resultCode
-            };
-            await escrow.save();
-            
-      // Record transaction
-      const transactionData = {
-        type: 'mpesa_to_escrow',
-                status: 'failed',
-        escrowId: escrow._id.toString(),
-        userId: escrow.userId.toString(),
-        amount: escrow.amount,
-        error: resultDesc
-      };
-      recordTransaction(transactionData);
+          await escrow.save();
+          return;
         }
-    } catch (error: any) {
-    logger.error(`Error processing STK callback: ${error.message}`);
+
+        const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+        const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+        if (!primaryKey || !secondaryKey) {
+          throw new Error('Platform wallet keys (PLATFORM_WALLET_PRIMARY_KEY, PLATFORM_WALLET_SECONDARY_KEY) are required for crypto transfer');
+        }
+
+        logger.info(`Initiating immediate crypto transfer to user wallet:`);
+        logger.info(`- User ID: ${user._id}`);
+        logger.info(`- Wallet: ${user.walletAddress}`);
+        logger.info(`- Amount: ${cryptoAmount} ${tokenType} on ${chain}`);
+
+        const transferResult = await sendFromPlatformWallet(
+          cryptoAmount,
+          user.walletAddress,
+          primaryKey,
+          secondaryKey,
+          chain,
+          tokenType as TokenSymbol
+        );
+
+        const explorerUrl = generateExplorerUrl(chain, transferResult.transactionHash);
+
+        // Update escrow with successful transfer
+        escrow.status = 'completed';
+        escrow.completedAt = new Date();
+        escrow.cryptoTransactionHash = transferResult.transactionHash;
+        escrow.metadata = { 
+          ...escrow.metadata, 
+          mpesaPaymentReceived: true,
+          cryptoTransferred: true,
+          transferHash: transferResult.transactionHash,
+          explorerUrl,
+          processingStatus: 'completed',
+          completedAt: new Date().toISOString(),
+          mpesaReceiptNumber,
+          directProcessing: true
+        };
+        await escrow.save();
+
+        logger.info(`✅ Crypto transfer completed: ${transferResult.transactionHash}`);
+        logger.info(`- Explorer: ${explorerUrl}`);
+
+        // Record the transfer for audit
+        const transactionData = {
+          type: 'escrow_to_user',
+          status: 'completed',
+          txId: transferResult.transactionHash,
+          escrowId: escrow._id.toString(),
+          userId: user._id.toString(),
+          toAddress: user.walletAddress,
+          amount: cryptoAmount,
+          tokenType,
+          chainName: chain || 'unknown'
+        };
+        recordTransaction(transactionData);
+      } catch (error: any) {
+        logger.error(`Error during immediate crypto transfer: ${error.message}`);
+        escrow.status = 'error';
+        escrow.metadata = {
+          ...escrow.metadata,
+          error: error.message,
+          errorCode: 'CRYPTO_TRANSFER_FAILED',
+          mpesaPaymentReceived: true,
+          mpesaReceiptNumber
+        };
+        await escrow.save();
+
+        const transactionData = {
+          type: 'escrow_to_user',
+          status: 'failed',
+          escrowId: escrow._id.toString(),
+          userId: escrow.userId.toString(),
+          amount: cryptoAmount,
+          tokenType,
+          chainName: chain || 'unknown',
+          error: error.message
+        };
+        recordTransaction(transactionData);
+      }
+    } else {
+      logger.info(`Payment failed or cancelled for ${transactionId}`);
+      escrow.status = 'failed';
+      await escrow.save();
     }
+  } catch (error) {
+    logger.error(`Error processing STK callback: ${error}`);
+  }
 };
 
 // Define function to check specific status values to avoid type comparison errors
@@ -3220,64 +3175,6 @@ export const initiateTillPayment = async (
         
     } catch (error: any) {
         console.error(`❌ [TILL] Failed to initiate payment:`, error.response?.data || error.message);
-        throw error;
-    }
-};
-
-// 🚀 PERFORMANCE OPTIMIZATION: Conversion rate caching
-const conversionRateCache = new Map<string, { rate: number; cachedAt: number; expiresAt: number }>();
-const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
-
-/**
- * Base function to get conversion rate from external API or fallback
- */
-const getBaseConversionRate = async (tokenType: string): Promise<number> => {
-    // For now, return a fixed rate - in production, you'd call an external API
-    const rates: Record<string, number> = {
-        'USDC': 100, // 1 USDC = 100 KES
-        'USDT': 100, // 1 USDT = 100 KES
-        'WETH': 450000, // 1 WETH = 450,000 KES
-        'WBTC': 6800000, // 1 WBTC = 6,800,000 KES
-        'DAI': 100 // 1 DAI = 100 KES
-    };
-    
-    return rates[tokenType] || 100; // Default to 100 KES if token not found
-};
-
-/**
- * Get conversion rate with caching for high performance
- */
-export const getConversionRateWithCaching = async (tokenType: string): Promise<number> => {
-    const cacheKey = `conversion_rate_${tokenType}`;
-    const now = Date.now();
-    
-    // Check cache first
-    const cached = conversionRateCache.get(cacheKey);
-    if (cached && now < cached.expiresAt) {
-        console.log(`💨 [CACHE] Using cached conversion rate for ${tokenType}: ${cached.rate}`);
-        return cached.rate;
-    }
-    
-    try {
-        // Fetch fresh rate using the base function (not recursive call)
-        const rate = await getBaseConversionRate(tokenType);
-        
-        // Cache the result
-        conversionRateCache.set(cacheKey, {
-            rate,
-            cachedAt: now,
-            expiresAt: now + CACHE_DURATION
-        });
-        
-        console.log(`🔄 [CACHE] Updated conversion rate for ${tokenType}: ${rate}`);
-        return rate;
-        
-    } catch (error) {
-        // If fresh fetch fails but we have expired cache, use it
-        if (cached) {
-            console.warn(`⚠️ [CACHE] Using expired rate for ${tokenType} due to fetch error:`, error);
-            return cached.rate;
-        }
         throw error;
     }
 };

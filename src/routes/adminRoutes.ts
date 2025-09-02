@@ -20,7 +20,8 @@ import {
     updateTransactionStatus,
     getPlatformWallets,
     fundUserWallet,
-    withdrawFeesToMainWallet
+    withdrawFeesToMainWallet,
+    triggerTransactionStatusCorrection
 } from "../controllers/adminController";
 
 const router = Router();
@@ -34,6 +35,7 @@ router.post("/users/promote/:id", authenticate, isAdmin, validate(promoteToAdmin
 router.get("/transactions", authenticate, isAdmin, getTransactions);
 router.get("/transactions/:id", authenticate, isAdmin, validate(transactionLookupValidation), getTransactionById);
 router.put("/transactions/:id/status", authenticate, isAdmin, updateTransactionStatus);
+router.post("/transactions/fix-statuses", authenticate, isAdmin, triggerTransactionStatusCorrection);
 
 // Wallet management routes
 router.get("/platform-wallets", authenticate, isAdmin, getPlatformWallets);

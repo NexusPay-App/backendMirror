@@ -57,8 +57,7 @@ export const tokenConfigs: TokenConfigurations = {
     },
     celo: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e', name: 'USD Coin' },
-        USDT: { symbol: 'USDT', decimals: 6, address: '0x617f3112bf5397D0467D315cC709EF968D9ba546', name: 'Tether USD' },
-        CKES: { symbol: 'CKES', decimals: 18, address: '0x4f1A6FC6A7B65Dc7ebC4EB692Dc3641bE997c2F2', name: 'Cakes Token' }
+        USDT: { symbol: 'USDT', decimals: 6, address: '0x617f3112bf5397D0467D315cC709EF968D9ba546', name: 'Tether USD' }
     },
     // Add minimal token support for other chains
     scroll: {

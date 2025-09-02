@@ -9,6 +9,8 @@ import { defineChain, getContract, readContract } from "thirdweb";
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';
+import { Escrow } from '../models/escrowModel';
+import { randomUUID } from 'crypto';
 
 export const send = async (req: Request, res: Response) => {
     const { 
@@ -35,7 +37,17 @@ export const send = async (req: Request, res: Response) => {
         });
     }
     
-    console.log("Received send request:", { amount, senderAddress, recipientIdentifier, chain, tokenSymbol });
+    console.log("=== SEND TOKEN REQUEST RECEIVED ===");
+    console.log("Request details:", { 
+        amount, 
+        senderAddress, 
+        recipientIdentifier, 
+        chain, 
+        tokenSymbol,
+        timestamp: new Date().toISOString(),
+        hasPassword: !!password,
+        hasGoogleAuth: !!googleAuthCode
+    });
 
     let recipientAddress = recipientIdentifier;
     let recipientPhone = '';
@@ -311,39 +323,167 @@ export const send = async (req: Request, res: Response) => {
             }
         }
 
-        res.json({
-            success: true,
-            message: 'Token sent successfully!',
-            data: {
-                transactionCode,
-                amount: amountDisplay,
-                recipient: recipientForDisplay,
+        // Generate blockchain explorer URL
+        const getExplorerUrl = (chain: string, txHash: string): string => {
+            const explorerUrls: Record<string, string> = {
+                arbitrum: `https://arbiscan.io/tx/${txHash}`,
+                celo: `https://celoscan.io/tx/${txHash}`,
+                polygon: `https://polygonscan.com/tx/${txHash}`,
+                base: `https://basescan.org/tx/${txHash}`,
+                optimism: `https://optimistic.etherscan.io/tx/${txHash}`,
+                ethereum: `https://etherscan.io/tx/${txHash}`,
+                bnb: `https://bscscan.com/tx/${txHash}`,
+                avalanche: `https://snowtrace.io/tx/${txHash}`,
+                fantom: `https://ftmscan.com/tx/${txHash}`,
+                gnosis: `https://gnosisscan.io/tx/${txHash}`,
+                scroll: `https://scrollscan.com/tx/${txHash}`,
+                moonbeam: `https://moonscan.io/tx/${txHash}`,
+                fuse: `https://explorer.fuse.io/tx/${txHash}`,
+                aurora: `https://aurorascan.dev/tx/${txHash}`,
+                lisk: `https://blockscout.lisk.com/tx/${txHash}`,
+                somnia: `https://explorer.somnia.network/tx/${txHash}`
+            };
+            return explorerUrls[chain] || `https://etherscan.io/tx/${txHash}`;
+        };
+
+        const explorerUrl = getExplorerUrl(chain, result.transactionHash);
+        const isoTimestamp = new Date().toISOString();
+
+        // Record the transaction in database
+        const transactionId = randomUUID();
+        const escrow = new Escrow({
+            transactionId,
+            userId: sender._id,
+            amount: 0, // No fiat amount for direct transfers
+            cryptoAmount: amount,
+            type: 'token_transfer',
+            status: 'completed',
+            cryptoTransactionHash: result.transactionHash,
+            completedAt: new Date(),
+            metadata: {
+                senderAddress,
                 recipientAddress,
                 recipientPhone,
                 recipientEmail,
-                timestamp: currentDateTime,
-                transactionHash: result.transactionHash,
+                recipientIdentifier,
                 chain,
                 tokenSymbol,
-                notifications,
+                transactionCode,
                 securityLevel: isHighValueTransaction ? "high" : "standard",
-                authenticationMethod: password ? "password" : "google_auth",
-                authenticationDetails: {
-                    method: password ? "password" : "google_auth",
+                authMethod: password ? "password" : "google_auth",
+                notifications,
+                explorerUrl,
+                directTransfer: true,
+                transferType: 'wallet_to_wallet'
+            }
+        });
+        await escrow.save();
+
+        console.log(`✅ Transaction recorded in database: ${transactionId}`);
+
+        console.log(`Transaction completed successfully:`, {
+            transactionHash: result.transactionHash,
+            explorerUrl,
+            amount: amountDisplay,
+            chain,
+            timestamp: isoTimestamp
+        });
+
+        res.json({
+            success: true,
+            message: 'Transaction completed successfully',
+            data: {
+                transactionCode,
+                transactionHash: result.transactionHash,
+                explorerUrl,
+                amount: amountDisplay,
+                tokenSymbol,
+                chain,
+                sender: {
+                    address: senderAddress,
+                    phone: sender.phoneNumber,
+                    email: sender.email
+                },
+                recipient: {
+                    identifier: recipientForDisplay,
+                    address: recipientAddress,
+                    phone: recipientPhone,
+                    email: recipientEmail
+                },
+                timestamp: {
+                    iso: isoTimestamp,
+                    local: currentDateTime,
+                    unix: Math.floor(Date.now() / 1000)
+                },
+                transaction: {
+                    hash: result.transactionHash,
+                    explorerUrl,
+                    chain,
+                    token: tokenSymbol,
+                    amount: amount,
+                    amountDisplay,
+                    status: 'completed',
+                    confirmations: 'pending',
+                    gasUsed: 'estimated',
+                    blockNumber: 'pending'
+                },
+                security: {
+                    level: isHighValueTransaction ? "high" : "standard",
+                    authMethod: password ? "password" : "google_auth",
                     verified: true,
                     transactionType: isHighValueTransaction ? "high_value" : "low_value"
-                }
+                },
+                notifications
             }
         });
 
     } catch (error: any) {
         console.error("Error in send API:", error);
-        res.status(500).json({
+        
+        // Enhanced error logging for debugging
+        console.error("Full error details:", {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+            code: error.code,
+            data: error.data
+        });
+
+        // Determine error type and provide specific messages
+        let errorCode = "TRANSFER_FAILED";
+        let errorMessage = error.message || 'Unknown error occurred';
+        let statusCode = 500;
+
+        if (error.message?.includes('insufficient funds')) {
+            errorCode = "INSUFFICIENT_FUNDS";
+            errorMessage = "Insufficient balance to complete this transaction";
+            statusCode = 400;
+        } else if (error.message?.includes('network')) {
+            errorCode = "NETWORK_ERROR";
+            errorMessage = "Network connection error. Please try again";
+            statusCode = 503;
+        } else if (error.message?.includes('gas')) {
+            errorCode = "GAS_ERROR";
+            errorMessage = "Transaction failed due to gas estimation error";
+            statusCode = 400;
+        } else if (error.message?.includes('nonce')) {
+            errorCode = "NONCE_ERROR";
+            errorMessage = "Transaction nonce error. Please try again";
+            statusCode = 400;
+        }
+
+        res.status(statusCode).json({
             success: false,
-            message: 'Failed to send token.',
+            message: 'Transaction failed',
             error: {
-                code: "TRANSFER_FAILED",
-                message: error.message || 'Unknown error occurred'
+                code: errorCode,
+                message: errorMessage,
+                details: process.env.NODE_ENV === 'development' ? {
+                    originalError: error.message,
+                    stack: error.stack?.split('\n').slice(0, 5)
+                } : undefined,
+                timestamp: new Date().toISOString(),
+                requestId: Math.random().toString(36).substring(2, 12).toUpperCase()
             }
         });
     }
