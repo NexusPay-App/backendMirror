@@ -30,6 +30,8 @@ import { logger } from '../config/logger';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import axios from "axios";
 import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
+import { getConversionRateWithCaching as getKESRate } from '../services/rates'
+const getConversionRateWithCaching = getKESRate
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -661,48 +663,20 @@ export const payToTill = async (req: Request, res: Response, next: NextFunction)
  * Buy a specific amount of crypto through MPESA deposit
  * User specifies the crypto amount they want to purchase and which chain/token to use
  */
-export const buyCrypto = async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * Check available liquidity for a specific token and chain
+ */
+export const getLiquidityCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { cryptoAmount, phone, chain, tokenType } = req.body;
+        const { tokenType, chain } = req.params;
         
-        // Enhanced debug logging with more transaction details
-        console.log("✅ Buy Crypto Request:", {
-            cryptoAmount,
-            tokenType,
-            chain,
-            phone: phone.replace(/\d(?=\d{4})/g, "*"), // Mask most of the phone number for privacy
-        });
-        
-        // Validate user authentication
-        if (!req.user) {
-            return res.status(401).json(standardResponse(
-                false,
-                "Authentication required",
-                null,
-                { code: "AUTH_REQUIRED", message: "You must be logged in to perform this action" }
-            ));
-        }
-
-        const authenticatedUser = req.user;
-
         // Validate input
-        if (!cryptoAmount || !phone || !chain || !tokenType) {
+        if (!tokenType || !chain) {
             return res.status(400).json(standardResponse(
                 false,
-                "Missing required fields",
+                "Missing required parameters",
                 null,
-                { code: "MISSING_FIELDS", message: "Crypto amount, phone, chain, and token type are required" }
-            ));
-        }
-
-        // Validate amount
-        const cryptoAmountNum = parseFloat(cryptoAmount);
-        if (isNaN(cryptoAmountNum) || cryptoAmountNum <= 0) {
-            return res.status(400).json(standardResponse(
-                false,
-                "Invalid crypto amount",
-                null,
-                { code: "INVALID_AMOUNT", message: "Crypto amount must be a positive number" }
+                { code: "MISSING_PARAMS", message: "Token type and chain are required" }
             ));
         }
 
@@ -732,12 +706,252 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             ));
         }
 
-        // Step 2: Check if platform has sufficient balance
+        // Step 2: Get platform wallet balance
         const platformWallets = await initializePlatformWallets();
         let platformBalance;
         
         try {
-            // Get current platform wallet balance for the requested token
+            platformBalance = await getTokenBalanceOnChain(
+                platformWallets.main.address, 
+                chain, 
+                tokenType as TokenSymbol
+            );
+        } catch (error) {
+            console.error(`Error checking platform balance for ${tokenType} on ${chain}:`, error);
+            platformBalance = 0;
+        }
+
+        // Step 3: Get current conversion rate
+        const conversionRate = await getConversionRateWithCaching(tokenType);
+        
+        // Step 4: Calculate maximum KES amount that can be processed
+        const maxKesAmount = Math.floor(platformBalance * conversionRate);
+        
+        // Step 5: Get alternative options if balance is low
+        const alternativeOptions: Array<{token: string, maxAmount: number, maxKes: number}> = [];
+        const supportedTokens = getSupportedTokens(chain as Chain);
+        
+        for (const token of supportedTokens) {
+            if (token !== tokenType) {
+                try {
+                    const balance = await getTokenBalanceOnChain(
+                        platformWallets.main.address,
+                        chain,
+                        token as TokenSymbol
+                    );
+                    if (balance > 0) {
+                        const tokenRate = await getConversionRateWithCaching(token);
+                        alternativeOptions.push({
+                            token,
+                            maxAmount: parseFloat(balance.toFixed(6)),
+                            maxKes: Math.floor(balance * tokenRate)
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Error checking balance for ${token}:`, err);
+                }
+            }
+        }
+
+        return res.json(standardResponse(
+            true,
+            "Liquidity check completed successfully",
+            {
+                tokenType,
+                chain,
+                platformBalance: parseFloat(platformBalance.toFixed(6)),
+                conversionRate,
+                maxKesAmount,
+                alternativeTokens: alternativeOptions,
+                timestamp: new Date().toISOString()
+            }
+        ));
+    } catch (error: any) {
+        console.error("❌ Liquidity check error:", error);
+        return handleError(error, res, "Failed to check liquidity");
+    }
+};
+
+/**
+ * Get liquidity overview across all supported chains for a specific token
+ */
+export const getMultiChainLiquidityOverview = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { tokenType } = req.query;
+        
+        if (!tokenType || typeof tokenType !== 'string') {
+            return res.status(400).json(standardResponse(
+                false,
+                "Missing token type parameter",
+                null,
+                { code: "MISSING_TOKEN_TYPE", message: "Token type is required (e.g., ?tokenType=USDC)" }
+            ));
+        }
+
+        const supportedChains = [
+            'arbitrum', 'optimism', 'polygon', 'base', 'avalanche', 
+            'bnb', 'scroll', 'gnosis', 'fantom', 'moonbeam', 
+            'fuse', 'aurora', 'celo', 'lisk'
+        ];
+
+        const liquidityOverview = [];
+        const platformWallets = await initializePlatformWallets();
+
+        for (const chain of supportedChains) {
+            try {
+                // Check if chain is supported
+                const chainConfig = config[chain];
+                if (!chainConfig || !chainConfig.chainId) {
+                    continue;
+                }
+
+                // Check if token is supported on this chain
+                const tokenConfig = getTokenConfig(chain as Chain, tokenType as TokenSymbol);
+                if (!tokenConfig) {
+                    continue;
+                }
+
+                // Get platform wallet balance
+                const balance = await getTokenBalanceOnChain(
+                    platformWallets.main.address,
+                    chain,
+                    tokenType as TokenSymbol
+                );
+
+                // Get conversion rate
+                const conversionRate = await getConversionRateWithCaching(tokenType);
+                const maxKesAmount = Math.floor(balance * conversionRate);
+
+                liquidityOverview.push({
+                    chain,
+                    chainId: chainConfig.chainId,
+                    tokenAddress: chainConfig.tokenAddress,
+                    balance: parseFloat(balance.toFixed(6)),
+                    conversionRate,
+                    maxKesAmount,
+                    status: balance > 0 ? 'available' : 'insufficient'
+                });
+
+            } catch (error) {
+                console.error(`Error checking ${tokenType} on ${chain}:`, error);
+                liquidityOverview.push({
+                    chain,
+                    chainId: config[chain]?.chainId || 0,
+                    tokenAddress: config[chain]?.tokenAddress || '',
+                    balance: 0,
+                    conversionRate: 0,
+                    maxKesAmount: 0,
+                    status: 'error'
+                });
+            }
+        }
+
+        // Sort by balance (highest first)
+        liquidityOverview.sort((a, b) => b.balance - a.balance);
+
+        const totalBalance = liquidityOverview.reduce((sum, item) => sum + item.balance, 0);
+        const totalMaxKes = liquidityOverview.reduce((sum, item) => sum + item.maxKesAmount, 0);
+
+        return res.json(standardResponse(
+            true,
+            `Multi-chain liquidity overview for ${tokenType}`,
+            {
+                tokenType,
+                totalBalance: parseFloat(totalBalance.toFixed(6)),
+                totalMaxKesAmount: totalMaxKes,
+                chains: liquidityOverview,
+                timestamp: new Date().toISOString()
+            }
+        ));
+
+    } catch (error: any) {
+        console.error("❌ Multi-chain liquidity overview error:", error);
+        return handleError(error, res, "Failed to get multi-chain liquidity overview");
+    }
+};
+
+export const buyCrypto = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { amount, phone, chain, tokenType } = req.body;
+        
+        // Enhanced debug logging with more transaction details
+        console.log("✅ Buy Crypto Request:", {
+            amount,
+            tokenType,
+            chain,
+            phone: phone.replace(/\d(?=\d{4})/g, "*"), // Mask most of the phone number for privacy
+        });
+        
+        // Validate user authentication
+        if (!req.user) {
+            return res.status(401).json(standardResponse(
+                false,
+                "Authentication required",
+                null,
+                { code: "AUTH_REQUIRED", message: "You must be logged in to perform this action" }
+            ));
+        }
+
+        const authenticatedUser = req.user;
+
+        // Validate input
+        if (!amount || !phone || !chain || !tokenType) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Missing required fields",
+                null,
+                { code: "MISSING_FIELDS", message: "Amount in KES, phone, chain, and token type are required" }
+            ));
+        }
+
+        // Validate amount
+        const mpesaAmount = parseFloat(amount);
+        if (isNaN(mpesaAmount) || mpesaAmount <= 0) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Invalid amount",
+                null,
+                { code: "INVALID_AMOUNT", message: "Amount must be a positive number" }
+            ));
+        }
+
+        // Step 1: Verify chain config exists and token is supported on this chain
+        const chainConfig = config[chain];
+        if (!chainConfig || !chainConfig.chainId || !chainConfig.tokenAddress) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Unsupported blockchain",
+                null,
+                { code: "INVALID_CHAIN", message: `Chain ${chain} is not supported or not properly configured` }
+            ));
+        }
+
+        // Check if token is supported on this chain
+        const tokenConfig = getTokenConfig(chain as Chain, tokenType as TokenSymbol);
+        if (!tokenConfig) {
+            const supportedTokens = getSupportedTokens(chain as Chain);
+            return res.status(400).json(standardResponse(
+                false,
+                "Unsupported token for this chain",
+                null,
+                { 
+                    code: "INVALID_TOKEN", 
+                    message: `Token ${tokenType} is not supported on chain ${chain}. Supported tokens: ${supportedTokens.join(', ')}` 
+                }
+            ));
+        }
+
+        // Step 2: Get conversion rate and calculate crypto amount
+        const conversionRate = await getConversionRateWithCaching(tokenType);
+        const cryptoAmountNum = mpesaAmount / conversionRate;
+        
+        console.log(`✅ Transaction Details: ${mpesaAmount} KES = ${cryptoAmountNum.toFixed(6)} ${tokenType} on ${chain} (Rate: ${conversionRate} KES/${tokenType})`);
+        
+        // Step 3: Pre-check platform balance before proceeding
+        const platformWallets = await initializePlatformWallets();
+        let platformBalance;
+        
+        try {
             platformBalance = await getTokenBalanceOnChain(
                 platformWallets.main.address, 
                 chain, 
@@ -748,74 +962,22 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             
             // Validate if platform has enough balance to fulfill this request
             if (platformBalance < cryptoAmountNum) {
-                console.log(`❌ Insufficient platform wallet balance: ${platformBalance} ${tokenType} < ${cryptoAmountNum} ${tokenType}`);
-                
-                // Get all supported tokens on this chain with their balances
-                const supportedTokens = getSupportedTokens(chain as Chain);
-                const alternativeOptions: Array<{token: string, maxAmount: number}> = [];
-                
-                // Check balances of other tokens on this chain
-                for (const token of supportedTokens) {
-                    if (token !== tokenType) {
-                        try {
-                            const balance = await getTokenBalanceOnChain(
-                                platformWallets.main.address,
-                                chain,
-                                token as TokenSymbol
-                            );
-                            if (balance > 0) {
-                                alternativeOptions.push({
-                                    token,
-                                    maxAmount: parseFloat(balance.toFixed(6))
-                                });
-                            }
-                        } catch (err) {
-                            console.error(`Error checking balance for ${token}:`, err);
-                        }
-                    }
-                }
-                
-                // Check if same token is available on other chains
-                const otherChainOptions: Array<{chain: string, maxAmount: number}> = [];
-                const supportedChains = Object.keys(config).filter(c => 
-                    c !== chain && 
-                    config[c]?.chainId && 
-                    getTokenConfig(c as Chain, tokenType as TokenSymbol)
-                );
-                
-                for (const otherChain of supportedChains) {
-                    try {
-                        const balance = await getTokenBalanceOnChain(
-                            platformWallets.main.address,
-                            otherChain,
-                            tokenType as TokenSymbol
-                        );
-                        if (balance > 0) {
-                            otherChainOptions.push({
-                                chain: otherChain,
-                                maxAmount: parseFloat(balance.toFixed(6))
-                            });
-                        }
-                    } catch (err) {
-                        console.error(`Error checking balance for ${tokenType} on ${otherChain}:`, err);
-                    }
-                }
+                const maxKesAmount = Math.floor(platformBalance * conversionRate);
                 
                 return res.status(400).json(standardResponse(
                     false,
                     "Insufficient platform balance",
                     {
-                        requestedAmount: cryptoAmountNum,
+                        requestedAmount: parseFloat(cryptoAmountNum.toFixed(6)),
                         availableAmount: platformBalance,
+                        maxKesAmount,
                         token: tokenType,
                         chain: chain,
-                        alternativeTokens: alternativeOptions,
-                        alternativeChains: otherChainOptions,
-                        maxPossibleAmount: platformBalance
+                        message: `Maximum purchase amount: ${maxKesAmount} KES`
                     },
                     { 
                         code: "INSUFFICIENT_PLATFORM_BALANCE", 
-                        message: `Sorry, we can only process purchases up to ${platformBalance} ${tokenType} on ${chain} at this time.`
+                        message: `Sorry, we can only process purchases up to ${maxKesAmount} KES for ${tokenType} on ${chain} at this time.`
                     }
                 ));
             }
@@ -831,6 +993,9 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                 }
             ));
         }
+
+        
+
         
         // Format the phone number
         let formattedPhone = phone.replace(/\D/g, '');
@@ -841,15 +1006,6 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
         } else if (!formattedPhone.startsWith('254')) {
             formattedPhone = '254' + formattedPhone;
         }
-        
-        // Get conversion rate based on token type
-        const conversionRate = await getConversionRateWithCaching(tokenType);
-        
-        // Calculate MPESA amount based on crypto amount
-        const mpesaAmount = Math.ceil(cryptoAmountNum * conversionRate);
-        
-        // Log the transaction details with dollar equivalent
-        console.log(`✅ Transaction Details: ${cryptoAmountNum} ${tokenType} on ${chain} = ${mpesaAmount} KES (Rate: ${conversionRate} KES/${tokenType})`);
         
         // Create a unique transaction ID
         const transactionId = randomUUID();
@@ -862,7 +1018,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             transactionId,
             userId: authenticatedUser._id,
             amount: mpesaAmount,
-            cryptoAmount: cryptoAmountNum,
+            cryptoAmount: parseFloat(cryptoAmountNum.toFixed(6)),
             type: 'fiat_to_crypto',
             status: 'reserved', // Changed from 'pending' to 'reserved' to indicate crypto is held
             metadata: { 
@@ -876,10 +1032,10 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
         
         // Save the escrow record to reserve the funds
         await escrow.save();
-        console.log(`💰 Reserved ${cryptoAmountNum} ${tokenType} on ${chain} for transaction ${transactionId}`);
+        console.log(`💰 Reserved ${cryptoAmountNum.toFixed(6)} ${tokenType} on ${chain} for transaction ${transactionId}`);
 
         // Create a descriptive message for MPESA
-        const mpesaDescription = `NexusPay: Buy ${cryptoAmountNum} ${tokenType} on ${chain}`;
+        const mpesaDescription = `NexusPay: Buy ${cryptoAmountNum.toFixed(6)} ${tokenType} on ${chain}`;
 
         // Step 4: Initiate MPESA STK Push
         try {
@@ -1818,7 +1974,7 @@ export const stkPushCallback = async (req: Request, res: Response) => {
     const transactionId = escrow.transactionId;
         
     // Extract metadata if present
-    const { directBuy, chain, tokenType, successCode } = escrow.metadata || {};
+    const { directBuy, chain, tokenType } = escrow.metadata || {};
     const cryptoAmount = escrow.cryptoAmount;
     
     logger.info(`Processing STK callback for transaction ${transactionId}`);
@@ -1854,163 +2010,116 @@ export const stkPushCallback = async (req: Request, res: Response) => {
         // Continue anyway, as the payment was successful
       }
       
-      // Update escrow with MPESA details
-            escrow.mpesaReceiptNumber = mpesaReceiptNumber;
-      escrow.status = directBuy ? 'reserved' : 'completed';
-            await escrow.save();
-      
-      // Record transaction
-      const transactionData: TransactionLogEntry = {
-        type: 'mpesa_to_crypto',
-        status: 'processing',
-        executionTimeMs: escrow.createdAt ? Date.now() - new Date(escrow.createdAt).getTime() : 0,
-        escrowId: escrow._id.toString(),
-        userId: escrow.userId.toString(),
-        amount: escrow.amount,
-        mpesaReceiptNumber,
-        chainName: chain || 'unknown',
-        txId: undefined // Set to undefined initially, will be updated later if available
-    };
-    
-    try {
-        await recordTransaction(transactionData);
-    } catch (error) {
-        logger.error(`Failed to record transaction: ${error}`);
-    }
-      
-      // Determine if we should release crypto
-      const shouldReleaseCrypto = directBuy === true;
-            
-            if (shouldReleaseCrypto) {
-                try {
-                    // Get the user
-                    const user = await User.findById(escrow.userId);
-                    
-                    if (!user) {
-            logger.error(`User not found for escrow transaction: ${escrow.transactionId}`);
-                        escrow.status = 'error';
-                        escrow.metadata = { 
-                            ...escrow.metadata, 
-                            error: !user ? 'User not found' : 'Wallet address not found',
-                            errorCode: !user ? 'USER_NOT_FOUND' : 'WALLET_NOT_FOUND',
-                            mpesaPaymentReceived: true
-                        };
-                        await escrow.save();
-                        return;
-                    }
-                    
-          if (!user.walletAddress) {
-            logger.error(`User ${user._id} does not have a wallet address`);
-            escrow.status = 'error';
-            escrow.metadata = { 
-              ...escrow.metadata, 
-              error: 'Wallet address not found',
-              errorCode: 'WALLET_NOT_FOUND',
-              mpesaPaymentReceived: true
-            };
-            await escrow.save();
-            return;
-          }
-          
-          logger.info(`Initiating crypto transfer to user wallet:`);
-          logger.info(`- User ID: ${user._id}`);
-          logger.info(`- Wallet: ${user.walletAddress}`);
-          logger.info(`- Amount: ${cryptoAmount} ${tokenType} on ${chain}`);
-                    
-          // Queue the crypto transfer for processing
-          // This is more efficient than direct transfer in the callback
-          const txId = await queueTransaction(
-                        user.walletAddress,
-                        cryptoAmount,
-                        chain,
-                        tokenType as TokenSymbol,
-                        'high', // Priority level for faster processing
-                        escrow._id.toString(), // Pass escrow ID to prevent duplicates
-                        escrow.transactionId // Pass original transaction ID
-                    );
-                    
-          // Update escrow with queued transaction
-          escrow.status = 'pending';
-          escrow.metadata = {
-            ...escrow.metadata,
-            queuedTxId: txId,
-            mpesaPaymentReceived: true,
-            mpesaReceiptNumber
+      // Mark escrow as processing while we perform on-chain transfer
+      escrow.status = 'processing';
+      escrow.mpesaReceiptNumber = mpesaReceiptNumber;
+      await escrow.save();
+
+      // Immediate crypto release (no queuing)
+      try {
+        // Get the user
+        const user = await User.findById(escrow.userId);
+        if (!user || !user.walletAddress) {
+          const errMsg = !user ? 'User not found' : 'Wallet address not found';
+          logger.error(`${errMsg} for escrow transaction: ${escrow.transactionId}`);
+          escrow.status = 'error';
+          escrow.metadata = { 
+            ...escrow.metadata, 
+            error: errMsg,
+            errorCode: !user ? 'USER_NOT_FOUND' : 'WALLET_NOT_FOUND',
+            mpesaPaymentReceived: true
           };
-                    await escrow.save();
-                    
-          logger.info(`Crypto transfer queued with ID ${txId} for transaction ${transactionId}`);
-          
-          // Record the transfer for audit
-          const transactionData = {
-            type: 'escrow_to_user',
-            status: 'pending',
-            txId,
-            escrowId: escrow._id.toString(),
-            userId: user._id.toString(),
-            toAddress: user.walletAddress,
-            amount: cryptoAmount,
-                        tokenType,
-            chainName: chain || 'unknown'
-          };
-          recordTransaction(transactionData);
-        } catch (error: any) {
-          logger.error(`Error initiating crypto transfer: ${error.message}`);
-                    
-          // Update escrow with error
-                    escrow.status = 'error';
-                    escrow.metadata = { 
-                        ...escrow.metadata, 
-            error: error.message,
-            errorCode: 'CRYPTO_TRANSFER_FAILED',
-                        mpesaPaymentReceived: true,
-            mpesaReceiptNumber
-                    };
-                    await escrow.save();
-                    
-          // Record failed transaction for recovery
-          const transactionData = {
-            type: 'escrow_to_user',
-            status: 'failed',
-            escrowId: escrow._id.toString(),
-                        userId: escrow.userId.toString(),
-            amount: cryptoAmount,
-                        tokenType,
-            chainName: chain || 'unknown',
-            error: error.message
-          };
-          recordTransaction(transactionData);
-                }
-            } else {
-        logger.info(`Not a direct buy, skipping crypto transfer for ${transactionId}`);
-            }
-        } else {
-      // Payment failed
-      logger.warn(`Payment failed for transaction ${transactionId}: ${resultDesc}`);
-      
-      // Update escrow
-            escrow.status = 'failed';
-            escrow.metadata = { 
-                ...escrow.metadata, 
-        failureReason: resultDesc,
-        failureCode: resultCode
-            };
-            await escrow.save();
-            
-      // Record transaction
-      const transactionData = {
-        type: 'mpesa_to_escrow',
-                status: 'failed',
-        escrowId: escrow._id.toString(),
-        userId: escrow.userId.toString(),
-        amount: escrow.amount,
-        error: resultDesc
-      };
-      recordTransaction(transactionData);
+          await escrow.save();
+          return;
         }
-    } catch (error: any) {
-    logger.error(`Error processing STK callback: ${error.message}`);
+
+        const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+        const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+        if (!primaryKey || !secondaryKey) {
+          throw new Error('Platform wallet keys (PLATFORM_WALLET_PRIMARY_KEY, PLATFORM_WALLET_SECONDARY_KEY) are required for crypto transfer');
+        }
+
+        logger.info(`Initiating immediate crypto transfer to user wallet:`);
+        logger.info(`- User ID: ${user._id}`);
+        logger.info(`- Wallet: ${user.walletAddress}`);
+        logger.info(`- Amount: ${cryptoAmount} ${tokenType} on ${chain}`);
+
+        const transferResult = await sendFromPlatformWallet(
+          cryptoAmount,
+          user.walletAddress,
+          primaryKey,
+          secondaryKey,
+          chain,
+          tokenType as TokenSymbol
+        );
+
+        const explorerUrl = generateExplorerUrl(chain, transferResult.transactionHash);
+
+        // Update escrow with successful transfer
+        escrow.status = 'completed';
+        escrow.completedAt = new Date();
+        escrow.cryptoTransactionHash = transferResult.transactionHash;
+        escrow.metadata = { 
+          ...escrow.metadata, 
+          mpesaPaymentReceived: true,
+          cryptoTransferred: true,
+          transferHash: transferResult.transactionHash,
+          explorerUrl,
+          processingStatus: 'completed',
+          completedAt: new Date().toISOString(),
+          mpesaReceiptNumber,
+          directProcessing: true
+        };
+        await escrow.save();
+
+        logger.info(`✅ Crypto transfer completed: ${transferResult.transactionHash}`);
+        logger.info(`- Explorer: ${explorerUrl}`);
+
+        // Record the transfer for audit
+        const transactionData = {
+          type: 'escrow_to_user',
+          status: 'completed',
+          txId: transferResult.transactionHash,
+          escrowId: escrow._id.toString(),
+          userId: user._id.toString(),
+          toAddress: user.walletAddress,
+          amount: cryptoAmount,
+          tokenType,
+          chainName: chain || 'unknown'
+        };
+        recordTransaction(transactionData);
+      } catch (error: any) {
+        logger.error(`Error during immediate crypto transfer: ${error.message}`);
+        escrow.status = 'error';
+        escrow.metadata = {
+          ...escrow.metadata,
+          error: error.message,
+          errorCode: 'CRYPTO_TRANSFER_FAILED',
+          mpesaPaymentReceived: true,
+          mpesaReceiptNumber
+        };
+        await escrow.save();
+
+        const transactionData = {
+          type: 'escrow_to_user',
+          status: 'failed',
+          escrowId: escrow._id.toString(),
+          userId: escrow.userId.toString(),
+          amount: cryptoAmount,
+          tokenType,
+          chainName: chain || 'unknown',
+          error: error.message
+        };
+        recordTransaction(transactionData);
+      }
+    } else {
+      logger.info(`Payment failed or cancelled for ${transactionId}`);
+      escrow.status = 'failed';
+      await escrow.save();
     }
+  } catch (error) {
+    logger.error(`Error processing STK callback: ${error}`);
+  }
 };
 
 // Define function to check specific status values to avoid type comparison errors
@@ -3066,64 +3175,6 @@ export const initiateTillPayment = async (
         
     } catch (error: any) {
         console.error(`❌ [TILL] Failed to initiate payment:`, error.response?.data || error.message);
-        throw error;
-    }
-};
-
-// 🚀 PERFORMANCE OPTIMIZATION: Conversion rate caching
-const conversionRateCache = new Map<string, { rate: number; cachedAt: number; expiresAt: number }>();
-const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
-
-/**
- * Base function to get conversion rate from external API or fallback
- */
-const getBaseConversionRate = async (tokenType: string): Promise<number> => {
-    // For now, return a fixed rate - in production, you'd call an external API
-    const rates: Record<string, number> = {
-        'USDC': 100, // 1 USDC = 100 KES
-        'USDT': 100, // 1 USDT = 100 KES
-        'WETH': 450000, // 1 WETH = 450,000 KES
-        'WBTC': 6800000, // 1 WBTC = 6,800,000 KES
-        'DAI': 100 // 1 DAI = 100 KES
-    };
-    
-    return rates[tokenType] || 100; // Default to 100 KES if token not found
-};
-
-/**
- * Get conversion rate with caching for high performance
- */
-export const getConversionRateWithCaching = async (tokenType: string): Promise<number> => {
-    const cacheKey = `conversion_rate_${tokenType}`;
-    const now = Date.now();
-    
-    // Check cache first
-    const cached = conversionRateCache.get(cacheKey);
-    if (cached && now < cached.expiresAt) {
-        console.log(`💨 [CACHE] Using cached conversion rate for ${tokenType}: ${cached.rate}`);
-        return cached.rate;
-    }
-    
-    try {
-        // Fetch fresh rate using the base function (not recursive call)
-        const rate = await getBaseConversionRate(tokenType);
-        
-        // Cache the result
-        conversionRateCache.set(cacheKey, {
-            rate,
-            cachedAt: now,
-            expiresAt: now + CACHE_DURATION
-        });
-        
-        console.log(`🔄 [CACHE] Updated conversion rate for ${tokenType}: ${rate}`);
-        return rate;
-        
-    } catch (error) {
-        // If fresh fetch fails but we have expired cache, use it
-        if (cached) {
-            console.warn(`⚠️ [CACHE] Using expired rate for ${tokenType} due to fetch error:`, error);
-            return cached.rate;
-        }
         throw error;
     }
 };

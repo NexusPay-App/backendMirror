@@ -13,7 +13,6 @@ import express from 'express';
 import {
   requestBusinessCreation,
   completeBusinessCreation,
-  transferFundsToPersonal,
   getBusinessDetails,
   verifyExternalTransfer,
   getBusinessByMerchantId,
@@ -26,7 +25,6 @@ const router = express.Router();
 // All business operations require strict authentication with OTP verification
 router.post('/request-upgrade', enforceStrictAuth, requestBusinessCreation);
 router.post('/complete-upgrade', enforceStrictAuth, completeBusinessCreation);
-router.post('/transfer-funds', enforceStrictAuth, transferFundsToPersonal);
 router.post('/verify-external-transfer', enforceStrictAuth, verifyExternalTransfer);
 router.get('/details', enforceStrictAuth, getBusinessDetails);
 router.get('/status', enforceStrictAuth, checkBusinessStatus);

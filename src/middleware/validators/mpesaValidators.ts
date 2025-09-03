@@ -124,19 +124,18 @@ export const transactionStatusValidation = [
  * Validation rules for buying crypto directly
  */
 export const buyCryptoValidation = [
-  body('cryptoAmount')
+  body('amount')
     .notEmpty()
-    .withMessage('Crypto amount is required')
+    .withMessage('Amount in KES is required')
     .isNumeric()
-    .withMessage('Crypto amount must be a valid number')
+    .withMessage('Amount must be a valid number')
     .custom((value) => {
       const amount = parseFloat(value);
       if (amount <= 0) {
-        throw new Error('Crypto amount must be greater than 0');
+        throw new Error('Amount must be greater than 0');
       }
-      // 150,000 KES divided by approx. exchange rate of 130 ≈ 1,150 USDC as max amount
-      if (amount > 1150) {
-        throw new Error('Crypto amount exceeds maximum allowed (MPESA limit)');
+      if (amount > 150000) {
+        throw new Error('Amount must not exceed 150,000 KES (M-Pesa limit)');
       }
       return true;
     }),

@@ -6,7 +6,7 @@ export interface IEscrow extends Document {
   userId: mongoose.Types.ObjectId;
   amount: number;
   cryptoAmount: number;
-  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'crypto_to_paybill' | 'crypto_to_till';
+  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'crypto_to_paybill' | 'crypto_to_till' | 'token_transfer' | 'platform_operation';
   status: 'pending' | 'reserved' | 'processing' | 'completed' | 'failed' | 'error';
   cryptoTransactionHash?: string;
   mpesaTransactionId?: string;
@@ -43,7 +43,7 @@ const escrowSchema: Schema = new Schema({
   },
   type: { 
     type: String, 
-    enum: ['fiat_to_crypto', 'crypto_to_fiat', 'crypto_to_paybill', 'crypto_to_till'],
+    enum: ['fiat_to_crypto', 'crypto_to_fiat', 'crypto_to_paybill', 'crypto_to_till', 'token_transfer', 'platform_operation'],
     required: true 
   },
   status: { 

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npx nodemon",
     "build": "tsc",
+    "vercel-build": "tsc",
     "test:admin": "npm run build && node dist/scripts/testAdminAPI.js",
     "test:admin:users": "npm run build && node dist/scripts/testAdminAPI.js -e users",
     "test:admin:transactions": "npm run build && node dist/scripts/testAdminAPI.js -e transactions",

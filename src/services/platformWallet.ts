@@ -121,7 +121,7 @@ const TOKEN_CONFIG = {
     celo: { address: '0x765DE816845861e75A25fCA122bb6898B8B1282a' as `0x${string}`, decimals: 18, symbol: 'cUSD', name: 'Celo Dollar' }
   },
   // Placeholder entries for tokens that need chain-specific addresses
-  CKES: {},
+
   BNB: {},
   TRX: {},
   SOL: {}
