@@ -62,7 +62,8 @@ router.post('/otp', validate(phoneOtpRequestValidation), async (req, res) => {
   }
   
   try {
-    const { generateOTP, otpStore, africastalking } = require('../services/auth');
+    const { generateOTP, otpStore } = require('../services/auth');
+const { SMSService } = require('../services/smsService');
     const User = require('../models/models').User;
     
     // Check if user exists
@@ -90,16 +91,10 @@ router.post('/otp', validate(phoneOtpRequestValidation), async (req, res) => {
     
     // Send OTP via SMS
     try {
-      const smsResponse = await africastalking.SMS.send({
-        to: [phone],
-        message: `Your NexusPay verification code is: ${otp}`,
-        from: 'NEXUSPAY'
-      });
+      // Send OTP via SMS using the new SMS service
+      const smsSent = await SMSService.sendOTP(phone, otp, 'verification');
       
-      const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-      const recipient = recipients[0];
-      
-      if (recipients.length === 0 || recipient.status !== "Success") {
+      if (!smsSent) {
         console.log(`❌ SMS sending failed but OTP was generated: ${otp}`);
         return res.status(500).json({
           success: false,

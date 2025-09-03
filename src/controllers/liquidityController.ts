@@ -2,8 +2,9 @@ import { Request, Response } from 'express';
 import { LiquidityService } from '../services/liquidityService';
 import { handleError } from '../services/utils';
 import { TokenSymbol } from '../config/tokens';
-import { generateOTP, otpStore, africastalking } from '../services/auth';
+import { generateOTP, otpStore } from '../services/auth';
 import LiquidityProvider from '../models/LiquidityProvider';
+import { SMSService } from '../services/smsService';
 
 // List of supported chains
 const SUPPORTED_CHAINS = [
@@ -270,16 +271,10 @@ export const initiateWithdrawal = async (req: Request, res: Response): Promise<R
         console.log('======================================\n');
         
         try {
-            const smsResponse: any = await africastalking.SMS.send({
-                to: [phoneNumber],
-                message: `Your NexusPay withdrawal verification code is: ${otp}`,
-                from: 'NEXUSPAY'
-            });
+            // Send OTP via SMS using the new SMS service
+            const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'withdrawal');
             
-            const recipients = smsResponse?.SMSMessageData?.Recipients || [];
-            const recipient = recipients[0];
-            
-            if (recipients.length === 0 || recipient?.status !== "Success") {
+            if (!smsSent) {
                 console.log(`❌ SMS sending failed but withdrawal OTP was generated: ${otp}`);
                 return res.json({
                     success: false,

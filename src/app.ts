@@ -7,6 +7,7 @@ import businessRoutes from './routes/businessRoutes';
 import mpesaRoutes from './routes/mpesaRoutes';
 import adminRoutes from './routes/adminRoutes';
 import transactionRoutes from './routes/transactionRoutes';
+import usdcRoutes from './routes/usdcRoutes';
 import { standardResponse } from './services/utils';
 
 // Load environment variables
@@ -26,6 +27,9 @@ app.use('/api/business', businessRoutes);
 app.use('/api/mpesa', mpesaRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/usdc', usdcRoutes);
+
+// ... existing code ...
 
 // 404 Error Handling Middleware
 app.use((req, res) => {

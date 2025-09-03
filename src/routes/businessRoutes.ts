@@ -16,8 +16,17 @@ import {
   getBusinessDetails,
   verifyExternalTransfer,
   getBusinessByMerchantId,
-  checkBusinessStatus
-} from '../controllers/businessController';
+  checkBusinessStatus,
+  // New overdraft/loan endpoints
+  requestBusinessOverdraft,
+  repayBusinessOverdraft,
+  getBusinessCreditAssessment,
+  toggleBusinessOverdraft,
+  getBusinessOverdraftHistory,
+  // New optimization endpoints
+  getUnifiedUserProfile,
+  getBusinessesByPhone
+} from '../controllers/enhancedBusinessController';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 
 const router = express.Router();
@@ -29,6 +38,17 @@ router.post('/verify-external-transfer', enforceStrictAuth, verifyExternalTransf
 router.get('/details', enforceStrictAuth, getBusinessDetails);
 router.get('/status', enforceStrictAuth, checkBusinessStatus);
 router.get('/find/:merchantId', enforceStrictAuth, getBusinessByMerchantId);
+
+// 🏦 Business Overdraft/Loan Endpoints
+router.post('/overdraft/request', enforceStrictAuth, requestBusinessOverdraft);
+router.post('/overdraft/repay', enforceStrictAuth, repayBusinessOverdraft);
+router.get('/overdraft/assessment/:businessId', enforceStrictAuth, getBusinessCreditAssessment);
+router.post('/overdraft/toggle', enforceStrictAuth, toggleBusinessOverdraft);
+router.get('/overdraft/history/:businessId', enforceStrictAuth, getBusinessOverdraftHistory);
+
+// 🔗 User Optimization Endpoints
+router.get('/profile/:userId', enforceStrictAuth, getUnifiedUserProfile);
+router.get('/phone/:phoneNumber', enforceStrictAuth, getBusinessesByPhone);
 
 export default router;
 

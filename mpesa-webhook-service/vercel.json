@@ -2,7 +2,26 @@
   "version": 2,
   "functions": {
     "api/webhook.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "memory": 1024
+    },
+    "api/stk-callback.js": {
+      "maxDuration": 30,
+      "memory": 1024
+    },
+    "api/b2c-callback.js": {
+      "maxDuration": 30,
+      "memory": 1024
+    },
+    "api/queue-timeout.js": {
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  },
+  "regions": ["iad1"],
+  "build": {
+    "env": {
+      "BACKEND_URL": "@backend-url"
     }
   }
 }

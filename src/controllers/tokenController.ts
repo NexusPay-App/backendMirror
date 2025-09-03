@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { User } from '../models/models';
 import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
-import { africastalking, client, createAccount } from '../services/auth';
+import { client, createAccount } from '../services/auth';
 import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
 import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
 import { defineChain, getContract, readContract } from "thirdweb";
@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 import { Escrow } from '../models/escrowModel';
 import { randomUUID } from 'crypto';
+import { SMSService } from '../services/smsService';
 
 export const send = async (req: Request, res: Response) => {
     const { 
@@ -268,61 +269,6 @@ export const send = async (req: Request, res: Response) => {
             }
         }
 
-        // Enhanced notification system - send to both phone and email if available
-        const notifications = [];
-
-        // Send SMS to recipient if they have a phone number
-        if (recipientPhone) {
-            try {
-                await africastalking.SMS.send({
-                    to: recipientPhone,
-                    message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber || sender.email || 'NexusPay user'} on ${currentDateTime}`,
-                    from: 'NEXUSPAY'
-                });
-                console.log(`SMS sent to recipient: ${recipientPhone}`);
-                notifications.push('SMS sent to recipient');
-            } catch (smsError) {
-                console.error('Failed to send SMS to recipient:', smsError);
-            }
-        }
-
-        // Send email to recipient if they have an email
-        if (recipientEmail) {
-            try {
-                // TODO: Implement email service for crypto notifications
-                console.log(`Email notification would be sent to: ${recipientEmail}`);
-                notifications.push('Email notification prepared for recipient');
-            } catch (emailError) {
-                console.error('Failed to prepare email for recipient:', emailError);
-            }
-        }
-
-        // Send SMS to sender if they have a phone number
-        if (sender.phoneNumber) {
-            try {
-                await africastalking.SMS.send({
-                    to: sender.phoneNumber,
-                    message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientForDisplay} on ${currentDateTime}`,
-                    from: 'NEXUSPAY'
-                });
-                console.log(`SMS sent to sender: ${sender.phoneNumber}`);
-                notifications.push('SMS sent to sender');
-            } catch (smsError) {
-                console.error('Failed to send SMS to sender:', smsError);
-            }
-        }
-
-        // Send email to sender if they have an email
-        if (sender.email) {
-            try {
-                // TODO: Implement email service for crypto notifications
-                console.log(`Email notification would be sent to: ${sender.email}`);
-                notifications.push('Email notification prepared for sender');
-            } catch (emailError) {
-                console.error('Failed to prepare email for sender:', emailError);
-            }
-        }
-
         // Generate blockchain explorer URL
         const getExplorerUrl = (chain: string, txHash: string): string => {
             const explorerUrls: Record<string, string> = {
@@ -345,6 +291,60 @@ export const send = async (req: Request, res: Response) => {
             };
             return explorerUrls[chain] || `https://etherscan.io/tx/${txHash}`;
         };
+
+        // Enhanced notification system - send to both phone and email if available
+        const notifications = [];
+
+        // Send SMS to recipient if they have a phone number
+        if (recipientPhone) {
+            try {
+                await SMSService.sendTransactionNotification({
+                    phoneNumber: recipientPhone,
+                    amount: amountDisplay,
+                    tokenType: tokenSymbol,
+                    transactionHash: result.transactionHash,
+                    transactionType: 'receive',
+                    status: 'success',
+                    senderAddress: sender.walletAddress,
+                    explorerUrl: getExplorerUrl(chain, result.transactionHash)
+                });
+                console.log(`SMS sent to recipient: ${recipientPhone}`);
+                notifications.push('SMS sent to recipient');
+            } catch (smsError) {
+                console.error('Failed to send SMS to recipient:', smsError);
+            }
+        }
+
+        // Send email to recipient if they have an email
+        if (recipientEmail) {
+            try {
+                // TODO: Implement email service for crypto notifications
+                console.log(`Email notification would be sent to: ${recipientEmail}`);
+                notifications.push('Email notification prepared for recipient');
+            } catch (emailError) {
+                console.error('Failed to prepare email for recipient:', emailError);
+            }
+        }
+
+        // Send SMS to sender if they have a phone number
+        if (sender.phoneNumber) {
+            try {
+                await SMSService.sendTransactionNotification({
+                    phoneNumber: sender.phoneNumber,
+                    amount: amountDisplay,
+                    tokenType: tokenSymbol,
+                    transactionHash: result.transactionHash,
+                    transactionType: 'send',
+                    status: 'success',
+                    recipientAddress: recipientAddress,
+                    explorerUrl: getExplorerUrl(chain, result.transactionHash)
+                });
+                console.log(`SMS sent to sender: ${sender.phoneNumber}`);
+                notifications.push('SMS sent to sender');
+            } catch (smsError) {
+                console.error('Failed to send SMS to sender:', smsError);
+            }
+        }
 
         const explorerUrl = getExplorerUrl(chain, result.transactionHash);
         const isoTimestamp = new Date().toISOString();
@@ -797,12 +797,14 @@ export const unify = async (req: Request, res: Response) => {
                 console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
 
                 try {
-                    const smsResponse = await africastalking.SMS.send({
-                        to: phoneNumber,
-                        message: `Your unification OTP is ${generatedOtp}. Valid for 5 minutes.`,
-                        from: 'NEXUSPAY'
-                    });
-                    console.log(`SMS sent successfully to ${phoneNumber}:`, smsResponse);
+                    // Send OTP via SMS using the new SMS service
+                    const smsSent = await SMSService.sendOTP(phoneNumber, generatedOtp, 'unification');
+                    
+                    if (!smsSent) {
+                        return res.status(500).send({ message: "Failed to send OTP. Please try again." });
+                    }
+                    
+                    console.log(`SMS sent successfully to ${phoneNumber}`);
                 } catch (smsError) {
                     console.error(`Failed to send SMS to ${phoneNumber}:`, smsError);
                     return res.status(500).send({ message: "Failed to send OTP. Please try again." });
@@ -902,12 +904,14 @@ export const migrate = async (req: Request, res: Response) => {
                 console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
 
                 try {
-                    const smsResponse = await africastalking.SMS.send({
-                        to: phoneNumber,
-                        message: `Your migration OTP is ${generatedOtp}. Valid for 5 minutes.`,
-                        from: 'NEXUSPAY'
-                    });
-                    console.log(`SMS sent successfully to ${phoneNumber}:`, smsResponse);
+                    // Send OTP via SMS using the new SMS service
+                    const smsSent = await SMSService.sendOTP(phoneNumber, generatedOtp, 'migration');
+                    
+                    if (!smsSent) {
+                        return res.status(500).send({ message: "Failed to send OTP. Please try again." });
+                    }
+                    
+                    console.log(`SMS sent successfully to ${phoneNumber}`);
                 } catch (smsError) {
                     console.error(`Failed to send SMS to ${phoneNumber}:`, smsError);
                     return res.status(500).send({ message: "Failed to send OTP. Please try again." });

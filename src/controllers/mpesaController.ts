@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { User, IUserDocument } from '../models/user';
 import { Business } from '../models/businessModel';
 import { Escrow, IEscrowDocument, IEscrow } from '../models/escrow';
-import { initiateB2C, initiateSTKPush } from "../services/mpesa";
+import { initiateB2C, initiateSTKPush, initiateB2BPaybill } from "../services/mpesa";
 import config from "../config/env";
 import { sendToken } from "../services/token";
 import { randomUUID } from "crypto";
@@ -31,6 +31,7 @@ import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import axios from "axios";
 import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'
+import { SMSService } from '../services/smsService';
 const getConversionRateWithCaching = getKESRate
 
 /**
@@ -312,7 +313,7 @@ export const mpesaWithdraw = async (req: Request, res: Response, next: NextFunct
  */
 export const withdrawToMpesa = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { amount, phone } = req.body;
+        const { amount, phone, tokenType = 'USDC', chain = 'celo' } = req.body;
         
         // Validate user authentication
         if (!req.user) {
@@ -368,7 +369,9 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
         
         // Check if user has sufficient balance
         try {
-            const userBalance = await getWalletBalance(authenticatedUser.walletAddress, 'celo');
+            console.log(`🔍 Checking balance for user ${authenticatedUser.walletAddress} on chain ${chain}`);
+            const userBalance = await getWalletBalance(authenticatedUser.walletAddress, chain);
+            console.log(`💰 User balance on ${chain}: ${userBalance} ${tokenType}`);
             
             if (userBalance < cryptoAmount) {
                 return res.status(400).json(standardResponse(
@@ -387,7 +390,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
         }
         
         // Calculate fiat amount
-        const conversionRate = await getConversionRateWithCaching('USDC');
+        const conversionRate = await getConversionRateWithCaching(tokenType);
         const fiatAmount = cryptoAmount * conversionRate;
         
         // Create transaction ID
@@ -399,6 +402,8 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
             userId: authenticatedUser._id,
             amount: fiatAmount,
             cryptoAmount,
+            tokenType,
+            chain,
             type: 'crypto_to_fiat',
             status: 'pending'
         });
@@ -410,11 +415,12 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
             const platformWallets = await initializePlatformWallets();
             
             // Transfer tokens from user to platform wallet
+            console.log(`🚀 Initiating token transfer: ${cryptoAmount} ${tokenType} from ${authenticatedUser.walletAddress} to platform wallet on ${chain}`);
             const tokenTransferResult = await sendTokenFromUser(
                 platformWallets.main.address, 
                 cryptoAmount,
                 authenticatedUser.privateKey,
-                'celo' // or use a parameter for chain selection
+                chain // Use the chain parameter from request
             );
             
             if (!tokenTransferResult || !tokenTransferResult.transactionHash) {
@@ -440,7 +446,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                 cryptoAmount,
                 authenticatedUser.privateKey,
                 authenticatedUser.walletAddress,
-                'celo'
+                chain
             );
             
             // Then initiate B2C payment
@@ -470,6 +476,24 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
             escrow.mpesaTransactionId = serviceAcceptedObj.ConversationID;
             await escrow.save();
 
+            // Send SMS notification to user
+            try {
+                await SMSService.sendTransactionNotification({
+                    phoneNumber: authenticatedUser.phoneNumber || authenticatedUser.email || '',
+                    amount: fiatAmount.toFixed(2),
+                    tokenType: tokenType,
+                    transactionHash: escrow.transactionId,
+                    transactionType: 'sell',
+                    status: 'pending',
+                    recipientAddress: phone,
+                    explorerUrl: `https://arbiscan.io/tx/${escrow.transactionId}`
+                });
+                console.log(`📱 SMS notification sent to user for transaction: ${escrow.transactionId}`);
+            } catch (smsError) {
+                console.error("❌ Failed to send SMS notification:", smsError);
+                // Don't fail the transaction if SMS fails
+            }
+
             return res.json(standardResponse(
                 true,
                 "Withdrawal initiated successfully",
@@ -480,7 +504,27 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                     status: 'pending',
                     mpesaTransactionId: serviceAcceptedObj.ConversationID,
                     createdAt: escrow.createdAt,
-                    estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes from now
+                    estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
+                    message: "Your withdrawal is being processed. You'll receive an SMS confirmation shortly.",
+                    transactionDetails: {
+                        type: 'CRYPTO_TO_MPESA',
+                        chain: chain,
+                        tokenType: tokenType,
+                        recipientPhone: phone,
+                        exchangeRate: conversionRate,
+                        fees: {
+                            amount: (cryptoAmount * 0.005).toFixed(6), // 0.5% fee
+                            percentage: 0.5
+                        },
+                        blockchainTransaction: {
+                            hash: escrow.cryptoTransactionHash || 'Processing...',
+                            explorerUrl: chain === 'arbitrum' 
+                                ? `https://arbiscan.io/tx/${escrow.cryptoTransactionHash}` 
+                                : chain === 'celo' 
+                                    ? `https://explorer.celo.org/tx/${escrow.cryptoTransactionHash}`
+                                    : `https://polygonscan.com/tx/${escrow.cryptoTransactionHash}`
+                        }
+                    }
                 }
             ));
         } catch (mpesaError: any) {
@@ -1070,7 +1114,34 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                         warning: "We couldn't verify the M-Pesa payment initiation. If you receive an M-Pesa prompt, please complete the payment. We will credit your account once the payment is confirmed.",
                         createdAt: escrow.createdAt,
                         estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
-                        successCode
+                        successCode,
+                        // Enhanced response with comprehensive transaction details
+                        transactionDetails: {
+                            mpesaAmount: mpesaAmount,
+                            cryptoAmount: parseFloat(cryptoAmountNum.toFixed(6)),
+                            tokenType: tokenType,
+                            chain: chain,
+                            conversionRate: conversionRate,
+                            userWallet: authenticatedUser.walletAddress,
+                            phoneNumber: formattedPhone,
+                            webhookUrl: config.MPESA_STK_CALLBACK_URL,
+                            mpesaReceiptNumber: null,
+                            mpesaStatus: 'initiated',
+                            mpesaResultCode: null,
+                            mpesaResultDesc: 'STK Push returned no data',
+                            nexuspayPlatformCode: successCode // Unique platform tracking code
+                        },
+                        timestamps: {
+                            iso: escrow.createdAt.toISOString(),
+                            local: escrow.createdAt.toLocaleString('en-US', { timeZone: 'Africa/Nairobi' }),
+                            unix: Math.floor(escrow.createdAt.getTime() / 1000)
+                        },
+                        statusTracking: {
+                            currentStatus: 'reserved',
+                            nextStatus: 'processing',
+                            finalStatus: 'completed',
+                            estimatedDuration: '5-10 minutes'
+                        }
                     }
                 ));
             }
@@ -1080,6 +1151,28 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             const checkoutRequestId = mpesaResponse.checkoutRequestId;
             const queryResponse = mpesaResponse.queryResponse;
             const isProcessing = mpesaResponse.isProcessing === true;
+            
+            // Extract M-Pesa receipt number and status from query response
+            let mpesaReceiptNumber = null;
+            let mpesaStatus = 'initiated';
+            let mpesaResultCode = null;
+            let mpesaResultDesc = null;
+            
+            if (queryResponse && typeof queryResponse === 'object') {
+                mpesaResultCode = queryResponse.ResultCode;
+                mpesaResultDesc = queryResponse.ResultDesc;
+                
+                if (queryResponse.ResultCode === '0') {
+                    mpesaStatus = 'success';
+                    mpesaReceiptNumber = queryResponse.MpesaReceiptNumber || queryResponse.MpesaReceiptNumber;
+                } else if (queryResponse.ResultCode === '1' || queryResponse.ResultCode === '4999') {
+                    mpesaStatus = 'pending';
+                } else if (queryResponse.ResultCode === '1032') {
+                    mpesaStatus = 'cancelled';
+                } else {
+                    mpesaStatus = 'failed';
+                }
+            }
             
             // Update escrow with MPESA transaction ID
             escrow.mpesaTransactionId = checkoutRequestId;
@@ -1093,8 +1186,9 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                 const errorCode = queryResponse.errorCode || (queryResponse as any).errorCode;
                 const errorMessage = queryResponse.errorMessage || (queryResponse as any).errorMessage;
                 
-                if (errorCode === "500.001.1001" && 
-                    errorMessage === "The transaction is being processed") {
+                // Handle processing status (4999) as a normal processing state, not an error
+                if (queryResponse.ResultCode === "4999" || 
+                    (errorCode === "500.001.1001" && errorMessage === "The transaction is being processed")) {
                     
                     console.log(`⚠️ M-Pesa transaction is still processing. Transaction ID: ${transactionId}`);
                     
@@ -1102,6 +1196,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                         escrow.metadata = {};
                     }
                     escrow.metadata.mpesaWarning = "STK Push query reported transaction is still processing";
+                    escrow.metadata.mpesaProcessing = true;
                     await escrow.save();
                     
                     return res.json(standardResponse(
@@ -1118,7 +1213,34 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                             createdAt: escrow.createdAt,
                             note: "Your M-Pesa transaction is being processed. We will credit your account once the payment is confirmed.",
                             estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
-                            successCode
+                            successCode,
+                            // Enhanced response with comprehensive transaction details
+                            transactionDetails: {
+                                mpesaAmount: mpesaAmount,
+                                cryptoAmount: parseFloat(cryptoAmountNum.toFixed(6)),
+                                tokenType: tokenType,
+                                chain: chain,
+                                conversionRate: conversionRate,
+                                userWallet: authenticatedUser.walletAddress,
+                                phoneNumber: formattedPhone,
+                                webhookUrl: config.MPESA_STK_CALLBACK_URL,
+                                mpesaReceiptNumber: mpesaReceiptNumber,
+                                mpesaStatus: mpesaStatus,
+                                mpesaResultCode: mpesaResultCode,
+                                mpesaResultDesc: mpesaResultDesc,
+                                nexuspayPlatformCode: successCode // Unique platform tracking code
+                            },
+                            timestamps: {
+                                iso: escrow.createdAt.toISOString(),
+                                local: escrow.createdAt.toLocaleString('en-US', { timeZone: 'Africa/Nairobi' }),
+                                unix: Math.floor(escrow.createdAt.getTime() / 1000)
+                            },
+                            statusTracking: {
+                                currentStatus: 'reserved',
+                                nextStatus: 'processing',
+                                finalStatus: 'completed',
+                                estimatedDuration: '5-10 minutes'
+                            }
                         }
                     ));
                 }
@@ -1164,7 +1286,34 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                         createdAt: escrow.createdAt,
                         note: "Your M-Pesa payment is being processed. We'll update your balance once confirmed.",
                         estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
-                        successCode
+                        successCode,
+                        // Enhanced response with comprehensive transaction details
+                        transactionDetails: {
+                            mpesaAmount: mpesaAmount,
+                            cryptoAmount: parseFloat(cryptoAmountNum.toFixed(6)),
+                            tokenType: tokenType,
+                            chain: chain,
+                            conversionRate: conversionRate,
+                            userWallet: authenticatedUser.walletAddress,
+                            phoneNumber: formattedPhone,
+                            webhookUrl: config.MPESA_STK_CALLBACK_URL,
+                            mpesaReceiptNumber: mpesaReceiptNumber,
+                            mpesaStatus: mpesaStatus,
+                            mpesaResultCode: mpesaResultCode,
+                            mpesaResultDesc: mpesaResultDesc,
+                            nexuspayPlatformCode: successCode // Unique platform tracking code
+                        },
+                        timestamps: {
+                            iso: escrow.createdAt.toISOString(),
+                            local: escrow.createdAt.toLocaleString('en-US', { timeZone: 'Africa/Nairobi' }),
+                            unix: Math.floor(escrow.createdAt.getTime() / 1000)
+                        },
+                        statusTracking: {
+                            currentStatus: 'reserved',
+                            nextStatus: 'processing',
+                            finalStatus: 'completed',
+                            estimatedDuration: '5-10 minutes'
+                        }
                     }
                 ));
             }
@@ -1531,6 +1680,17 @@ async function processSTKCallback(callbackData: any) {
                     };
                     await escrow.save();
                     
+                    // Send transaction success SMS notification
+                    await SMSService.sendTransactionNotification({
+                        phoneNumber: user.phoneNumber,
+                        amount: cryptoAmount.toString(),
+                        tokenType: tokenType,
+                        transactionHash: transferResult.transactionHash,
+                        transactionType: 'buy',
+                        status: 'success',
+                        explorerUrl: explorerUrl
+                    });
+                    
                     console.log(`✅ [CB:${callbackId}] Crypto transfer completed successfully:`);
                     console.log(`- Transaction Hash: ${transferResult.transactionHash}`);
                     console.log(`- Amount: ${cryptoAmount} ${tokenType}`);
@@ -1702,7 +1862,30 @@ async function processB2CCallback(callbackData: any) {
             
             console.log(`✅ Successful B2C transaction for escrow: ${escrow.transactionId}`);
             
-            // TODO: Send notification to user about successful withdrawal
+            // Send completion SMS to user
+            try {
+                const user = await User.findById(escrow.userId);
+                if (user) {
+                    await SMSService.sendTransactionNotification({
+                        phoneNumber: user.phoneNumber || user.email || '',
+                        amount: escrow.amount.toFixed(2),
+                        tokenType: escrow.tokenType || 'USDC',
+                        transactionHash: escrow.cryptoTransactionHash || escrow.transactionId,
+                        transactionType: 'sell',
+                        status: 'success',
+                        recipientAddress: resultParams.TransactionReceipt || 'MPESA',
+                        explorerUrl: escrow.chain === 'arbitrum' 
+                            ? `https://arbiscan.io/tx/${escrow.cryptoTransactionHash}` 
+                            : escrow.chain === 'celo' 
+                                ? `https://explorer.celo.org/tx/${escrow.cryptoTransactionHash}`
+                                : `https://polygonscan.com/tx/${escrow.cryptoTransactionHash}`
+                    });
+                    console.log(`📱 Completion SMS sent to user for successful transaction: ${escrow.transactionId}`);
+                }
+            } catch (smsError) {
+                console.error("❌ Failed to send completion SMS:", smsError);
+                // Don't fail the callback processing if SMS fails
+            }
         } else {
             // Transaction failed, handle reversal of crypto transfer
             escrow.status = 'failed';
@@ -2703,6 +2886,22 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
             ));
         }
 
+        // M-Pesa minimum amount validation
+        const MIN_MPESA_AMOUNT = 10; // KES
+        if (amount < MIN_MPESA_AMOUNT) {
+            return res.status(400).json(standardResponse(
+                false,
+                `Amount too low`,
+                null,
+                { 
+                    code: "AMOUNT_TOO_LOW", 
+                    message: `Minimum M-Pesa transaction amount is ${MIN_MPESA_AMOUNT} KES. You tried to send ${amount} KES.`,
+                    minimumAmount: MIN_MPESA_AMOUNT,
+                    attemptedAmount: amount
+                }
+            ));
+        }
+
         // Validate paybill requires account number
         if (targetType === 'paybill' && !accountNumber) {
             return res.status(400).json(standardResponse(
@@ -2835,6 +3034,14 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                 failedAt: new Date().toISOString()
             };
             await escrow.save();
+            // Short SMS: on-chain failure
+            try {
+                await SMSService.sendSecurityAlert(
+                    authenticatedUser.phoneNumber,
+                    'ONCHAIN',
+                    `FAIL ${cryptoAmountNum} ${tokenType} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+                );
+            } catch {}
             
             return res.status(500).json(standardResponse(
                 false,
@@ -2847,50 +3054,73 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
             ));
         }
 
-        // 📱 ATOMIC TRANSACTION: Step 2 - Platform sends fiat to user via B2C (not STK Push)
+        // 📱 ATOMIC TRANSACTION: Step 2 - Initiate correct M-Pesa flow
         let mpesaResult;
         try {
-            console.log(`📱 [CRYPTO-PAY] Platform sending ${fiatAmount} KES to user via B2C for ${targetType} ${targetNumber}...`);
-            
-            // Format phone number for B2C (remove + prefix and convert to number)
-            const phoneForB2C = authenticatedUser.phoneNumber.startsWith('+') ? 
-                parseInt(authenticatedUser.phoneNumber.substring(1), 10) : 
-                parseInt(authenticatedUser.phoneNumber, 10);
-            
-            console.log(`📞 [CRYPTO-PAY] Sending B2C to phone: ${phoneForB2C}`);
-            
-            // Use B2C to send money to user for the payment
-            const b2cDescription = targetType === 'paybill' 
-                ? `Payment for ${targetNumber} account ${accountNumber}` 
-                : `Payment for till ${targetNumber}`;
-            
-            mpesaResult = await initiateB2C(
-                fiatAmount,
-                phoneForB2C,
-                b2cDescription
-            );
+            if (targetType === 'paybill') {
+                console.log(`🏢 [CRYPTO-PAY] Initiating B2B BusinessPayBill: ${fiatAmount} KES → paybill ${targetNumber}, account ${accountNumber}`);
+                mpesaResult = await initiateB2BPaybill(
+                    fiatAmount,
+                    targetNumber,
+                    accountNumber || 'ACCOUNT'
+                );
 
-            if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
-                throw new Error(mpesaResult?.ResponseDescription || "B2C payment initiation failed");
+                if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
+                    throw new Error(mpesaResult?.ResponseDescription || "B2B BusinessPayBill initiation failed");
+                }
+
+                // Update escrow for B2B
+                escrow.mpesaTransactionId = mpesaResult.ConversationID || mpesaResult.MerchantRequestID || transactionId;
+                escrow.status = 'processing';
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    mpesaResponseCode: mpesaResult.ResponseCode,
+                    mpesaResponseDesc: mpesaResult.ResponseDescription,
+                    processingTimeMs: Date.now() - startTime,
+                    paymentMethod: 'b2b_paybill',
+                    b2bConversationId: mpesaResult.ConversationID
+                };
+                await escrow.save();
+
+                // Short SMS: on-chain success already ensured; notify B2B initiation
+                try {
+                    await SMSService.sendSecurityAlert(
+                        authenticatedUser.phoneNumber,
+                        'PAYBILL_INIT',
+                        `OK ${Math.floor(fiatAmount)}KES ${targetNumber}/${(accountNumber||'').slice(-4)} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+                    );
+                } catch {}
+
+                console.log(`✅ [CRYPTO-PAY] B2B BusinessPayBill initiated: ${escrow.mpesaTransactionId}`);
+            } else {
+                // Fallback to existing B2C for non-paybill targets
+                console.log(`📱 [CRYPTO-PAY] Platform sending ${fiatAmount} KES to user via B2C for ${targetType} ${targetNumber}...`);
+                const phoneForB2C = authenticatedUser.phoneNumber.startsWith('+') ? 
+                    parseInt(authenticatedUser.phoneNumber.substring(1), 10) : 
+                    parseInt(authenticatedUser.phoneNumber, 10);
+                const b2cDescription = `Payment for ${targetType} ${targetNumber}`;
+                mpesaResult = await initiateB2C(
+                    fiatAmount,
+                    phoneForB2C,
+                    b2cDescription
+                );
+                if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
+                    throw new Error(mpesaResult?.ResponseDescription || "B2C payment initiation failed");
+                }
+                escrow.mpesaTransactionId = mpesaResult.ConversationID;
+                escrow.status = 'completed';
+                escrow.completedAt = new Date();
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    mpesaResponseCode: mpesaResult.ResponseCode,
+                    mpesaResponseDesc: mpesaResult.ResponseDescription,
+                    processingTimeMs: Date.now() - startTime,
+                    paymentMethod: 'platform_b2c',
+                    b2cConversationId: mpesaResult.ConversationID
+                };
+                await escrow.save();
+                console.log(`✅ [CRYPTO-PAY] B2C payment initiated successfully: ${mpesaResult.ConversationID}`);
             }
-
-            // Update escrow with B2C transaction
-            escrow.mpesaTransactionId = mpesaResult.ConversationID;
-            escrow.status = 'completed';
-            escrow.completedAt = new Date();
-            escrow.metadata = {
-                ...escrow.metadata,
-                mpesaResponseCode: mpesaResult.ResponseCode,
-                mpesaResponseDesc: mpesaResult.ResponseDescription,
-                processingTimeMs: Date.now() - startTime,
-                paymentMethod: 'platform_b2c',
-                b2cConversationId: mpesaResult.ConversationID,
-                instructions: `Money sent to your phone. Use it to pay ${targetType} ${targetNumber}${targetType === 'paybill' ? ` account ${accountNumber}` : ''}`
-            };
-            await escrow.save();
-            
-            console.log(`✅ [CRYPTO-PAY] B2C payment initiated successfully: ${mpesaResult.ConversationID}`);
-            
         } catch (mpesaError: any) {
             console.error(`❌ [CRYPTO-PAY] B2C payment failed, initiating rollback:`, mpesaError);
             
@@ -2929,9 +3159,10 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                 };
                 await escrow.save();
                 
+                try { await SMSService.sendSecurityAlert(authenticatedUser.phoneNumber, 'PAYBILL_INIT', `FAIL ${Math.floor(fiatAmount)}KES ${targetNumber} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`); } catch {}
                 return res.status(500).json(standardResponse(
                     false,
-                    "Platform payment failed - crypto returned to your wallet",
+                    targetType === 'paybill' ? "Paybill initiation failed - crypto returned" : "Platform payment failed - crypto returned to your wallet",
                     {
                         transactionId,
                         rollbackTxHash: rollbackResult.transactionHash,
@@ -2939,7 +3170,7 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                     },
                     { 
                         code: "PLATFORM_PAYMENT_FAILED_ROLLED_BACK", 
-                        message: `Platform B2C payment failed: ${mpesaError.message}. Your crypto has been returned to your wallet.` 
+                        message: targetType === 'paybill' ? `B2B BusinessPayBill failed: ${mpesaError.message}. Crypto returned.` : `Platform B2C payment failed: ${mpesaError.message}. Your crypto has been returned to your wallet.` 
                     }
                 ));
                 
@@ -2974,7 +3205,7 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
             }
         }
 
-        // 🎉 SUCCESS: Both crypto transfer and M-Pesa payment successful
+        // 🎉 SUCCESS: Crypto transfer and M-Pesa flow accepted
         const totalProcessingTime = Date.now() - startTime;
         
         // Record transaction for audit
@@ -3008,7 +3239,16 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
             cryptoTransactionHash: cryptoTransferResult.transactionHash
         });
 
-        console.log(`🎉 [CRYPTO-PAY] Payment completed successfully in ${totalProcessingTime}ms`);
+        // Short SMS for on-chain success
+        try {
+            await SMSService.sendSecurityAlert(
+                authenticatedUser.phoneNumber,
+                'ONCHAIN',
+                `OK ${cryptoAmountNum} ${tokenType} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+            );
+        } catch {}
+
+        console.log(`🎉 [CRYPTO-PAY] Payment flow initiated in ${totalProcessingTime}ms`);
 
         return res.status(200).json(standardResponse(
             true,
@@ -3025,14 +3265,15 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                 status: 'completed',
                 completedAt: escrow.completedAt,
                 cryptoTransactionHash: cryptoTransferResult.transactionHash,
-                mpesaTransactionId: mpesaResult.ConversationID,
+                mpesaTransactionId: escrow.mpesaTransactionId,
                 explorerUrl: generateExplorerUrl(chain, cryptoTransferResult.transactionHash),
                 processingTimeMs: totalProcessingTime,
                 conversionRate,
                 description: escrow.metadata.description,
-                paymentMethod: 'platform_b2c',
-                instructions: `✅ ${fiatAmount} KES sent to your phone (+${authenticatedUser.phoneNumber.substring(1)}). Use this money to pay ${targetType} ${targetNumber}${targetType === 'paybill' ? ` account ${accountNumber}` : ''}`,
-                note: `Your ${cryptoAmountNum} ${tokenType} was converted to ${fiatAmount} KES and sent to your M-Pesa. You can now complete your ${targetType} payment.`
+                paymentMethod: targetType === 'paybill' ? 'b2b_paybill' : 'platform_b2c',
+                instructions: targetType === 'paybill' 
+                    ? `✅ Initiated B2B to paybill ${targetNumber}${accountNumber ? ` ref ${accountNumber}` : ''}`
+                    : `✅ ${fiatAmount} KES sent to your phone to pay ${targetType} ${targetNumber}`
             }
         ));
 

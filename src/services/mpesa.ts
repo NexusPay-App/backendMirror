@@ -260,6 +260,12 @@ const mpesaExpressQuery = async (
 
 export const initiateB2C = async (amount: number, receiver: number, remarks: string = "Withdrawal from NexusPay") => {
     try {
+        // M-Pesa B2C minimum amount validation
+        const MIN_B2C_AMOUNT = 10; // KES
+        if (amount < MIN_B2C_AMOUNT) {
+            throw new Error(`B2C payment amount (${amount} KES) is below minimum required amount (${MIN_B2C_AMOUNT} KES)`);
+        }
+
         console.log(`🚀 [B2C] Initiating B2C payment: ${amount} KES to ${receiver}`);
         console.log(`- Environment: ${process.env.NODE_ENV}`);
         console.log(`- B2C URL: ${config.MPESA_B2C_URL}`);
@@ -339,6 +345,111 @@ export const initiateB2C = async (amount: number, receiver: number, remarks: str
         
         throw error;
     }
+};
+
+/**
+ * Initiate M-Pesa B2B payment to a Paybill number (BusinessPayBill)
+ */
+export const initiateB2BPaybill = async (
+  amount: number,
+  paybillNumber: string,
+  accountReference: string,
+  remarks: string = "Payment to Paybill"
+) => {
+  try {
+    const accessToken = await getAccessToken();
+    const senderShortcode = config.MPESA_B2C_SHORTCODE || config.MPESA_SHORTCODE;
+    const payload = {
+      Initiator: config.MPESA_INITIATOR_NAME || "testapi",
+      SecurityCredential: config.MPESA_SECURITY_CREDENTIAL,
+      CommandID: "BusinessPayBill",
+      SenderIdentifierType: 4, // Shortcode
+      ReceiverIdentifierType: 1, // MSISDN - M-Pesa requires this for PayBill B2B
+      Amount: Math.floor(amount),
+      PartyA: senderShortcode,
+      PartyB: paybillNumber,
+      AccountReference: accountReference,
+      Remarks: remarks,
+      QueueTimeOutURL: config.MPESA_B2C_TIMEOUT_URL,
+      ResultURL: config.MPESA_B2C_RESULT_URL
+    };
+
+    if (!payload.SecurityCredential) {
+      throw new Error("Missing MPESA_SECURITY_CREDENTIAL for B2B transactions");
+    }
+
+    const response = await axios({
+      method: 'post',
+      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json'
+      },
+      data: payload,
+      timeout: config.MPESA_REQUEST_TIMEOUT
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error in B2B Paybill transaction:', {
+      error: error.response?.data || error.message,
+      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
+      statusCode: error.response?.status
+    });
+    throw error;
+  }
+};
+
+/**
+ * Initiate M-Pesa B2B payment to a Till number (BusinessBuyGoods)
+ */
+export const initiateB2BBuyGoods = async (
+  amount: number,
+  tillNumber: string,
+  remarks: string = "Payment to Till"
+) => {
+  try {
+    const accessToken = await getAccessToken();
+    const senderShortcode = config.MPESA_B2C_SHORTCODE || config.MPESA_SHORTCODE;
+    const payload = {
+      Initiator: config.MPESA_INITIATOR_NAME || "testapi",
+      SecurityCredential: config.MPESA_SECURITY_CREDENTIAL,
+      CommandID: "BusinessBuyGoods",
+      SenderIdentifierType: 4, // Shortcode
+      ReceiverIdentifierType: 2, // Till Number
+      Amount: Math.floor(amount),
+      PartyA: senderShortcode,
+      PartyB: tillNumber,
+      AccountReference: "NEXUSPAY",
+      Remarks: remarks,
+      QueueTimeOutURL: config.MPESA_B2C_TIMEOUT_URL,
+      ResultURL: config.MPESA_B2C_RESULT_URL
+    };
+
+    if (!payload.SecurityCredential) {
+      throw new Error("Missing MPESA_SECURITY_CREDENTIAL for B2B transactions");
+    }
+
+    const response = await axios({
+      method: 'post',
+      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json'
+      },
+      data: payload,
+      timeout: config.MPESA_REQUEST_TIMEOUT
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error in B2B Till transaction:', {
+      error: error.response?.data || error.message,
+      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
+      statusCode: error.response?.status
+    });
+    throw error;
+  }
 };
 
 export const initiatePaybillPayment = async (
@@ -579,6 +690,93 @@ export const initiateSTKPush = async (
     
     // If we've exhausted all attempts, throw the last error
     throw lastError || new Error("Failed to initiate STK push after multiple attempts");
+};
+
+/**
+ * Query M-Pesa transaction status using checkout request ID
+ * This function queries M-Pesa for the status of a specific transaction
+ */
+export const queryMpesaTransactionStatus = async (checkoutRequestId: string) => {
+  try {
+    logger.info(`🔍 Querying M-Pesa transaction status for: ${checkoutRequestId}`);
+    
+    // Get access token
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error('Failed to get M-Pesa access token');
+    }
+
+    // Create timestamp and password
+    const timeStamp = (new Date()).toISOString().replace(/[^0-9]/g, '').slice(0, -3);
+    const password = Buffer.from(`${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY}${timeStamp}`).toString('base64');
+
+    // Prepare query data
+    const queryData = {
+      BusinessShortCode: config.MPESA_SHORTCODE,
+      Password: password,
+      Timestamp: timeStamp,
+      CheckoutRequestID: checkoutRequestId,
+    };
+
+    logger.info(`📤 Sending M-Pesa query request:`, {
+      businessShortCode: config.MPESA_SHORTCODE,
+      timestamp: timeStamp,
+      checkoutRequestId
+    });
+
+    // Make the query request
+    const response = await axios.post(
+      `${config.MPESA_BASEURL}/mpesa/stkpushquery/v1/query`,
+      queryData,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    logger.info(`📱 M-Pesa query response:`, response.data);
+
+    // Check if the query was successful
+    if (response.data.ResponseCode === '0') {
+      return {
+        success: true,
+        ResponseCode: response.data.ResponseCode,
+        ResponseDescription: response.data.ResponseDescription,
+        MerchantRequestID: response.data.MerchantRequestID,
+        CheckoutRequestID: response.data.CheckoutRequestID,
+        ResultCode: response.data.ResultCode,
+        ResultDesc: response.data.ResultDesc,
+        // Extract receipt number if payment was successful
+        MpesaReceiptNumber: response.data.ResultCode === '0' ? response.data.MpesaReceiptNumber : null,
+        Amount: response.data.Amount,
+        TransactionDate: response.data.TransactionDate,
+        PhoneNumber: response.data.PhoneNumber
+      };
+    } else {
+      logger.error(`❌ M-Pesa query failed: ${response.data.ResponseDescription}`);
+      return {
+        success: false,
+        ResponseCode: response.data.ResponseCode,
+        ResponseDescription: response.data.ResponseDescription,
+        error: response.data.ResponseDescription
+      };
+    }
+
+  } catch (error: any) {
+    logger.error(`❌ Error querying M-Pesa transaction status: ${error.message}`);
+    
+    if (error.response) {
+      logger.error(`M-Pesa API Error:`, {
+        status: error.response.status,
+        data: error.response.data
+      });
+    }
+    
+    throw new Error(`Failed to query M-Pesa transaction status: ${error.message}`);
+  }
 };
 
 /**

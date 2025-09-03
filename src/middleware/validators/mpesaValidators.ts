@@ -209,14 +209,15 @@ export const validateCryptoSpending = [
     }),
     
   body('cryptoAmount')
-    .notEmpty()
-    .withMessage('Crypto amount is required')
+    .optional()
     .isNumeric()
     .withMessage('Crypto amount must be a valid number')
     .custom((value) => {
-      const amount = parseFloat(value);
-      if (amount <= 0) {
-        throw new Error('Crypto amount must be greater than 0');
+      if (value !== undefined) {
+        const amount = parseFloat(value);
+        if (amount <= 0) {
+          throw new Error('Crypto amount must be greater than 0');
+        }
       }
       return true;
     }),

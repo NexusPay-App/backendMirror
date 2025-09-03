@@ -29,6 +29,26 @@ export const cryptoSpendingLimiter = rateLimit({
 });
 
 /**
+ * 💱 Conversion Rate API Rate Limiter
+ * Allows frequent rate checks while preventing abuse
+ */
+export const conversionRateLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 60, // 60 requests per minute per IP (1 per second)
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => req.ip || 'unknown',
+    message: {
+        success: false,
+        message: "Too many conversion rate requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 60 conversion rate requests per minute"
+        }
+    }
+});
+
+/**
  * 🔥 Burst Protection for Crypto Spending
  * Prevents rapid-fire transactions that could indicate bot activity
  */

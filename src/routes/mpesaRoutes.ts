@@ -22,6 +22,7 @@ import express from 'express';
 import {
     mpesaDeposit,
     mpesaWithdraw,
+    withdrawToMpesa,
     payToPaybill,
     payToTill,
     mpesaSTKPushWebhook,
@@ -51,6 +52,7 @@ import {
 } from '../middleware/validators/mpesaValidators';
 import { authenticateToken } from '../middleware/authMiddleware';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
+import { authenticateTransaction } from '../middleware/transactionAuthMiddleware';
 import { isAdmin } from '../middleware/roleMiddleware';
 import { cryptoSpendingProtection } from '../middleware/rateLimiting';
 
@@ -90,5 +92,8 @@ router.post('/pay-with-crypto',
   validate(validateCryptoSpending), 
   payWithCrypto
 );
+
+// 🔄 Crypto to MPESA - Real endpoint for sending crypto to MPESA
+router.post('/crypto-to-mpesa', authenticateTransaction, withdrawToMpesa);
 
 export default router;
