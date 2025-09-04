@@ -45,6 +45,8 @@ module.exports = async (req, res) => {
       backendEndpoint = '/api/mpesa/stk-callback';
     } else if (req.url.includes('/b2c-callback')) {
       backendEndpoint = '/api/mpesa/b2c-callback';
+    } else if (req.url.includes('/b2b-callback')) {
+      backendEndpoint = '/api/mpesa/b2b-callback';
     } else if (req.url.includes('/queue-timeout')) {
       backendEndpoint = '/api/mpesa/queue-timeout';
     } else {

@@ -358,25 +358,39 @@ export const initiateB2BPaybill = async (
 ) => {
   try {
     const accessToken = await getAccessToken();
-    const senderShortcode = config.MPESA_B2C_SHORTCODE || config.MPESA_SHORTCODE;
+    const senderShortcode = config.MPESA_SHORTCODE; // B2B requires main shortcode, not B2C shortcode
     const payload = {
       Initiator: config.MPESA_INITIATOR_NAME || "testapi",
       SecurityCredential: config.MPESA_SECURITY_CREDENTIAL,
       CommandID: "BusinessPayBill",
       SenderIdentifierType: 4, // Shortcode
-      ReceiverIdentifierType: 1, // MSISDN - M-Pesa requires this for PayBill B2B
+      RecieverIdentifierType: 4, // Shortcode - Paybill numbers are business shortcodes
       Amount: Math.floor(amount),
       PartyA: senderShortcode,
       PartyB: paybillNumber,
       AccountReference: accountReference,
       Remarks: remarks,
-      QueueTimeOutURL: config.MPESA_B2C_TIMEOUT_URL,
-      ResultURL: config.MPESA_B2C_RESULT_URL
+      QueueTimeOutURL: config.MPESA_B2B_TIMEOUT_URL || config.MPESA_B2C_TIMEOUT_URL,
+      ResultURL: config.MPESA_B2B_RESULT_URL || config.MPESA_B2C_RESULT_URL
     };
+    
+    console.log(`🔗 [B2B-PAYBILL] Callback URLs:`, {
+      resultURL: payload.ResultURL,
+      timeoutURL: payload.QueueTimeOutURL,
+      usingB2BURLs: !!(config.MPESA_B2B_RESULT_URL && config.MPESA_B2B_TIMEOUT_URL)
+    });
 
     if (!payload.SecurityCredential) {
       throw new Error("Missing MPESA_SECURITY_CREDENTIAL for B2B transactions");
     }
+
+    console.log(`📤 [B2B-PAYBILL] Sending request to M-Pesa:`, {
+      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
+      payload: {
+        ...payload,
+        SecurityCredential: '[REDACTED]' // Hide sensitive data
+      }
+    });
 
     const response = await axios({
       method: 'post',
@@ -387,6 +401,11 @@ export const initiateB2BPaybill = async (
       },
       data: payload,
       timeout: config.MPESA_REQUEST_TIMEOUT
+    });
+
+    console.log(`📥 [B2B-PAYBILL] M-Pesa response:`, {
+      status: response.status,
+      data: response.data
     });
 
     return response.data;
@@ -410,20 +429,20 @@ export const initiateB2BBuyGoods = async (
 ) => {
   try {
     const accessToken = await getAccessToken();
-    const senderShortcode = config.MPESA_B2C_SHORTCODE || config.MPESA_SHORTCODE;
+    const senderShortcode = config.MPESA_SHORTCODE; // B2B requires main shortcode, not B2C shortcode
     const payload = {
       Initiator: config.MPESA_INITIATOR_NAME || "testapi",
       SecurityCredential: config.MPESA_SECURITY_CREDENTIAL,
       CommandID: "BusinessBuyGoods",
       SenderIdentifierType: 4, // Shortcode
-      ReceiverIdentifierType: 2, // Till Number
+      RecieverIdentifierType: 2, // Till Number
       Amount: Math.floor(amount),
       PartyA: senderShortcode,
       PartyB: tillNumber,
       AccountReference: "NEXUSPAY",
       Remarks: remarks,
-      QueueTimeOutURL: config.MPESA_B2C_TIMEOUT_URL,
-      ResultURL: config.MPESA_B2C_RESULT_URL
+      QueueTimeOutURL: config.MPESA_B2B_TIMEOUT_URL || config.MPESA_B2C_TIMEOUT_URL,
+      ResultURL: config.MPESA_B2B_RESULT_URL || config.MPESA_B2C_RESULT_URL
     };
 
     if (!payload.SecurityCredential) {

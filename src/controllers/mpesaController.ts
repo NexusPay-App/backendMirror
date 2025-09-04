@@ -1911,7 +1911,8 @@ async function processB2CCallback(callbackData: any) {
                     : escrow.cryptoAmount;
                 
                 // Check if the platform has enough balance for the refund
-                const platformBalance = await getWalletBalance(platformWallets.main.address, 'celo');
+                const chain = escrow.metadata?.chain || 'arbitrum';
+                const platformBalance = await getWalletBalance(platformWallets.main.address, chain);
                 
                 if (platformBalance < cryptoAmount) {
                     console.error(`❌ Insufficient platform wallet balance for refund: ${platformBalance} < ${cryptoAmount}`);
@@ -1929,7 +1930,7 @@ async function processB2CCallback(callbackData: any) {
                     user.walletAddress,
                     cryptoAmount,
                     platformWallets.main.privateKey,
-                    'celo'
+                    chain
                 );
                 
                 console.log(`✅ Refund transfer complete: ${txResult?.transactionHash}`);
@@ -1943,6 +1944,178 @@ async function processB2CCallback(callbackData: any) {
         }
     } catch (error) {
         console.error("❌ Error processing B2C callback data:", error);
+    }
+}
+
+/**
+ * Handle B2B BusinessPayBill callback
+ */
+export const mpesaB2BWebhook = async (req: Request, res: Response) => {
+    try {
+        console.log("📲 Received MPESA B2B callback:", JSON.stringify(req.body, null, 2));
+        
+        // Acknowledge the webhook immediately to avoid timeout
+        const acknowledgement = { "Result": "Success" };
+        
+        // Process asynchronously to avoid timeouts
+        processB2BCallback(req.body).catch(err => {
+            console.error("❌ Error processing B2B callback:", err);
+        });
+        
+        // Respond to Safaricom
+        res.json(acknowledgement);
+    } catch (error) {
+        console.error("❌ Error in B2B webhook handler:", error);
+        
+        // Still acknowledge to prevent retries
+        res.json({ "Result": "Success" });
+    }
+};
+
+/**
+ * Process B2B callback data
+ */
+async function processB2BCallback(callbackData: any) {
+    try {
+        const { Result } = callbackData;
+        
+        if (!Result) {
+            console.error("❌ Invalid B2B callback format - missing Result");
+            return;
+        }
+        
+        const { ConversationID, ResultCode, ResultDesc, ResultParameters } = Result;
+        
+        // Find the corresponding escrow transaction
+        const escrow = await Escrow.findOne({ mpesaTransactionId: ConversationID });
+        
+        if (!escrow) {
+            console.error(`❌ No escrow found for B2B ConversationID: ${ConversationID}`);
+            return;
+        }
+        
+        console.log(`🔄 [B2B-CB] Processing B2B callback for transaction: ${escrow.transactionId}`);
+        console.log(`- ConversationID: ${ConversationID}`);
+        console.log(`- Result Code: ${ResultCode}`);
+        console.log(`- Result Description: ${ResultDesc}`);
+        console.log(`- Current Status: ${escrow.status}`);
+        
+        // Check if transaction was successful
+        if (ResultCode === 0) {
+            // Success - B2B payment completed
+            console.log(`✅ [B2B-CB] B2B payment successful for transaction: ${escrow.transactionId}`);
+            
+            escrow.status = 'completed';
+            escrow.completedAt = new Date();
+            escrow.metadata = {
+                ...escrow.metadata,
+                b2bResultCode: ResultCode,
+                b2bResultDesc: ResultDesc,
+                b2bCompletedAt: new Date().toISOString(),
+                callbackProcessed: true
+            };
+            await escrow.save();
+            
+            // Send success SMS to user
+            try {
+                const user = await User.findById(escrow.userId);
+                if (user) {
+                    await SMSService.sendSecurityAlert(
+                        user.phoneNumber,
+                        'PAYBILL_SUCCESS',
+                        `OK ${Math.floor(escrow.amount)}KES ${escrow.paybillNumber}/${(escrow.accountNumber||'').slice(-4)} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+                    );
+                }
+            } catch (smsError) {
+                console.error("❌ Failed to send success SMS:", smsError);
+            }
+            
+        } else {
+            // Failure - B2B payment failed
+            console.error(`❌ [B2B-CB] B2B payment failed for transaction: ${escrow.transactionId}`);
+            console.error(`- Result Code: ${ResultCode}`);
+            console.error(`- Result Description: ${ResultDesc}`);
+            
+            escrow.status = 'failed';
+            escrow.metadata = {
+                ...escrow.metadata,
+                b2bResultCode: ResultCode,
+                b2bResultDesc: ResultDesc,
+                b2bFailedAt: new Date().toISOString(),
+                callbackProcessed: true,
+                failureReason: 'B2B_PAYMENT_FAILED'
+            };
+            await escrow.save();
+            
+            // Initiate rollback since B2B failed
+            try {
+                console.log(`🔄 [B2B-CB] Initiating rollback for failed B2B transaction: ${escrow.transactionId}`);
+                
+                const user = await User.findById(escrow.userId);
+                if (!user) {
+                    console.error(`❌ [B2B-CB] User not found for rollback: ${escrow.userId}`);
+                    return;
+                }
+                
+                // Get platform wallet keys for rollback
+                const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+                const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+                
+                if (!primaryKey || !secondaryKey) {
+                    console.error('❌ [B2B-CB] Platform wallet keys not available for rollback');
+                    return;
+                }
+                
+                // Import the rollback function
+                const { sendFromPlatformWallet } = await import('../services/platformWallet');
+                
+                const rollbackResult = await sendFromPlatformWallet(
+                    escrow.cryptoAmount,
+                    user.walletAddress,
+                    primaryKey,
+                    secondaryKey,
+                    escrow.metadata?.chain || 'arbitrum',
+                    escrow.metadata?.tokenType || 'USDC'
+                );
+                
+                console.log(`✅ [B2B-CB] Rollback successful: ${rollbackResult.transactionHash}`);
+                
+                // Update escrow with rollback info
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    rollbackTransactionHash: rollbackResult.transactionHash,
+                    rollbackCompletedAt: new Date().toISOString(),
+                    rollbackReason: 'B2B_PAYMENT_FAILED'
+                };
+                await escrow.save();
+                
+                // Send rollback SMS to user
+                try {
+                    await SMSService.sendSecurityAlert(
+                        user.phoneNumber,
+                        'ROLLBACK_SUCCESS',
+                        `REFUND ${escrow.cryptoAmount}${escrow.metadata?.tokenType||'USDC'} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+                    );
+                } catch (smsError) {
+                    console.error("❌ Failed to send rollback SMS:", smsError);
+                }
+                
+            } catch (rollbackError: any) {
+                console.error(`❌ [B2B-CB] Rollback failed for transaction: ${escrow.transactionId}`, rollbackError);
+                
+                // Mark for manual intervention
+                escrow.metadata = {
+                    ...escrow.metadata,
+                    rollbackFailed: true,
+                    rollbackError: rollbackError.message,
+                    requiresManualIntervention: true
+                };
+                await escrow.save();
+            }
+        }
+        
+    } catch (error) {
+        console.error("❌ Error processing B2B callback data:", error);
     }
 }
 
@@ -2824,6 +2997,150 @@ export const testWebhookLogging = async (req: Request, res: Response) => {
 };
 
 /**
+ * Test B2B callback endpoint
+ */
+export const testB2BCallback = async (req: Request, res: Response) => {
+    console.log("🧪 [B2B-TEST] B2B callback test endpoint called");
+    console.log("📲 [B2B-TEST] Request body:", JSON.stringify(req.body, null, 2));
+    console.log("📲 [B2B-TEST] Request headers:", req.headers);
+    
+    // Simulate a B2B callback response
+    const testResponse = {
+        success: true,
+        message: "B2B callback test successful",
+        timestamp: new Date().toISOString(),
+        receivedData: {
+            body: req.body,
+            headers: req.headers
+        }
+    };
+    
+    console.log("✅ [B2B-TEST] B2B callback test completed successfully");
+    
+    res.status(200).json(testResponse);
+};
+
+/**
+ * Manual rollback endpoint for testing and emergency situations
+ */
+export const manualRollback = async (req: Request, res: Response) => {
+    try {
+        const { transactionId } = req.body;
+        
+        if (!req.user) {
+            return res.status(401).json(standardResponse(
+                false,
+                "Authentication required",
+                null,
+                { code: "AUTH_REQUIRED", message: "You must be logged in to perform this action" }
+            ));
+        }
+        
+        const authenticatedUser = req.user;
+        
+        if (!transactionId) {
+            return res.status(400).json(standardResponse(
+                false,
+                "Transaction ID required",
+                null,
+                { code: "MISSING_TRANSACTION_ID", message: "Transaction ID is required" }
+            ));
+        }
+        
+        // Find the escrow transaction
+        const escrow = await Escrow.findOne({ 
+            transactionId,
+            userId: authenticatedUser._id
+        });
+        
+        if (!escrow) {
+            return res.status(404).json(standardResponse(
+                false,
+                "Transaction not found",
+                null,
+                { code: "TRANSACTION_NOT_FOUND", message: "Transaction not found or not owned by user" }
+            ));
+        }
+        
+        if (escrow.status === 'completed') {
+            return res.status(400).json(standardResponse(
+                false,
+                "Transaction already completed",
+                null,
+                { code: "ALREADY_COMPLETED", message: "Cannot rollback completed transaction" }
+            ));
+        }
+        
+        // Perform rollback
+        const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+        const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+        
+        if (!primaryKey || !secondaryKey) {
+            return res.status(500).json(standardResponse(
+                false,
+                "Platform wallet keys not available",
+                null,
+                { code: "WALLET_KEYS_UNAVAILABLE", message: "Platform wallet keys not configured" }
+            ));
+        }
+        
+        const { sendFromPlatformWallet } = await import('../services/platformWallet');
+        
+        const rollbackResult = await sendFromPlatformWallet(
+            escrow.cryptoAmount,
+            authenticatedUser.walletAddress,
+            primaryKey,
+            secondaryKey,
+            escrow.metadata?.chain || 'arbitrum',
+            escrow.metadata?.tokenType || 'USDC'
+        );
+        
+        // Update escrow
+        escrow.status = 'failed';
+        escrow.metadata = {
+            ...escrow.metadata,
+            manualRollback: true,
+            rollbackTransactionHash: rollbackResult.transactionHash,
+            rollbackCompletedAt: new Date().toISOString(),
+            rollbackReason: 'MANUAL_ROLLBACK'
+        };
+        await escrow.save();
+        
+        // Send SMS notification
+        try {
+            await SMSService.sendSecurityAlert(
+                authenticatedUser.phoneNumber,
+                'ROLLBACK_SUCCESS',
+                `REFUND ${escrow.cryptoAmount}${escrow.metadata?.tokenType||'USDC'} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+            );
+        } catch (smsError) {
+            console.error("❌ Failed to send manual rollback SMS:", smsError);
+        }
+        
+        return res.json(standardResponse(
+            true,
+            "Manual rollback successful",
+            {
+                transactionId,
+                rollbackTxHash: rollbackResult.transactionHash,
+                amount: escrow.cryptoAmount,
+                tokenType: escrow.metadata?.tokenType || 'USDC'
+            },
+            { code: "MANUAL_ROLLBACK_SUCCESS", message: "Crypto has been returned to your wallet" }
+        ));
+        
+    } catch (error: any) {
+        console.error("❌ Manual rollback error:", error);
+        return res.status(500).json(standardResponse(
+            false,
+            "Manual rollback failed",
+            null,
+            { code: "MANUAL_ROLLBACK_FAILED", message: error.message }
+        ));
+    }
+};
+
+/**
  * Pay Paybill/Till using Crypto - High Performance Crypto Spending System
  * Allows users to spend their crypto for real-world M-Pesa payments
  */
@@ -3092,6 +3409,71 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                 } catch {}
 
                 console.log(`✅ [CRYPTO-PAY] B2B BusinessPayBill initiated: ${escrow.mpesaTransactionId}`);
+                
+                // 🕐 TIMEOUT PROTECTION: Set up rollback timer for B2B transactions
+                // If no callback received within 5 minutes, automatically rollback
+                setTimeout(async () => {
+                    try {
+                        const updatedEscrow = await Escrow.findOne({ transactionId });
+                        if (updatedEscrow && updatedEscrow.status === 'processing') {
+                            console.log(`⏰ [TIMEOUT-ROLLBACK] B2B callback timeout for transaction: ${transactionId}`);
+                            
+                            // Mark as failed due to timeout
+                            updatedEscrow.status = 'failed';
+                            updatedEscrow.metadata = {
+                                ...updatedEscrow.metadata,
+                                timeoutRollback: true,
+                                timeoutAt: new Date().toISOString(),
+                                failureReason: 'B2B_CALLBACK_TIMEOUT'
+                            };
+                            await updatedEscrow.save();
+                            
+                            // Initiate rollback
+                            const user = await User.findById(authenticatedUser._id);
+                            if (user) {
+                                const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+                                const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+                                
+                                if (primaryKey && secondaryKey) {
+                                    const { sendFromPlatformWallet } = await import('../services/platformWallet');
+                                    
+                                    const rollbackResult = await sendFromPlatformWallet(
+                                        cryptoAmountNum,
+                                        user.walletAddress,
+                                        primaryKey,
+                                        secondaryKey,
+                                        chain,
+                                        tokenType as TokenSymbol
+                                    );
+                                    
+                                    console.log(`✅ [TIMEOUT-ROLLBACK] Rollback successful: ${rollbackResult.transactionHash}`);
+                                    
+                                    // Update escrow with rollback info
+                                    updatedEscrow.metadata = {
+                                        ...updatedEscrow.metadata,
+                                        rollbackTransactionHash: rollbackResult.transactionHash,
+                                        rollbackCompletedAt: new Date().toISOString(),
+                                        rollbackReason: 'B2B_CALLBACK_TIMEOUT'
+                                    };
+                                    await updatedEscrow.save();
+                                    
+                                    // Send rollback SMS to user
+                                    try {
+                                        await SMSService.sendSecurityAlert(
+                                            user.phoneNumber,
+                                            'ROLLBACK_SUCCESS',
+                                            `REFUND ${cryptoAmountNum}${tokenType} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+                                        );
+                                    } catch (smsError) {
+                                        console.error("❌ Failed to send timeout rollback SMS:", smsError);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (timeoutError) {
+                        console.error(`❌ [TIMEOUT-ROLLBACK] Error during timeout rollback:`, timeoutError);
+                    }
+                }, 5 * 60 * 1000); // 5 minutes timeout
             } else {
                 // Fallback to existing B2C for non-paybill targets
                 console.log(`📱 [CRYPTO-PAY] Platform sending ${fiatAmount} KES to user via B2C for ${targetType} ${targetNumber}...`);
@@ -3099,27 +3481,27 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                     parseInt(authenticatedUser.phoneNumber.substring(1), 10) : 
                     parseInt(authenticatedUser.phoneNumber, 10);
                 const b2cDescription = `Payment for ${targetType} ${targetNumber}`;
-                mpesaResult = await initiateB2C(
-                    fiatAmount,
-                    phoneForB2C,
-                    b2cDescription
-                );
-                if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
-                    throw new Error(mpesaResult?.ResponseDescription || "B2C payment initiation failed");
-                }
-                escrow.mpesaTransactionId = mpesaResult.ConversationID;
-                escrow.status = 'completed';
-                escrow.completedAt = new Date();
-                escrow.metadata = {
-                    ...escrow.metadata,
-                    mpesaResponseCode: mpesaResult.ResponseCode,
-                    mpesaResponseDesc: mpesaResult.ResponseDescription,
-                    processingTimeMs: Date.now() - startTime,
-                    paymentMethod: 'platform_b2c',
+            mpesaResult = await initiateB2C(
+                fiatAmount,
+                phoneForB2C,
+                b2cDescription
+            );
+            if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
+                throw new Error(mpesaResult?.ResponseDescription || "B2C payment initiation failed");
+            }
+            escrow.mpesaTransactionId = mpesaResult.ConversationID;
+            escrow.status = 'completed';
+            escrow.completedAt = new Date();
+            escrow.metadata = {
+                ...escrow.metadata,
+                mpesaResponseCode: mpesaResult.ResponseCode,
+                mpesaResponseDesc: mpesaResult.ResponseDescription,
+                processingTimeMs: Date.now() - startTime,
+                paymentMethod: 'platform_b2c',
                     b2cConversationId: mpesaResult.ConversationID
-                };
-                await escrow.save();
-                console.log(`✅ [CRYPTO-PAY] B2C payment initiated successfully: ${mpesaResult.ConversationID}`);
+            };
+            await escrow.save();
+            console.log(`✅ [CRYPTO-PAY] B2C payment initiated successfully: ${mpesaResult.ConversationID}`);
             }
         } catch (mpesaError: any) {
             console.error(`❌ [CRYPTO-PAY] B2C payment failed, initiating rollback:`, mpesaError);
