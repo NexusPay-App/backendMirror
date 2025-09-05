@@ -12,6 +12,26 @@ import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 import { Escrow } from '../models/escrowModel';
 import { randomUUID } from 'crypto';
 import { SMSService } from '../services/smsService';
+import { redis } from '../utils/redis';
+
+// Cache utility functions
+const getCachedData = async (key: string): Promise<any> => {
+    try {
+        const cached = await redis.get(key);
+        return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+        console.error('Error getting cached data:', error);
+        return null;
+    }
+};
+
+const setCachedData = async (key: string, data: any, ttlSeconds: number): Promise<void> => {
+    try {
+        await redis.setex(key, ttlSeconds, JSON.stringify(data));
+    } catch (error) {
+        console.error('Error setting cached data:', error);
+    }
+};
 
 export const send = async (req: Request, res: Response) => {
     const { 
@@ -1126,13 +1146,32 @@ export const getUserBalance = async (req: Request, res: Response) => {
             });
         }
 
-        // Supported chains and tokens
-        const supportedChains = ['arbitrum', 'polygon', 'base', 'optimism', 'celo', 'avalanche', 'bnb', 'scroll', 'gnosis'];
+        // Check cache first (5 minute cache for balance data)
+        const cacheKey = `balance:${user.walletAddress}:primary`;
+        const cachedBalance = await getCachedData(cacheKey);
+        
+        if (cachedBalance) {
+            console.log(`Returning cached balance for ${user.walletAddress}`);
+            return res.json({
+                success: true,
+                message: "User balance retrieved successfully (cached)",
+                data: {
+                    ...cachedBalance,
+                    cached: true,
+                    cacheExpiry: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+                }
+            });
+        }
+
+        console.log(`Fetching fresh balance for ${user.walletAddress}`);
+        
+        // Focus on primary chains: Arbitrum (default), Base, and Celo
+        const primaryChains = ['arbitrum', 'base', 'celo'];
         const balances: Record<string, Record<string, number>> = {};
         let totalUSDValue = 0;
 
-        // Get balances for each chain
-        for (const chain of supportedChains) {
+        // Get balances for each primary chain
+        for (const chain of primaryChains) {
             try {
                 // Get supported tokens for this specific chain
                 const chainTokens = getSupportedTokens(chain as Chain);
@@ -1186,16 +1225,23 @@ export const getUserBalance = async (req: Request, res: Response) => {
             }
         }
 
+        const balanceData = {
+            walletAddress: user.walletAddress,
+            totalUSDValue: Math.round(totalUSDValue * 100) / 100, // Round to 2 decimals
+            balances,
+            chainsWithBalance: Object.keys(balances).length,
+            supportedChains: primaryChains,
+            note: "Balances shown for primary chains: Arbitrum (default), Base, and Celo",
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Cache the result for 5 minutes
+        await setCachedData(cacheKey, balanceData, 300); // 5 minutes
+
         return res.json({
             success: true,
             message: "User balance retrieved successfully",
-            data: {
-                walletAddress: user.walletAddress,
-                totalUSDValue: Math.round(totalUSDValue * 100) / 100, // Round to 2 decimals
-                balances,
-                chainsWithBalance: Object.keys(balances).length,
-                lastUpdated: new Date().toISOString()
-            }
+            data: balanceData
         });
 
     } catch (error: any) {
@@ -1212,3 +1258,126 @@ export const getUserBalance = async (req: Request, res: Response) => {
     }
 };
 
+// Get user balance for a specific chain
+export const getUserBalanceByChain = async (req: Request, res: Response) => {
+    try {
+        // Get authenticated user from middleware
+        const user = (req as any).user;
+        const { chain } = req.params;
+        
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "User not authenticated",
+                data: null,
+                error: {
+                    code: "UNAUTHORIZED",
+                    message: "Authentication required"
+                }
+            });
+        }
+
+        // Validate chain parameter
+        const supportedChains = ['arbitrum', 'base', 'celo', 'polygon', 'optimism', 'avalanche', 'bnb', 'scroll', 'gnosis'];
+        if (!chain || !supportedChains.includes(chain)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or unsupported chain",
+                data: null,
+                error: {
+                    code: "INVALID_CHAIN",
+                    message: `Supported chains: ${supportedChains.join(', ')}`
+                }
+            });
+        }
+
+        // Check cache first (3 minute cache for individual chain balance)
+        const cacheKey = `balance:${user.walletAddress}:${chain}`;
+        const cachedBalance = await getCachedData(cacheKey);
+        
+        if (cachedBalance) {
+            console.log(`Returning cached ${chain} balance for ${user.walletAddress}`);
+            return res.json({
+                success: true,
+                message: `User balance retrieved successfully for ${chain} (cached)`,
+                data: {
+                    ...cachedBalance,
+                    cached: true,
+                    cacheExpiry: new Date(Date.now() + 3 * 60 * 1000).toISOString()
+                }
+            });
+        }
+
+        console.log(`Fetching fresh ${chain} balance for ${user.walletAddress}`);
+
+        // Get supported tokens for this specific chain
+        const chainTokens = getSupportedTokens(chain as Chain);
+        const balances: Record<string, number> = {};
+        let totalUSDValue = 0;
+
+        for (const token of chainTokens) {
+            try {
+                const tokenConfig = getTokenConfig(chain as Chain, token as TokenSymbol);
+                if (!tokenConfig) continue;
+
+                const chainConfig = config[chain];
+                if (!chainConfig?.chainId) continue;
+
+                const contract = getContract({
+                    client,
+                    chain: defineChain(chainConfig.chainId),
+                    address: tokenConfig.address,
+                });
+
+                const balance = await readContract({
+                    contract,
+                    method: "function balanceOf(address) view returns (uint256)",
+                    params: [user.walletAddress],
+                });
+
+                const balanceInToken = Number(balance) / 10 ** tokenConfig.decimals;
+                
+                if (balanceInToken > 0) {
+                    balances[token] = balanceInToken;
+                    
+                    // Add to total USD value (assuming stablecoins are ~$1)
+                    if (['USDC', 'USDT', 'DAI', 'cUSD'].includes(token)) {
+                        totalUSDValue += balanceInToken;
+                    }
+                }
+            } catch (error: any) {
+                console.error(`Failed to fetch ${token} balance on ${chain}:`, error.message);
+            }
+        }
+
+        const chainBalanceData = {
+            walletAddress: user.walletAddress,
+            chain,
+            balances,
+            totalUSDValue: Math.round(totalUSDValue * 100) / 100,
+            supportedTokens: chainTokens,
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Cache the result for 3 minutes
+        await setCachedData(cacheKey, chainBalanceData, 180); // 3 minutes
+
+        return res.json({
+            success: true,
+            message: `User balance retrieved successfully for ${chain}`,
+            data: chainBalanceData
+        });
+
+    } catch (error: any) {
+        console.error('Error in getUserBalanceByChain:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to retrieve user balance for chain",
+            data: null,
+            error: {
+                code: "INTERNAL_ERROR",
+                message: error.message || "An unexpected error occurred"
+            }
+        });
+    }
+};

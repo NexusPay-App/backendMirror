@@ -132,6 +132,50 @@ export const performanceMonitoring = (req: Request, res: Response, next: NextFun
 };
 
 /**
+ * 💰 Balance Query Rate Limiter
+ * Prevents excessive balance requests while allowing reasonable usage
+ */
+export const balanceQueryLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 30, // 30 balance requests per minute per user
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => {
+        return req.user?.id || req.ip;
+    },
+    message: {
+        success: false,
+        message: "Too many balance requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 30 balance requests per minute"
+        }
+    }
+});
+
+/**
+ * 📊 Transaction History Rate Limiter
+ * Prevents excessive transaction history requests
+ */
+export const transactionHistoryLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 20, // 20 transaction history requests per minute per user
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => {
+        return req.user?.id || req.ip;
+    },
+    message: {
+        success: false,
+        message: "Too many transaction history requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 20 transaction history requests per minute"
+        }
+    }
+});
+
+/**
  * 🔧 Intelligent Rate Limiting Stack
  * Combines all rate limiting strategies for optimal performance
  */

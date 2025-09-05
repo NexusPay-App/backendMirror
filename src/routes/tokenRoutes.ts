@@ -20,7 +20,8 @@ import {
   unify, 
   migrate, 
   getReceiveInfo,
-  getUserBalance 
+  getUserBalance,
+  getUserBalanceByChain
 } from '../controllers/tokenController';
 import { validate } from '../middleware/validation';
 import {
@@ -30,6 +31,7 @@ import {
 } from '../middleware/validators/tokenValidators';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 import { authenticate } from '../middleware/auth';
+import { balanceQueryLimiter } from '../middleware/rateLimiting';
 
 const router = express.Router();
 
@@ -44,7 +46,8 @@ router.post('/migrate', enforceStrictAuth, migrate);
 
 // User wallet endpoints - clean and sleek for UI (basic auth only)
 router.get('/receive', authenticate, getReceiveInfo);
-router.get('/balance', authenticate, getUserBalance);
+router.get('/balance', authenticate, balanceQueryLimiter, getUserBalance);
+router.get('/balance/:chain', authenticate, balanceQueryLimiter, getUserBalanceByChain);
 
 export default router;
 

@@ -32,6 +32,15 @@ export const registerValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
   
+  // OTP validation for registration completion
+  body('otp')
+    .notEmpty()
+    .withMessage('OTP is required to complete registration')
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits')
+    .isNumeric()
+    .withMessage('OTP must contain only numbers'),
+  
   // Verify with validation
   body('verifyWith')
     .optional()
@@ -168,4 +177,36 @@ export const phoneLoginVerifyValidation = [
     .withMessage('OTP must be 6 digits')
     .isNumeric()
     .withMessage('OTP must contain only numbers')
+];
+
+export const phonePasswordResetRequestValidation = [
+  body('phoneNumber')
+    .notEmpty()
+    .withMessage('Phone number is required')
+    .matches(/^\+[1-9]\d{1,14}$/)
+    .withMessage('Please provide a valid phone number in E.164 format')
+];
+
+export const phonePasswordResetValidation = [
+  body('phoneNumber')
+    .notEmpty()
+    .withMessage('Phone number is required')
+    .matches(/^\+[1-9]\d{1,14}$/)
+    .withMessage('Please provide a valid phone number in E.164 format'),
+  
+  body('otp')
+    .notEmpty()
+    .withMessage('OTP is required')
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits')
+    .isNumeric()
+    .withMessage('OTP must contain only numbers'),
+  
+  body('newPassword')
+    .notEmpty()
+    .withMessage('New password is required')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ]; 

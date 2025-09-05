@@ -2,6 +2,8 @@ import express from 'express';
 import { 
   requestPasswordReset, 
   resetPassword, 
+  requestPhonePasswordReset,
+  resetPhonePassword,
   login, 
   registerUser, 
   initiateRegisterUser, 
@@ -24,6 +26,8 @@ import {
   verifyPhoneValidation,
   passwordResetRequestValidation,
   passwordResetValidation,
+  phonePasswordResetRequestValidation,
+  phonePasswordResetValidation,
   phoneOtpRequestValidation,
   phoneOtpVerifyValidation,
   phoneLoginVerifyValidation
@@ -251,6 +255,10 @@ router.post('/register/verify/phone', validate(verifyPhoneValidation), verifyPho
 // Password reset routes
 router.post('/password-reset/request', validate(passwordResetRequestValidation), requestPasswordReset);
 router.post('/password-reset', validate(passwordResetValidation), resetPassword);
+
+// Phone-based password reset routes
+router.post('/password-reset/phone/request', validate(phonePasswordResetRequestValidation), requestPhonePasswordReset);
+router.post('/password-reset/phone', validate(phonePasswordResetValidation), resetPhonePassword);
 
 // Account deletion routes
 router.post('/account-deletion/request', authenticate, requestAccountDeletion);
