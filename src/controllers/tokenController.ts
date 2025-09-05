@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { User } from '../models/models';
 import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
-import { africastalking, client, createAccount } from '../services/auth';
+import { client, createAccount } from '../services/auth';
 import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
 import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
 import { defineChain, getContract, readContract } from "thirdweb";
@@ -11,6 +11,27 @@ import * as bcrypt from 'bcrypt';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 import { Escrow } from '../models/escrowModel';
 import { randomUUID } from 'crypto';
+import { SMSService } from '../services/smsService';
+import { redis } from '../utils/redis';
+
+// Cache utility functions
+const getCachedData = async (key: string): Promise<any> => {
+    try {
+        const cached = await redis.get(key);
+        return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+        console.error('Error getting cached data:', error);
+        return null;
+    }
+};
+
+const setCachedData = async (key: string, data: any, ttlSeconds: number): Promise<void> => {
+    try {
+        await redis.setex(key, ttlSeconds, JSON.stringify(data));
+    } catch (error) {
+        console.error('Error setting cached data:', error);
+    }
+};
 
 export const send = async (req: Request, res: Response) => {
     const { 
@@ -268,61 +289,6 @@ export const send = async (req: Request, res: Response) => {
             }
         }
 
-        // Enhanced notification system - send to both phone and email if available
-        const notifications = [];
-
-        // Send SMS to recipient if they have a phone number
-        if (recipientPhone) {
-            try {
-                await africastalking.SMS.send({
-                    to: recipientPhone,
-                    message: `${transactionCode} Confirmed. ${amountDisplay} received from ${sender.phoneNumber || sender.email || 'NexusPay user'} on ${currentDateTime}`,
-                    from: 'NEXUSPAY'
-                });
-                console.log(`SMS sent to recipient: ${recipientPhone}`);
-                notifications.push('SMS sent to recipient');
-            } catch (smsError) {
-                console.error('Failed to send SMS to recipient:', smsError);
-            }
-        }
-
-        // Send email to recipient if they have an email
-        if (recipientEmail) {
-            try {
-                // TODO: Implement email service for crypto notifications
-                console.log(`Email notification would be sent to: ${recipientEmail}`);
-                notifications.push('Email notification prepared for recipient');
-            } catch (emailError) {
-                console.error('Failed to prepare email for recipient:', emailError);
-            }
-        }
-
-        // Send SMS to sender if they have a phone number
-        if (sender.phoneNumber) {
-            try {
-                await africastalking.SMS.send({
-                    to: sender.phoneNumber,
-                    message: `${transactionCode} Confirmed. ${amountDisplay} sent to ${recipientForDisplay} on ${currentDateTime}`,
-                    from: 'NEXUSPAY'
-                });
-                console.log(`SMS sent to sender: ${sender.phoneNumber}`);
-                notifications.push('SMS sent to sender');
-            } catch (smsError) {
-                console.error('Failed to send SMS to sender:', smsError);
-            }
-        }
-
-        // Send email to sender if they have an email
-        if (sender.email) {
-            try {
-                // TODO: Implement email service for crypto notifications
-                console.log(`Email notification would be sent to: ${sender.email}`);
-                notifications.push('Email notification prepared for sender');
-            } catch (emailError) {
-                console.error('Failed to prepare email for sender:', emailError);
-            }
-        }
-
         // Generate blockchain explorer URL
         const getExplorerUrl = (chain: string, txHash: string): string => {
             const explorerUrls: Record<string, string> = {
@@ -345,6 +311,60 @@ export const send = async (req: Request, res: Response) => {
             };
             return explorerUrls[chain] || `https://etherscan.io/tx/${txHash}`;
         };
+
+        // Enhanced notification system - send to both phone and email if available
+        const notifications = [];
+
+        // Send SMS to recipient if they have a phone number
+        if (recipientPhone) {
+            try {
+                await SMSService.sendTransactionNotification({
+                    phoneNumber: recipientPhone,
+                    amount: amountDisplay,
+                    tokenType: tokenSymbol,
+                    transactionHash: result.transactionHash,
+                    transactionType: 'receive',
+                    status: 'success',
+                    senderAddress: sender.walletAddress,
+                    explorerUrl: getExplorerUrl(chain, result.transactionHash)
+                });
+                console.log(`SMS sent to recipient: ${recipientPhone}`);
+                notifications.push('SMS sent to recipient');
+            } catch (smsError) {
+                console.error('Failed to send SMS to recipient:', smsError);
+            }
+        }
+
+        // Send email to recipient if they have an email
+        if (recipientEmail) {
+            try {
+                // TODO: Implement email service for crypto notifications
+                console.log(`Email notification would be sent to: ${recipientEmail}`);
+                notifications.push('Email notification prepared for recipient');
+            } catch (emailError) {
+                console.error('Failed to prepare email for recipient:', emailError);
+            }
+        }
+
+        // Send SMS to sender if they have a phone number
+        if (sender.phoneNumber) {
+            try {
+                await SMSService.sendTransactionNotification({
+                    phoneNumber: sender.phoneNumber,
+                    amount: amountDisplay,
+                    tokenType: tokenSymbol,
+                    transactionHash: result.transactionHash,
+                    transactionType: 'send',
+                    status: 'success',
+                    recipientAddress: recipientAddress,
+                    explorerUrl: getExplorerUrl(chain, result.transactionHash)
+                });
+                console.log(`SMS sent to sender: ${sender.phoneNumber}`);
+                notifications.push('SMS sent to sender');
+            } catch (smsError) {
+                console.error('Failed to send SMS to sender:', smsError);
+            }
+        }
 
         const explorerUrl = getExplorerUrl(chain, result.transactionHash);
         const isoTimestamp = new Date().toISOString();
@@ -797,12 +817,14 @@ export const unify = async (req: Request, res: Response) => {
                 console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
 
                 try {
-                    const smsResponse = await africastalking.SMS.send({
-                        to: phoneNumber,
-                        message: `Your unification OTP is ${generatedOtp}. Valid for 5 minutes.`,
-                        from: 'NEXUSPAY'
-                    });
-                    console.log(`SMS sent successfully to ${phoneNumber}:`, smsResponse);
+                    // Send OTP via SMS using the new SMS service
+                    const smsSent = await SMSService.sendOTP(phoneNumber, generatedOtp, 'unification');
+                    
+                    if (!smsSent) {
+                        return res.status(500).send({ message: "Failed to send OTP. Please try again." });
+                    }
+                    
+                    console.log(`SMS sent successfully to ${phoneNumber}`);
                 } catch (smsError) {
                     console.error(`Failed to send SMS to ${phoneNumber}:`, smsError);
                     return res.status(500).send({ message: "Failed to send OTP. Please try again." });
@@ -902,12 +924,14 @@ export const migrate = async (req: Request, res: Response) => {
                 console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
 
                 try {
-                    const smsResponse = await africastalking.SMS.send({
-                        to: phoneNumber,
-                        message: `Your migration OTP is ${generatedOtp}. Valid for 5 minutes.`,
-                        from: 'NEXUSPAY'
-                    });
-                    console.log(`SMS sent successfully to ${phoneNumber}:`, smsResponse);
+                    // Send OTP via SMS using the new SMS service
+                    const smsSent = await SMSService.sendOTP(phoneNumber, generatedOtp, 'migration');
+                    
+                    if (!smsSent) {
+                        return res.status(500).send({ message: "Failed to send OTP. Please try again." });
+                    }
+                    
+                    console.log(`SMS sent successfully to ${phoneNumber}`);
                 } catch (smsError) {
                     console.error(`Failed to send SMS to ${phoneNumber}:`, smsError);
                     return res.status(500).send({ message: "Failed to send OTP. Please try again." });
@@ -1122,13 +1146,32 @@ export const getUserBalance = async (req: Request, res: Response) => {
             });
         }
 
-        // Supported chains and tokens
-        const supportedChains = ['arbitrum', 'polygon', 'base', 'optimism', 'celo', 'avalanche', 'bnb', 'scroll', 'gnosis'];
+        // Check cache first (5 minute cache for balance data)
+        const cacheKey = `balance:${user.walletAddress}:primary`;
+        const cachedBalance = await getCachedData(cacheKey);
+        
+        if (cachedBalance) {
+            console.log(`Returning cached balance for ${user.walletAddress}`);
+            return res.json({
+                success: true,
+                message: "User balance retrieved successfully (cached)",
+                data: {
+                    ...cachedBalance,
+                    cached: true,
+                    cacheExpiry: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+                }
+            });
+        }
+
+        console.log(`Fetching fresh balance for ${user.walletAddress}`);
+        
+        // Focus on primary chains: Arbitrum (default), Base, and Celo
+        const primaryChains = ['arbitrum', 'base', 'celo'];
         const balances: Record<string, Record<string, number>> = {};
         let totalUSDValue = 0;
 
-        // Get balances for each chain
-        for (const chain of supportedChains) {
+        // Get balances for each primary chain
+        for (const chain of primaryChains) {
             try {
                 // Get supported tokens for this specific chain
                 const chainTokens = getSupportedTokens(chain as Chain);
@@ -1182,16 +1225,23 @@ export const getUserBalance = async (req: Request, res: Response) => {
             }
         }
 
+        const balanceData = {
+            walletAddress: user.walletAddress,
+            totalUSDValue: Math.round(totalUSDValue * 100) / 100, // Round to 2 decimals
+            balances,
+            chainsWithBalance: Object.keys(balances).length,
+            supportedChains: primaryChains,
+            note: "Balances shown for primary chains: Arbitrum (default), Base, and Celo",
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Cache the result for 5 minutes
+        await setCachedData(cacheKey, balanceData, 300); // 5 minutes
+
         return res.json({
             success: true,
             message: "User balance retrieved successfully",
-            data: {
-                walletAddress: user.walletAddress,
-                totalUSDValue: Math.round(totalUSDValue * 100) / 100, // Round to 2 decimals
-                balances,
-                chainsWithBalance: Object.keys(balances).length,
-                lastUpdated: new Date().toISOString()
-            }
+            data: balanceData
         });
 
     } catch (error: any) {
@@ -1208,3 +1258,126 @@ export const getUserBalance = async (req: Request, res: Response) => {
     }
 };
 
+// Get user balance for a specific chain
+export const getUserBalanceByChain = async (req: Request, res: Response) => {
+    try {
+        // Get authenticated user from middleware
+        const user = (req as any).user;
+        const { chain } = req.params;
+        
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "User not authenticated",
+                data: null,
+                error: {
+                    code: "UNAUTHORIZED",
+                    message: "Authentication required"
+                }
+            });
+        }
+
+        // Validate chain parameter
+        const supportedChains = ['arbitrum', 'base', 'celo', 'polygon', 'optimism', 'avalanche', 'bnb', 'scroll', 'gnosis'];
+        if (!chain || !supportedChains.includes(chain)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or unsupported chain",
+                data: null,
+                error: {
+                    code: "INVALID_CHAIN",
+                    message: `Supported chains: ${supportedChains.join(', ')}`
+                }
+            });
+        }
+
+        // Check cache first (3 minute cache for individual chain balance)
+        const cacheKey = `balance:${user.walletAddress}:${chain}`;
+        const cachedBalance = await getCachedData(cacheKey);
+        
+        if (cachedBalance) {
+            console.log(`Returning cached ${chain} balance for ${user.walletAddress}`);
+            return res.json({
+                success: true,
+                message: `User balance retrieved successfully for ${chain} (cached)`,
+                data: {
+                    ...cachedBalance,
+                    cached: true,
+                    cacheExpiry: new Date(Date.now() + 3 * 60 * 1000).toISOString()
+                }
+            });
+        }
+
+        console.log(`Fetching fresh ${chain} balance for ${user.walletAddress}`);
+
+        // Get supported tokens for this specific chain
+        const chainTokens = getSupportedTokens(chain as Chain);
+        const balances: Record<string, number> = {};
+        let totalUSDValue = 0;
+
+        for (const token of chainTokens) {
+            try {
+                const tokenConfig = getTokenConfig(chain as Chain, token as TokenSymbol);
+                if (!tokenConfig) continue;
+
+                const chainConfig = config[chain];
+                if (!chainConfig?.chainId) continue;
+
+                const contract = getContract({
+                    client,
+                    chain: defineChain(chainConfig.chainId),
+                    address: tokenConfig.address,
+                });
+
+                const balance = await readContract({
+                    contract,
+                    method: "function balanceOf(address) view returns (uint256)",
+                    params: [user.walletAddress],
+                });
+
+                const balanceInToken = Number(balance) / 10 ** tokenConfig.decimals;
+                
+                if (balanceInToken > 0) {
+                    balances[token] = balanceInToken;
+                    
+                    // Add to total USD value (assuming stablecoins are ~$1)
+                    if (['USDC', 'USDT', 'DAI', 'cUSD'].includes(token)) {
+                        totalUSDValue += balanceInToken;
+                    }
+                }
+            } catch (error: any) {
+                console.error(`Failed to fetch ${token} balance on ${chain}:`, error.message);
+            }
+        }
+
+        const chainBalanceData = {
+            walletAddress: user.walletAddress,
+            chain,
+            balances,
+            totalUSDValue: Math.round(totalUSDValue * 100) / 100,
+            supportedTokens: chainTokens,
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Cache the result for 3 minutes
+        await setCachedData(cacheKey, chainBalanceData, 180); // 3 minutes
+
+        return res.json({
+            success: true,
+            message: `User balance retrieved successfully for ${chain}`,
+            data: chainBalanceData
+        });
+
+    } catch (error: any) {
+        console.error('Error in getUserBalanceByChain:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to retrieve user balance for chain",
+            data: null,
+            error: {
+                code: "INTERNAL_ERROR",
+                message: error.message || "An unexpected error occurred"
+            }
+        });
+    }
+};

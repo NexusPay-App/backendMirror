@@ -4,6 +4,26 @@ import { Escrow } from '../models/escrowModel';
 import { standardResponse, handleError } from '../services/utils';
 import { getConversionRateWithCaching } from '../services/rates';
 import { getWalletBalance } from '../services/platformWallet';
+import { redis } from '../utils/redis';
+
+// Cache utility functions
+const getCachedData = async (key: string): Promise<any> => {
+    try {
+        const cached = await redis.get(key);
+        return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+        console.error('Error getting cached data:', error);
+        return null;
+    }
+};
+
+const setCachedData = async (key: string, data: any, ttlSeconds: number): Promise<void> => {
+    try {
+        await redis.setex(key, ttlSeconds, JSON.stringify(data));
+    } catch (error) {
+        console.error('Error setting cached data:', error);
+    }
+};
 
 /**
  * Enhanced transaction status validation and correction
@@ -91,12 +111,31 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
     }
 
     const userId = req.user._id;
-    console.log(`Fetching enhanced transaction history for user: ${userId}`);
-
+    
     // Pagination parameters
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
+
+    // Create cache key based on query parameters
+    const cacheKey = `tx_history:${userId}:${page}:${limit}:${JSON.stringify(req.query)}`;
+    
+    // Check cache first (2 minute cache for transaction history)
+    const cachedHistory = await getCachedData(cacheKey);
+    if (cachedHistory) {
+      console.log(`Returning cached transaction history for user: ${userId} (page ${page})`);
+      return res.json(standardResponse(
+        true,
+        'Enhanced transaction history retrieved successfully (cached)',
+        {
+          ...cachedHistory,
+          cached: true,
+          cacheExpiry: new Date(Date.now() + 2 * 60 * 1000).toISOString()
+        }
+      ));
+    }
+
+    console.log(`Fetching fresh transaction history for user: ${userId} (page ${page})`);
 
     // Optional filters
     const { status, type, chain, tokenType, dateFrom, dateTo } = req.query;
@@ -275,28 +314,33 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
       })
     );
 
+    const responseData = {
+      transactions: enhancedTransactions,
+      summary: {
+        total: totalTransactions,
+        page,
+        limit,
+        pages: Math.ceil(totalTransactions / limit),
+        filters: {
+          status: status || null,
+          type: type || null,
+          chain: chain || null,
+          tokenType: tokenType || null,
+          dateFrom: dateFrom || null,
+          dateTo: dateTo || null
+        }
+      },
+      // Additional dashboard insights
+      insights: await generatePortfolioInsights(enhancedTransactions, req.user)
+    };
+
+    // Cache the result for 2 minutes
+    await setCachedData(cacheKey, responseData, 120);
+
     return res.json(standardResponse(
       true,
       'Enhanced transaction history retrieved successfully',
-      {
-        transactions: enhancedTransactions,
-        summary: {
-          total: totalTransactions,
-          page,
-          limit,
-          pages: Math.ceil(totalTransactions / limit),
-          filters: {
-            status: status || null,
-            type: type || null,
-            chain: chain || null,
-            tokenType: tokenType || null,
-            dateFrom: dateFrom || null,
-            dateTo: dateTo || null
-          }
-        },
-        // Additional dashboard insights
-        insights: await generatePortfolioInsights(enhancedTransactions, req.user)
-      }
+      responseData
     ));
   } catch (error) {
     return handleError(error, res, 'Failed to retrieve enhanced transaction history');

@@ -3,92 +3,106 @@ import { User } from '../models/models';
 import bcrypt from 'bcrypt';
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { createAccount, generateOTP, otpStore, africastalking, SALT_ROUNDS } from "../services/auth";
+import { createAccount, generateOTP, otpStore, SALT_ROUNDS } from "../services/auth";
 import { handleError, standardResponse } from "../services/utils";
 import config from '../config/env';
 import { sendEmail, verifyOTP } from '../services/email';
 import { registerVerifiedSession, invalidateSession } from '../middleware/strictAuthMiddleware';
 import { verifyGoogleToken, GoogleUserInfo } from '../services/googleAuth';
+import { SMSService } from '../services/smsService';
+import { UserOptimizationService } from '../services/userOptimizationService';
+import { createErrorResponse, AUTH_ERROR_CODES } from '../utils/errorCodes';
 
 export const initiateRegisterUser = async (req: Request, res: Response) => {
     const { phoneNumber } = req.body;
 
     if (!phoneNumber) {
-        return res.status(400).json(standardResponse(false, "Phone number is required!"));
+        return res.status(400).json(createErrorResponse('INVALID_PHONE_FORMAT', 'Phone number is required'));
     }
+
+    // Validate phone number format
+    const phoneRegex = /^\+[1-9]\d{1,14}$/;
+    if (!phoneRegex.test(phoneNumber)) {
+        return res.status(400).json(createErrorResponse('INVALID_PHONE_FORMAT'));
+    }
+
+    // Ensure phone number is a string
+    const phoneNumberStr = String(phoneNumber);
+    console.log(`📱 Phone number received: ${phoneNumber} (type: ${typeof phoneNumber})`);
+    console.log(`📱 Phone number converted: ${phoneNumberStr} (type: ${typeof phoneNumberStr})`);
 
     let existingUser;
     try {
-        existingUser = await User.findOne({ phoneNumber: phoneNumber });
+        existingUser = await User.findOne({ phoneNumber: phoneNumberStr });
     } catch (error) {
         console.error("❌ Error checking existing user:", error);
-        return handleError(error, res, "Failed to check existing user");
+        return res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to check existing user'));
     }
 
     if (existingUser) {
-        return res.status(409).json(standardResponse(false, "Phone number already registered!"));
+        return res.status(409).json(createErrorResponse('USER_ALREADY_EXISTS', 'Phone number already registered'));
     }
 
     const otp = generateOTP();
-    otpStore[phoneNumber] = otp;
+    otpStore[phoneNumberStr] = otp;
 
     // Log OTP for testing purposes
     console.log('\n======================================');
-    console.log(`🔑 REGISTRATION OTP FOR ${phoneNumber}: ${otp}`);
+    console.log(`🔑 REGISTRATION OTP FOR ${phoneNumberStr}: ${otp}`);
     console.log('======================================\n');
 
-    console.log(`✅ OTP generated for ${phoneNumber}: ${otp}`);
+    console.log(`✅ OTP generated for ${phoneNumberStr}: ${otp}`);
 
     try {
-        const smsResponse: any = await africastalking.SMS.send({
-            to: [phoneNumber],
-            message: `Your verification code is: ${otp}`,
-            from: 'NEXUSPAY'
+        // Send OTP via SMS using the new SMS service
+        const smsSent = await SMSService.sendOTP(phoneNumberStr, otp, 'registration');
+        
+        if (!smsSent) {
+            return res.status(500).json(createErrorResponse('OTP_NOT_SENT', 'Failed to send OTP. Check your number and try again.'));
+        }
+
+        return res.json({
+            success: true,
+            message: "OTP sent successfully. Please verify to complete registration.",
+            data: {
+                phoneNumber: phoneNumberStr,
+                otpExpiry: "5 minutes"
+            },
+            error: null,
+            timestamp: new Date().toISOString()
         });
-
-        console.log("📨 Full SMS API Response:", JSON.stringify(smsResponse, null, 2));
-
-        const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-
-        if (recipients.length === 0) {
-            console.error("❌ No recipients found in the response:", smsResponse);
-            return res.status(400).json(standardResponse(false, "Failed to send OTP. No recipients found."));
-        }
-
-        const recipient = recipients[0];
-        if (recipient.status !== "Success") {
-            console.error(`❌ SMS sending failed for ${phoneNumber}:`, recipient);
-            return res.status(400).json(standardResponse(
-                false, 
-                "Failed to send OTP. Check your number and try again.",
-                null,
-                recipient
-            ));
-        }
-
-        return res.json(standardResponse(true, "OTP sent successfully. Please verify to complete registration."));
 
     } catch (error) {
         console.error("❌ Error sending OTP:", error);
-        return handleError(error, res, "Failed to send OTP");
+        return res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to send OTP'));
     }
 };
 
 export const registerUser = async (req: Request, res: Response) => {
-    const { phoneNumber, email, password, verifyWith } = req.body;
+    const { phoneNumber, email, password, otp, verifyWith } = req.body;
 
-    // Require at least one contact method
+    // Require at least one contact method and password
     if ((!phoneNumber && !email) || !password) {
-        return res.status(400).json(standardResponse(false, "At least one contact method (phone number or email) and password are required!"));
+        return res.status(400).json(createErrorResponse('INVALID_CREDENTIALS', 'At least one contact method (phone number or email) and password are required!'));
+    }
+
+    // Require OTP for completion
+    if (!otp) {
+        return res.status(400).json(createErrorResponse('INVALID_OTP', 'OTP is required to complete registration!'));
+    }
+
+    // Validate OTP format
+    if (!/^\d{6}$/.test(otp)) {
+        return res.status(400).json(createErrorResponse('INVALID_OTP', 'OTP must be 6 digits'));
     }
 
     // Determine verification method: phone, email, or both
     const verificationMethod = verifyWith || (email ? 'email' : 'phone');
     if (verificationMethod === 'email' && !email) {
-        return res.status(400).json(standardResponse(false, "Email is required for email verification!"));
+        return res.status(400).json(createErrorResponse('INVALID_EMAIL_FORMAT', 'Email is required for email verification!'));
     }
     if (verificationMethod === 'phone' && !phoneNumber) {
-        return res.status(400).json(standardResponse(false, "Phone number is required for phone verification!"));
+        return res.status(400).json(createErrorResponse('INVALID_PHONE_FORMAT', 'Phone number is required for phone verification!'));
     }
 
     try {
@@ -100,68 +114,39 @@ export const registerUser = async (req: Request, res: Response) => {
         const existingUser = await User.findOne(existingUserQuery);
         if (existingUser) {
             const fieldTaken = existingUser.phoneNumber === phoneNumber ? 'phone number' : 'email';
-            return res.status(400).json(standardResponse(
-                false,
-                `User with this ${fieldTaken} already exists.`
-            ));
+            return res.status(409).json(createErrorResponse('USER_ALREADY_EXISTS', `User with this ${fieldTaken} already exists.`));
         }
 
-        // Create unified account
+        // Verify OTP before creating account
+        let otpValid = false;
+        
+        if (verificationMethod === 'phone' || verificationMethod === 'both') {
+            // Log OTP verification attempt
+            console.log('\n======================================');
+            console.log(`🔍 VERIFYING REGISTRATION OTP FOR ${phoneNumber}`);
+            console.log(`📱 Received OTP: ${otp}`);
+            console.log(`🔐 Stored OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+            console.log('======================================\n');
+            
+            otpValid = otpStore[phoneNumber] === otp;
+            if (otpValid) {
+                delete otpStore[phoneNumber]; // Clear OTP after successful verification
+            }
+        }
+        
+        if (verificationMethod === 'email' || verificationMethod === 'both') {
+            const emailOtpValid = await verifyOTP(email, otp, 'registration');
+            otpValid = verificationMethod === 'email' ? emailOtpValid : (otpValid || emailOtpValid);
+        }
+
+        if (!otpValid) {
+            return res.status(400).json(createErrorResponse('INVALID_OTP', 'Invalid or expired OTP. Please try again.'));
+        }
+
+        // Create unified account only after OTP verification
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
         const userSmartAccount = await createAccount();
         const { pk, walletAddress } = userSmartAccount;
-
-        // Send verification based on the chosen method
-        let verificationSent = false;
-
-        if (verificationMethod === 'email' || verificationMethod === 'both') {
-            const emailSent = await sendEmail(email, 'registration');
-            if (!emailSent && verificationMethod === 'email') {
-                return res.status(500).json(standardResponse(false, "Failed to send verification email."));
-            }
-            verificationSent = verificationSent || emailSent;
-        }
-
-        if (verificationMethod === 'phone' || verificationMethod === 'both') {
-            const otp = generateOTP();
-            otpStore[phoneNumber] = otp;
-            
-            // Log OTP for testing purposes
-            console.log('\n======================================');
-            console.log(`🔑 VERIFY PHONE OTP FOR ${phoneNumber}: ${otp}`);
-            console.log('======================================\n');
-            
-            try {
-                const smsResponse: any = await africastalking.SMS.send({
-                    to: [phoneNumber],
-                    message: `Your NexusPay verification code is: ${otp}`,
-                    from: 'NEXUSPAY'
-                });
-                
-                const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-                const recipient = recipients[0];
-                
-                if (recipients.length === 0 || recipient.status !== "Success") {
-                    if (verificationMethod === 'phone') {
-                        return res.status(400).json(standardResponse(
-                            false,
-                            "Failed to send OTP. Check your number and try again."
-                        ));
-                    }
-                } else {
-                    verificationSent = true;
-                }
-            } catch (error) {
-                console.error("❌ Error sending SMS OTP:", error);
-                if (verificationMethod === 'phone') {
-                    return handleError(error, res, "Failed to send SMS OTP");
-                }
-            }
-        }
-
-        if (!verificationSent) {
-            return res.status(500).json(standardResponse(false, "Failed to send verification. Please try again later."));
-        }
 
         // Create new user with unified wallet
         const newUser = new User({
@@ -322,10 +307,7 @@ export const login = async (req: Request, res: Response) => {
     // At least one identifier (email or phone) is required
     if ((!email && !phoneNumber) || !password) {
         console.log('❌ Missing credentials: No email/phone or password');
-        return res.status(400).json(standardResponse(
-            false, 
-            "Either email or phone number, and password are required!"
-        ));
+        return res.status(400).json(createErrorResponse('INVALID_CREDENTIALS', 'Either email or phone number, and password are required!'));
     }
 
     try {
@@ -337,10 +319,7 @@ export const login = async (req: Request, res: Response) => {
         
         if (!user) {
             console.log('❌ User not found');
-            return res.status(401).json(standardResponse(
-                false, 
-                "Invalid credentials."
-            ));
+            return res.status(404).json(createErrorResponse('USER_NOT_FOUND', 'No account found with this information'));
         }
 
         // Log found user details
@@ -355,10 +334,7 @@ export const login = async (req: Request, res: Response) => {
         // Check if user has a password (Google OAuth users might not have one)
         if (!user.password) {
             console.log('❌ User has no password (Google OAuth account)');
-            return res.status(401).json(standardResponse(
-                false, 
-                "This account was created with Google. Please sign in with Google or add a password first."
-            ));
+            return res.status(401).json(createErrorResponse('INVALID_CREDENTIALS', 'This account was created with Google. Please sign in with Google or add a password first.'));
         }
 
         // Verify password
@@ -367,27 +343,18 @@ export const login = async (req: Request, res: Response) => {
         
         if (!isValidPassword) {
             console.log('❌ Invalid password');
-            return res.status(401).json(standardResponse(
-                false, 
-                "Invalid credentials."
-            ));
+            return res.status(401).json(createErrorResponse('WRONG_PASSWORD', 'Incorrect password provided'));
         }
 
         // Verify email or phone is verified
         if (email && !user.isEmailVerified) {
             console.log('❌ Email not verified');
-            return res.status(401).json(standardResponse(
-                false, 
-                "Please verify your email first."
-            ));
+            return res.status(401).json(createErrorResponse('EMAIL_NOT_VERIFIED', 'Please verify your email first.'));
         }
         
         if (phoneNumber && !user.isPhoneVerified) {
-            console.log('❌ Phone not verified');
-            return res.status(401).json(standardResponse(
-                false, 
-                "Please verify your phone number first."
-            ));
+            console.log('❌ Phone not verified - suggesting password reset');
+            return res.status(401).json(createErrorResponse('PHONE_NOT_VERIFIED', 'Phone number not verified. Please use password reset to verify your phone number and set a new password.'));
         }
 
         console.log('✅ All validation passed, sending OTP');
@@ -419,16 +386,10 @@ export const login = async (req: Request, res: Response) => {
             console.log('======================================\n');
             
             try {
-                const smsResponse: any = await africastalking.SMS.send({
-                    to: [phoneNumber],
-                    message: `Your NexusPay login verification code is: ${otp}`,
-                    from: 'NEXUSPAY'
-                });
+                // Send OTP via SMS using the new SMS service
+                const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'login');
                 
-                const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-                const recipient = recipients[0];
-                
-                if (recipients.length === 0 || recipient.status !== "Success") {
+                if (!smsSent) {
                     console.log(`❌ SMS sending failed but login OTP was generated: ${otp}`);
                     return res.status(200).json(standardResponse(
                         true,
@@ -613,6 +574,175 @@ export const resetPassword = async (req: Request, res: Response) => {
     }
 };
 
+export const requestPhonePasswordReset = async (req: Request, res: Response) => {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+        return res.status(400).json({
+            success: false,
+            message: "Phone number is required",
+            data: null,
+            error: {
+                code: "MISSING_PHONE_NUMBER",
+                message: "Phone number is required for password reset"
+            },
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    try {
+        const user = await User.findOne({ phoneNumber });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found with this phone number",
+                data: null,
+                error: {
+                    code: "USER_NOT_FOUND",
+                    message: "No account found with this phone number"
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Generate and send OTP
+        const otp = generateOTP();
+        otpStore[phoneNumber] = otp;
+        
+        // Log OTP for testing purposes
+        console.log('\n======================================');
+        console.log(`🔑 PASSWORD RESET OTP FOR ${phoneNumber}: ${otp}`);
+        console.log('======================================\n');
+        
+        const otpSent = await SMSService.sendOTP(phoneNumber, otp, 'passwordReset');
+        if (!otpSent) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to send password reset OTP",
+                data: null,
+                error: {
+                    code: "OTP_SEND_FAILED",
+                    message: "Unable to send OTP to phone number"
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset OTP sent to your phone number",
+            data: {
+                phoneNumber: phoneNumber,
+                otpExpiry: "5 minutes"
+            },
+            error: null,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error: any) {
+        console.error('Error in requestPhonePasswordReset:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Error requesting password reset",
+            data: null,
+            error: {
+                code: "INTERNAL_ERROR",
+                message: error.message || "Internal server error"
+            },
+            timestamp: new Date().toISOString()
+        });
+    }
+};
+
+export const resetPhonePassword = async (req: Request, res: Response) => {
+    const { phoneNumber, otp, newPassword } = req.body;
+
+    if (!phoneNumber || !otp || !newPassword) {
+        return res.status(400).json({
+            success: false,
+            message: "Phone number, OTP, and new password are required",
+            data: null,
+            error: {
+                code: "MISSING_FIELDS",
+                message: "All fields are required for password reset"
+            },
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    try {
+        // Log OTP verification attempt
+        console.log('\n======================================');
+        console.log(`🔍 VERIFYING PASSWORD RESET OTP FOR ${phoneNumber}`);
+        console.log(`📱 Received OTP: ${otp}`);
+        console.log(`🔐 Stored OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+        console.log('======================================\n');
+        
+        // Verify OTP
+        const isValid = otpStore[phoneNumber] === otp;
+        if (!isValid) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired OTP",
+                data: null,
+                error: {
+                    code: "INVALID_OTP",
+                    message: "OTP is invalid or has expired"
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        // Clear OTP after successful verification
+        delete otpStore[phoneNumber];
+
+        // Find user
+        const user = await User.findOne({ phoneNumber });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+                data: null,
+                error: {
+                    code: "USER_NOT_FOUND",
+                    message: "No account found with this phone number"
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Update password and verify phone number
+        user.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
+        user.isPhoneVerified = true; // Verify phone number during password reset
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset successful and phone number verified",
+            data: {
+                phoneNumber: phoneNumber,
+                resetAt: new Date().toISOString(),
+                phoneVerified: true
+            },
+            error: null,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error: any) {
+        console.error('Error in resetPhonePassword:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Error resetting password",
+            data: null,
+            error: {
+                code: "INTERNAL_ERROR",
+                message: error.message || "Internal server error"
+            },
+            timestamp: new Date().toISOString()
+        });
+    }
+};
+
 export const requestAccountDeletion = async (req: Request, res: Response) => {
     const { email } = req.body;
 
@@ -732,15 +862,22 @@ export const googleAuth = async (req: Request, res: Response) => {
         }
 
         // Check if user exists with this Google ID
-        let user = await User.findOne({ googleId: googleUser.id });
-
-        if (user) {
-            // Existing user - sign in
-            user.lastLogin = new Date();
-            await user.save();
+        let user = await UserOptimizationService.findOrCreateUserByGoogle(googleUser.id, googleUser.email);
+        
+        if (user.found) {
+            // Existing user - sign in or link Google account
+            const existingUser = user.user;
+            
+            // If user exists but doesn't have Google ID, link it
+            if (!existingUser.googleId) {
+                await UserOptimizationService.linkGoogleToExistingUser(existingUser._id, googleUser.id);
+            }
+            
+            existingUser.lastLogin = new Date();
+            await existingUser.save();
 
             const token = jwt.sign(
-                { id: user._id, phoneNumber: user.phoneNumber, email: user.email },
+                { id: existingUser._id, phoneNumber: existingUser.phoneNumber, email: existingUser.email },
                 config.JWT_SECRET,
                 { expiresIn: '7d' }
             );
@@ -751,78 +888,28 @@ export const googleAuth = async (req: Request, res: Response) => {
                 {
                     token,
                     user: {
-                        id: user._id,
-                        email: user.email,
-                        phoneNumber: user.phoneNumber,
-                        walletAddress: user.walletAddress,
-                        role: user.role,
-                        isVerified: user.isVerified,
-                        isPhoneVerified: user.isPhoneVerified,
-                        isEmailVerified: user.isEmailVerified,
-                        authMethods: user.authMethods,
-                        hasPassword: !!user.password,
-                        hasPhoneNumber: !!user.phoneNumber
+                        id: existingUser._id,
+                        email: existingUser.email,
+                        phoneNumber: existingUser.phoneNumber,
+                        walletAddress: existingUser.walletAddress,
+                        role: existingUser.role,
+                        isVerified: existingUser.isVerified,
+                        isPhoneVerified: existingUser.isPhoneVerified,
+                        isEmailVerified: existingUser.isEmailVerified,
+                        authMethods: existingUser.authMethods,
+                        hasPassword: !!existingUser.password,
+                        hasPhoneNumber: !!existingUser.phoneNumber
                     }
                 }
             ));
         }
 
-        // Check if user exists with this email but no Google ID
-        const existingEmailUser = await User.findOne({ email: googleUser.email });
-        if (existingEmailUser) {
-            // Link Google account to existing user
-            existingEmailUser.googleId = googleUser.id;
-            if (!existingEmailUser.authMethods.includes('google')) {
-                existingEmailUser.authMethods.push('google');
-            }
-            existingEmailUser.isEmailVerified = true;
-            existingEmailUser.lastLogin = new Date();
-            await existingEmailUser.save();
-
-            const token = jwt.sign(
-                { id: existingEmailUser._id, phoneNumber: existingEmailUser.phoneNumber, email: existingEmailUser.email },
-                config.JWT_SECRET,
-                { expiresIn: '7d' }
-            );
-
-            return res.json(standardResponse(
-                true,
-                "Google account linked successfully",
-                {
-                    token,
-                    user: {
-                        id: existingEmailUser._id,
-                        email: existingEmailUser.email,
-                        phoneNumber: existingEmailUser.phoneNumber,
-                        walletAddress: existingEmailUser.walletAddress,
-                        role: existingEmailUser.role,
-                        isVerified: existingEmailUser.isVerified,
-                        isPhoneVerified: existingEmailUser.isPhoneVerified,
-                        isEmailVerified: existingEmailUser.isEmailVerified,
-                        authMethods: existingEmailUser.authMethods,
-                        hasPassword: !!existingEmailUser.password,
-                        hasPhoneNumber: !!existingEmailUser.phoneNumber
-                    }
-                }
-            ));
-        }
-
-        // New user - create account
-        const { walletAddress, pk: privateKey } = await createAccount();
-
-        const newUser = new User({
+        // New user - create account using optimization service
+        const newUser = await UserOptimizationService.createPersonalAccount({
             email: googleUser.email,
             googleId: googleUser.id,
-            walletAddress,
-            privateKey,
-            authMethods: ['google'],
-            isEmailVerified: true,
-            isVerified: true,
-            role: 'user',
-            lastLogin: new Date()
+            authMethods: ['google']
         });
-
-        await newUser.save();
 
         const token = jwt.sign(
             { id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },
@@ -910,20 +997,14 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
         console.log(`🔑 PHONE VERIFICATION OTP FOR ${phoneNumber}: ${otp}`);
 
         try {
-            const smsResponse: any = await africastalking.SMS.send({
-                to: [phoneNumber],
-                message: `Your NexusPay phone verification code is: ${otp}`,
-                from: 'NEXUSPAY'
-            });
-
-            const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-            let smsSuccess = recipients.length > 0 && recipients[0].status === "Success";
+            // Send OTP via SMS using the new SMS service
+            const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'phone_verification');
             
             // Store temporary data for verification regardless of SMS status
             otpStore[`${phoneNumber}_password`] = password;
             otpStore[`${phoneNumber}_userId`] = user._id.toString();
 
-            if (!smsSuccess) {
+            if (!smsSent) {
                 console.log("⚠️ SMS failed but OTP generated for testing. Check server logs.");
                 return res.json(standardResponse(
                     true,

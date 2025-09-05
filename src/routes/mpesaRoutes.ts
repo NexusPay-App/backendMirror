@@ -22,10 +22,12 @@ import express from 'express';
 import {
     mpesaDeposit,
     mpesaWithdraw,
+    withdrawToMpesa,
     payToPaybill,
     payToTill,
     mpesaSTKPushWebhook,
     mpesaB2CWebhook,
+    mpesaB2BWebhook,
     mpesaQueueWebhook,
     buyCrypto,
     getTransactionStatus,
@@ -37,6 +39,8 @@ import {
     submitMpesaReceiptManually,
     getTransactionsRequiringIntervention,
     testWebhookLogging,
+    testB2BCallback,
+    manualRollback,
     payWithCrypto
 } from '../controllers/mpesaController';
 import { validate } from '../middleware/validation';
@@ -51,6 +55,7 @@ import {
 } from '../middleware/validators/mpesaValidators';
 import { authenticateToken } from '../middleware/authMiddleware';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
+import { authenticateTransaction } from '../middleware/transactionAuthMiddleware';
 import { isAdmin } from '../middleware/roleMiddleware';
 import { cryptoSpendingProtection } from '../middleware/rateLimiting';
 
@@ -59,6 +64,7 @@ const router = express.Router();
 // Public callback routes (no authentication required)
 router.post('/stk-callback', mpesaSTKPushWebhook);
 router.post('/b2c-callback', mpesaB2CWebhook);
+router.post('/b2b-callback', mpesaB2BWebhook);
 router.post('/queue-timeout', mpesaQueueWebhook);
 router.post('/callback', stkPushCallback);
 
@@ -75,6 +81,7 @@ router.get('/liquidity-overview', authenticateToken, getMultiChainLiquidityOverv
 // Manual intervention routes (for failed automatic processing)
 router.post('/submit-receipt', enforceStrictAuth, validate(manualReceiptValidation), submitMpesaReceiptManually);
 router.get('/pending-interventions', enforceStrictAuth, getTransactionsRequiringIntervention);
+router.post('/manual-rollback', enforceStrictAuth, manualRollback);
 
 // Admin routes (requires admin role)
 router.get('/platform-wallet', enforceStrictAuth, isAdmin, getPlatformWalletStatus);
@@ -82,6 +89,7 @@ router.post('/withdraw-fees', enforceStrictAuth, isAdmin, withdrawFeesToMainWall
 
 // Test webhook logging route
 router.post('/test-webhook-logging', testWebhookLogging);
+router.post('/test-b2b-callback', testB2BCallback);
 
 // 🚀 NEW: Crypto Spending - Pay Paybills/Tills with Crypto (with comprehensive protection)
 router.post('/pay-with-crypto', 
@@ -90,5 +98,8 @@ router.post('/pay-with-crypto',
   validate(validateCryptoSpending), 
   payWithCrypto
 );
+
+// 🔄 Crypto to MPESA - Real endpoint for sending crypto to MPESA
+router.post('/crypto-to-mpesa', authenticateTransaction, withdrawToMpesa);
 
 export default router;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validation';
+import { transactionHistoryLimiter } from '../middleware/rateLimiting';
 import { body, query } from 'express-validator';
 import {
   getTransactionHistory,
@@ -159,6 +160,7 @@ const comprehensiveTransactionValidation = [
 router.get(
   '/history',
   authenticate,
+  transactionHistoryLimiter,
   validate(transactionHistoryValidation),
   getTransactionHistory
 );

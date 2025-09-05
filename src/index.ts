@@ -17,7 +17,8 @@ import rampRoutes from './routes/rampRoutes';
 import platformWalletRoutes from './routes/platformWalletRoutes';
 import { connect } from './services/database';
 import { Verification } from './models/verificationModel';
-import { client, africastalking } from './services/auth';
+import { client } from './services/auth';
+import { SMSService } from './services/smsService';
 import config from './config/env';
 import { standardResponse } from './services/utils';
 import { startSchedulers, stopSchedulers } from './services/scheduler';
@@ -34,7 +35,7 @@ async function startServer() {
         console.log('Thirdweb client initialized with secret key:', client ? 'present' : 'missing');
         
         // Initialize Africa's Talking
-        console.log('Africa\'s Talking initialized with API key:', africastalking ? 'present' : 'missing');
+        console.log('Africa\'s Talking initialized with API key:', config.AFRICAS_TALKING_API_KEY ? 'present' : 'missing');
         
         // Connect to MongoDB
         await connect();
@@ -43,7 +44,7 @@ async function startServer() {
         server = app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
             console.log('Thirdweb client initialized with secret key:', client ? 'present' : 'missing');
-            console.log('Africa\'s Talking initialized:', africastalking ? 'present' : 'missing');
+            console.log('Africa\'s Talking initialized with API key:', config.AFRICAS_TALKING_API_KEY ? 'present' : 'missing');
         });
         
         // Start schedulers

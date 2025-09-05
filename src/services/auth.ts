@@ -54,9 +54,9 @@
 
 import { ThirdwebClient, createThirdwebClient, defineChain } from "thirdweb";
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
-import AfricasTalking from 'africastalking';
 import { Wallet } from 'ethers';
 import config from "../config/env";
+import { SMSService } from './smsService';
 
 // Thirdweb client setup
 export const client: ThirdwebClient = createThirdwebClient({
@@ -64,11 +64,7 @@ export const client: ThirdwebClient = createThirdwebClient({
 });
 console.log("Thirdweb client initialized with secret key:", config.THIRDWEB_SECRET_KEY ? "present" : "missing");
 
-// Africa's Talking setup
-export const africastalking = AfricasTalking({
-    apiKey: config.AFRICAS_TALKING_API_KEY,
-    username: 'NEXUSPAY', // Your app name; use 'sandbox' for testing
-});
+// Africa's Talking setup - now handled by SMSService
 console.log("Africa's Talking initialized with API key:", config.AFRICAS_TALKING_API_KEY ? "present" : "missing");
 
 export const SALT_ROUNDS = 10;

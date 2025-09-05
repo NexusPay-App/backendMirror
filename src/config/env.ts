@@ -149,9 +149,11 @@ let config: Record<string, any> = {
         // For production, use a stable webhook service like webhook.site or ngrok with fixed subdomain
         // To get a stable URL: ngrok http 8000 --subdomain=nexuspay-mpesa
         MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://nexuspay-mpesa.ngrok.io",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
         MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback",
         MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
+        MPESA_B2B_RESULT_URL: process.env.MPESA_B2B_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2b-callback",
+        MPESA_B2B_TIMEOUT_URL: process.env.MPESA_B2B_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
         MPESA_INITIATOR_NAME: process.env.MPESA_DEV_INITIATOR_NAME,
         MPESA_SECURITY_CREDENTIAL: process.env.MPESA_DEV_SECURITY_CREDENTIAL,
         // Chain Explorer API Keys
@@ -271,6 +273,8 @@ let config: Record<string, any> = {
         MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL,
         MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL,
         MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL,
+        MPESA_B2B_RESULT_URL: process.env.MPESA_B2B_RESULT_URL,
+        MPESA_B2B_TIMEOUT_URL: process.env.MPESA_B2B_TIMEOUT_URL,
         MPESA_INITIATOR_NAME: process.env.MPESA_PROD_INITIATOR_NAME,
         MPESA_SECURITY_CREDENTIAL: process.env.MPESA_PROD_SECURITY_CREDENTIAL,
         // Chain Explorer API Keys
@@ -385,7 +389,7 @@ let config: Record<string, any> = {
         // For production, use a stable webhook service like webhook.site or ngrok with fixed subdomain
         // To get a stable URL: ngrok http 8000 --subdomain=nexuspay-mpesa
         MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://nexuspay-mpesa.ngrok.io",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
+        MPESA_STK_CALLBACK_URL: process.env.MPESA_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
         MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback",
         MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
         celo: {

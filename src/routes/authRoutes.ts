@@ -2,6 +2,8 @@ import express from 'express';
 import { 
   requestPasswordReset, 
   resetPassword, 
+  requestPhonePasswordReset,
+  resetPhonePassword,
   login, 
   registerUser, 
   initiateRegisterUser, 
@@ -24,6 +26,8 @@ import {
   verifyPhoneValidation,
   passwordResetRequestValidation,
   passwordResetValidation,
+  phonePasswordResetRequestValidation,
+  phonePasswordResetValidation,
   phoneOtpRequestValidation,
   phoneOtpVerifyValidation,
   phoneLoginVerifyValidation
@@ -62,7 +66,8 @@ router.post('/otp', validate(phoneOtpRequestValidation), async (req, res) => {
   }
   
   try {
-    const { generateOTP, otpStore, africastalking } = require('../services/auth');
+    const { generateOTP, otpStore } = require('../services/auth');
+const { SMSService } = require('../services/smsService');
     const User = require('../models/models').User;
     
     // Check if user exists
@@ -90,16 +95,10 @@ router.post('/otp', validate(phoneOtpRequestValidation), async (req, res) => {
     
     // Send OTP via SMS
     try {
-      const smsResponse = await africastalking.SMS.send({
-        to: [phone],
-        message: `Your NexusPay verification code is: ${otp}`,
-        from: 'NEXUSPAY'
-      });
+      // Send OTP via SMS using the new SMS service
+      const smsSent = await SMSService.sendOTP(phone, otp, 'verification');
       
-      const recipients = smsResponse?.SMSMessageData?.Recipients || smsResponse?.data?.SMSMessageData?.Recipients || [];
-      const recipient = recipients[0];
-      
-      if (recipients.length === 0 || recipient.status !== "Success") {
+      if (!smsSent) {
         console.log(`❌ SMS sending failed but OTP was generated: ${otp}`);
         return res.status(500).json({
           success: false,
@@ -256,6 +255,10 @@ router.post('/register/verify/phone', validate(verifyPhoneValidation), verifyPho
 // Password reset routes
 router.post('/password-reset/request', validate(passwordResetRequestValidation), requestPasswordReset);
 router.post('/password-reset', validate(passwordResetValidation), resetPassword);
+
+// Phone-based password reset routes
+router.post('/password-reset/phone/request', validate(phonePasswordResetRequestValidation), requestPhonePasswordReset);
+router.post('/password-reset/phone', validate(phonePasswordResetValidation), resetPhonePassword);
 
 // Account deletion routes
 router.post('/account-deletion/request', authenticate, requestAccountDeletion);

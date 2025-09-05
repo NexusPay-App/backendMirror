@@ -29,6 +29,26 @@ export const cryptoSpendingLimiter = rateLimit({
 });
 
 /**
+ * 💱 Conversion Rate API Rate Limiter
+ * Allows frequent rate checks while preventing abuse
+ */
+export const conversionRateLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 60, // 60 requests per minute per IP (1 per second)
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => req.ip || 'unknown',
+    message: {
+        success: false,
+        message: "Too many conversion rate requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 60 conversion rate requests per minute"
+        }
+    }
+});
+
+/**
  * 🔥 Burst Protection for Crypto Spending
  * Prevents rapid-fire transactions that could indicate bot activity
  */
@@ -110,6 +130,50 @@ export const performanceMonitoring = (req: Request, res: Response, next: NextFun
     
     next();
 };
+
+/**
+ * 💰 Balance Query Rate Limiter
+ * Prevents excessive balance requests while allowing reasonable usage
+ */
+export const balanceQueryLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 30, // 30 balance requests per minute per user
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => {
+        return req.user?.id || req.ip;
+    },
+    message: {
+        success: false,
+        message: "Too many balance requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 30 balance requests per minute"
+        }
+    }
+});
+
+/**
+ * 📊 Transaction History Rate Limiter
+ * Prevents excessive transaction history requests
+ */
+export const transactionHistoryLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 20, // 20 transaction history requests per minute per user
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => {
+        return req.user?.id || req.ip;
+    },
+    message: {
+        success: false,
+        message: "Too many transaction history requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 20 transaction history requests per minute"
+        }
+    }
+});
 
 /**
  * 🔧 Intelligent Rate Limiting Stack

@@ -2,12 +2,14 @@ import { Request, Response } from 'express';
 import { ThirdwebSDK } from '@thirdweb-dev/sdk';
 import { Business } from '../models/businessModel';
 import { User } from '../models/models';
-import { createAccount, generateOTP, otpStore, africastalking } from '../services/auth';
-import { handleError } from '../services/utils';
+import { createAccount, generateOTP, otpStore } from '../services/auth';
+import { handleError, standardResponse } from '../services/utils';
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
 import { getTokenConfig } from '../services/token';
 import { sendToken, getAllTokenTransferEvents } from '../services/token';
+import { SMSService } from '../services/smsService';
+import { BusinessCreditService } from '../services/businessCreditService';
 
 // Define interface for token transfer events
 interface TokenTransferEvent {
@@ -203,11 +205,8 @@ export const requestBusinessCreation = async (req: Request, res: Response): Prom
 
     console.log(`✅ Business Creation OTP for ${phoneNumber}: ${otp}`);
 
-    await africastalking.SMS.send({
-      to: [phoneNumber],
-      message: `Your business creation verification code is: ${otp}`,
-      from: 'NEXUSPAY',
-    });
+    // Send OTP via SMS using the new SMS service
+    await SMSService.sendOTP(phoneNumber, otp, 'business_creation');
 
     return res.send({ message: 'OTP sent successfully. Please verify to complete business creation.' });
   } catch (error) {
