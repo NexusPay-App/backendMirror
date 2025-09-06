@@ -511,6 +511,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
 };
 
 export const requestPasswordReset = async (req: Request, res: Response) => {
+    // Updated for production deployment
     const { phoneNumber } = req.body;
 
     if (!phoneNumber) {
