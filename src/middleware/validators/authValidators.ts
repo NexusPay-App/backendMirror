@@ -108,19 +108,19 @@ export const verifyPhoneValidation = [
 ];
 
 export const passwordResetRequestValidation = [
-  body('email')
+  body('phoneNumber')
     .notEmpty()
-    .withMessage('Email is required')
-    .isEmail()
-    .withMessage('Please provide a valid email address')
+    .withMessage('Phone number is required')
+    .matches(/^\+[1-9]\d{1,14}$/)
+    .withMessage('Please provide a valid phone number in E.164 format (e.g., +254712345678)')
 ];
 
 export const passwordResetValidation = [
-  body('email')
+  body('phoneNumber')
     .notEmpty()
-    .withMessage('Email is required')
-    .isEmail()
-    .withMessage('Please provide a valid email address'),
+    .withMessage('Phone number is required')
+    .matches(/^\+[1-9]\d{1,14}$/)
+    .withMessage('Please provide a valid phone number in E.164 format (e.g., +254712345678)'),
   
   body('otp')
     .notEmpty()
