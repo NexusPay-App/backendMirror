@@ -511,65 +511,164 @@ export const verifyLogin = async (req: Request, res: Response) => {
 };
 
 export const requestPasswordReset = async (req: Request, res: Response) => {
-    const { email } = req.body;
+    const { phoneNumber } = req.body;
 
-    if (!email) {
-        return res.status(400).send({ message: "Email is required!" });
+    if (!phoneNumber) {
+        return res.status(400).json({
+            success: false,
+            message: "Phone number is required",
+            data: null,
+            error: {
+                code: "MISSING_PHONE_NUMBER",
+                message: "Phone number is required for password reset"
+            },
+            timestamp: new Date().toISOString()
+        });
     }
 
     try {
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ phoneNumber });
         if (!user) {
-            return res.status(404).send({ message: "User not found." });
+            return res.status(404).json({
+                success: false,
+                message: "User not found with this phone number",
+                data: null,
+                error: {
+                    code: "USER_NOT_FOUND",
+                    message: "No account found with this phone number"
+                },
+                timestamp: new Date().toISOString()
+            });
         }
 
-        const emailSent = await sendEmail(email, 'passwordReset');
-        if (!emailSent) {
-            return res.status(500).send({ message: "Failed to send password reset email." });
+        // Generate and send OTP
+        const otp = generateOTP();
+        otpStore[phoneNumber] = otp;
+        
+        // Log OTP for testing purposes
+        console.log('\n======================================');
+        console.log(`🔑 PASSWORD RESET OTP FOR ${phoneNumber}: ${otp}`);
+        console.log('======================================\n');
+        
+        const otpSent = await SMSService.sendOTP(phoneNumber, otp, 'passwordReset');
+        if (!otpSent) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to send password reset OTP",
+                data: null,
+                error: {
+                    code: "OTP_SEND_FAILED",
+                    message: "Unable to send OTP to phone number"
+                },
+                timestamp: new Date().toISOString()
+            });
         }
 
-        res.send({ 
-            message: "Password reset instructions sent to your email.",
-            email
+        return res.json({
+            success: true,
+            message: "Password reset OTP sent to your phone number",
+            data: {
+                phoneNumber: phoneNumber,
+                otpExpiry: "5 minutes"
+            },
+            error: null,
+            timestamp: new Date().toISOString()
         });
 
     } catch (error: any) {
         console.error('Error in requestPasswordReset:', error);
-        res.status(500).send({ 
-            message: "Error requesting password reset", 
-            error: error.message || String(error)
+        res.status(500).json({
+            success: false,
+            message: "Error requesting password reset",
+            data: null,
+            error: {
+                code: "INTERNAL_ERROR",
+                message: error.message || String(error)
+            },
+            timestamp: new Date().toISOString()
         });
     }
 };
 
 export const resetPassword = async (req: Request, res: Response) => {
-    const { email, otp, newPassword } = req.body;
+    const { phoneNumber, otp, newPassword } = req.body;
 
-    if (!email || !otp || !newPassword) {
-        return res.status(400).send({ message: "Email, OTP, and new password are required!" });
+    if (!phoneNumber || !otp || !newPassword) {
+        return res.status(400).json({
+            success: false,
+            message: "Phone number, OTP, and new password are required",
+            data: null,
+            error: {
+                code: "MISSING_FIELDS",
+                message: "All fields are required for password reset"
+            },
+            timestamp: new Date().toISOString()
+        });
     }
 
     try {
-        const isValid = await verifyOTP(email, otp, 'passwordReset');
+        // Verify OTP for phone-based reset
+        console.log('\n======================================');
+        console.log(`🔍 VERIFYING PASSWORD RESET OTP FOR ${phoneNumber}`);
+        console.log(`📱 Received OTP: ${otp}`);
+        console.log(`🔐 Stored OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+        console.log('======================================\n');
+        
+        const isValid = otpStore[phoneNumber] === otp;
         if (!isValid) {
-            return res.status(400).send({ message: "Invalid or expired OTP." });
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired OTP",
+                data: null,
+                error: {
+                    code: "INVALID_OTP",
+                    message: "OTP is invalid or has expired"
+                },
+                timestamp: new Date().toISOString()
+            });
         }
-
-        const user = await User.findOne({ email });
+        
+        // Clear OTP after successful verification
+        delete otpStore[phoneNumber];
+        
+        const user = await User.findOne({ phoneNumber });
         if (!user) {
-            return res.status(404).send({ message: "User not found." });
+            return res.status(404).json({
+                success: false,
+                message: "User not found with this phone number",
+                data: null,
+                error: {
+                    code: "USER_NOT_FOUND",
+                    message: "No account found with this phone number"
+                },
+                timestamp: new Date().toISOString()
+            });
         }
 
         user.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
         await user.save();
 
-        res.send({ message: "Password reset successful. You can now login with your new password." });
+        res.json({
+            success: true,
+            message: "Password reset successful. You can now login with your new password.",
+            data: {
+                phoneNumber: phoneNumber
+            },
+            error: null,
+            timestamp: new Date().toISOString()
+        });
 
     } catch (error: any) {
         console.error('Error in resetPassword:', error);
-        res.status(500).send({ 
-            message: "Error resetting password", 
-            error: error.message || String(error)
+        res.status(500).json({
+            success: false,
+            message: "Error resetting password",
+            data: null,
+            error: {
+                code: "INTERNAL_ERROR",
+                message: error.message || String(error)
+            },
+            timestamp: new Date().toISOString()
         });
     }
 };
