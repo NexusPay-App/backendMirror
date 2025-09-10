@@ -45,6 +45,13 @@ async function startServer() {
             console.log(`Server running on port ${PORT}`);
             console.log('Thirdweb client initialized with secret key:', client ? 'present' : 'missing');
             console.log('Africa\'s Talking initialized with API key:', config.AFRICAS_TALKING_API_KEY ? 'present' : 'missing');
+            // Log active M-Pesa callback URLs for verification
+            console.log('🔗 M-Pesa callbacks in use:', {
+                webhookBase: (config as any).MPESA_WEBHOOK_URL,
+                b2cResult: (config as any).MPESA_B2C_RESULT_URL,
+                b2cTimeout: (config as any).MPESA_B2C_TIMEOUT_URL,
+                stkCallback: (config as any).MPESA_STK_CALLBACK_URL
+            });
         });
         
         // Start schedulers

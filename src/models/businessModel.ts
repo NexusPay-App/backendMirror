@@ -7,6 +7,7 @@ export interface IBusiness extends Document {
   businessType: string;
   phoneNumber: string;
   merchantId: string;
+  uniqueCode: string;
   walletAddress: string;
   privateKey: string;
   userId: mongoose.Types.ObjectId;
@@ -58,6 +59,9 @@ export interface IBusiness extends Document {
     sms: boolean;
     push: boolean;
   };
+  // PIN security
+  pinHash?: string;
+  pinSetAt?: Date;
   
   // Timestamps
   createdAt: Date;
@@ -87,6 +91,11 @@ const businessSchema: Schema = new Schema({
     required: true,
   },
   merchantId: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  uniqueCode: {
     type: String,
     required: true,
     unique: true,
@@ -252,6 +261,15 @@ const businessSchema: Schema = new Schema({
       type: Boolean,
       default: false
     }
+  },
+  // PIN security (hashed)
+  pinHash: {
+    type: String,
+    required: false
+  },
+  pinSetAt: {
+    type: Date,
+    required: false
   }
 }, { 
   timestamps: true,

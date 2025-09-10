@@ -8,6 +8,9 @@ import mpesaRoutes from './routes/mpesaRoutes';
 import adminRoutes from './routes/adminRoutes';
 import transactionRoutes from './routes/transactionRoutes';
 import usdcRoutes from './routes/usdcRoutes';
+import kplcRoutes from './routes/kplcRoutes';
+import ensRoutes from './routes/ensRoutes';
+import { virtualCardRoutes } from './virtual-cards';
 import { standardResponse } from './services/utils';
 
 // Load environment variables
@@ -17,7 +20,12 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true, // Allow all origins for development
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}));
 app.use(express.json());
 
 // Routes
@@ -28,6 +36,9 @@ app.use('/api/mpesa', mpesaRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/usdc', usdcRoutes);
+app.use('/api/kplc', kplcRoutes);
+app.use('/api/ens', ensRoutes);
+app.use('/api/virtual-cards', virtualCardRoutes);
 
 // ... existing code ...
 

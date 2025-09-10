@@ -45,6 +45,15 @@ export interface BusinessSMSData {
     action: 'created' | 'upgraded' | 'verified';
 }
 
+export interface KPLCTokenData {
+    phoneNumber: string;
+    tokenMessage: string;
+    accountNumber: string;
+    amount: number;
+    transactionId: string;
+    timestamp: string;
+}
+
 export class SMSService {
     
     /**
@@ -183,6 +192,31 @@ export class SMSService {
     }
     
     /**
+     * Send KPLC token message to user
+     */
+    static async sendKPLCTokenMessage(data: KPLCTokenData): Promise<boolean> {
+        try {
+            // Format phone number for Africa's Talking
+            const formattedPhone = this.formatPhoneNumber(data.phoneNumber);
+            
+            const message = this.formatKPLCTokenMessage(data);
+            
+            await africastalking.SMS.send({
+                to: [formattedPhone],
+                message: message,
+                from: 'NEXUSPAY'
+            });
+            
+            console.log(`✅ KPLC token message sent to ${formattedPhone} for transaction ${data.transactionId}`);
+            return true;
+            
+        } catch (error) {
+            console.error(`❌ Failed to send KPLC token message to ${data.phoneNumber}:`, error);
+            return false;
+        }
+    }
+    
+    /**
      * Format OTP message
      */
     private static formatOTPMessage(otp: string, purpose: string): string {
@@ -278,6 +312,23 @@ export class SMSService {
         message += `📝 Details: ${details}\n`;
         message += `⏰ ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Nairobi' })}\n\n`;
         message += `If this wasn't you, contact support immediately.\nNEXUSPAY Team`;
+        
+        return message;
+    }
+    
+    /**
+     * Format KPLC token message
+     */
+    private static formatKPLCTokenMessage(data: KPLCTokenData): string {
+        const tokenEmoji = '⚡';
+        
+        let message = `${tokenEmoji} KENYA POWER TOKEN\n\n`;
+        message += `🔑 ${data.tokenMessage}\n\n`;
+        message += `📊 Account: ${data.accountNumber}\n`;
+        message += `💰 Amount: ${data.amount} KES\n`;
+        message += `🆔 TX: ${data.transactionId}\n`;
+        message += `⏰ ${data.timestamp}\n\n`;
+        message += `Thank you for using NEXUSPAY!`;
         
         return message;
     }

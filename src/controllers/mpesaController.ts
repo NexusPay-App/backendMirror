@@ -3473,7 +3473,7 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                     } catch (timeoutError) {
                         console.error(`❌ [TIMEOUT-ROLLBACK] Error during timeout rollback:`, timeoutError);
                     }
-                }, 5 * 60 * 1000); // 5 minutes timeout
+                }, 2 * 60 * 1000); // 2 minutes timeout
             } else {
                 // Fallback to existing B2C for non-paybill targets
                 console.log(`📱 [CRYPTO-PAY] Platform sending ${fiatAmount} KES to user via B2C for ${targetType} ${targetNumber}...`);
@@ -3489,19 +3489,74 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
             if (!mpesaResult || mpesaResult.ResponseCode !== "0") {
                 throw new Error(mpesaResult?.ResponseDescription || "B2C payment initiation failed");
             }
+            // Do NOT mark completed on acceptance; wait for callback
             escrow.mpesaTransactionId = mpesaResult.ConversationID;
-            escrow.status = 'completed';
-            escrow.completedAt = new Date();
+            escrow.status = 'processing';
             escrow.metadata = {
                 ...escrow.metadata,
                 mpesaResponseCode: mpesaResult.ResponseCode,
                 mpesaResponseDesc: mpesaResult.ResponseDescription,
                 processingTimeMs: Date.now() - startTime,
                 paymentMethod: 'platform_b2c',
-                    b2cConversationId: mpesaResult.ConversationID
+                b2cConversationId: mpesaResult.ConversationID
             };
             await escrow.save();
-            console.log(`✅ [CRYPTO-PAY] B2C payment initiated successfully: ${mpesaResult.ConversationID}`);
+            console.log(`✅ [CRYPTO-PAY] B2C payment accepted for processing: ${mpesaResult.ConversationID}`);
+            // Timeout protection for B2C: auto-rollback if no callback within 5 minutes
+            setTimeout(async () => {
+                try {
+                    const updatedEscrow = await Escrow.findOne({ transactionId });
+                    if (updatedEscrow && updatedEscrow.status === 'processing') {
+                        console.log(`⏰ [TIMEOUT-ROLLBACK] B2C callback timeout for transaction: ${transactionId}`);
+                        // Mark as failed due to timeout
+                        updatedEscrow.status = 'failed';
+                        updatedEscrow.metadata = {
+                            ...updatedEscrow.metadata,
+                            timeoutRollback: true,
+                            timeoutAt: new Date().toISOString(),
+                            failureReason: 'B2C_CALLBACK_TIMEOUT'
+                        };
+                        await updatedEscrow.save();
+
+                        // Initiate rollback (refund crypto to user)
+                        const user = await User.findById(authenticatedUser._id);
+                        if (user) {
+                            const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+                            const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+                            if (primaryKey && secondaryKey) {
+                                const { sendFromPlatformWallet } = await import('../services/platformWallet');
+                                const rollbackResult = await sendFromPlatformWallet(
+                                    cryptoAmountNum,
+                                    user.walletAddress,
+                                    primaryKey,
+                                    secondaryKey,
+                                    chain,
+                                    tokenType as TokenSymbol
+                                );
+                                console.log(`✅ [TIMEOUT-ROLLBACK] B2C rollback successful: ${rollbackResult.transactionHash}`);
+                                updatedEscrow.metadata = {
+                                    ...updatedEscrow.metadata,
+                                    rollbackTransactionHash: rollbackResult.transactionHash,
+                                    rollbackCompletedAt: new Date().toISOString(),
+                                    rollbackReason: 'B2C_CALLBACK_TIMEOUT'
+                                };
+                                await updatedEscrow.save();
+                                try {
+                                    await SMSService.sendSecurityAlert(
+                                        user.phoneNumber,
+                                        'ROLLBACK_SUCCESS',
+                                        `REFUND ${cryptoAmountNum}${tokenType} ${new Date().toLocaleTimeString('en-KE',{hour12:false})}`
+                                    );
+                                } catch (smsError) {
+                                    console.error("❌ Failed to send B2C timeout rollback SMS:", smsError);
+                                }
+                            }
+                        }
+                    }
+                } catch (timeoutError) {
+                    console.error(`❌ [TIMEOUT-ROLLBACK] Error during B2C timeout rollback:`, timeoutError);
+                }
+            }, 2 * 60 * 1000);
             }
         } catch (mpesaError: any) {
             console.error(`❌ [CRYPTO-PAY] B2C payment failed, initiating rollback:`, mpesaError);

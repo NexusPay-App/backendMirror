@@ -12,6 +12,7 @@ import { verifyGoogleToken, GoogleUserInfo } from '../services/googleAuth';
 import { SMSService } from '../services/smsService';
 import { UserOptimizationService } from '../services/userOptimizationService';
 import { createErrorResponse, AUTH_ERROR_CODES } from '../utils/errorCodes';
+import { ensService } from '../services/ensService';
 
 export const initiateRegisterUser = async (req: Request, res: Response) => {
     const { phoneNumber } = req.body;
@@ -160,6 +161,31 @@ export const registerUser = async (req: Request, res: Response) => {
             isUnified: true // Mark as unified wallet
         });
         await newUser.save();
+
+        // Create ENS subdomain for the user
+        try {
+            console.log(`Creating ENS subdomain for user: ${newUser._id}`);
+            const ensResult = await ensService.createUserSubdomain({
+                email: email,
+                phoneNumber: phoneNumber,
+                userId: newUser._id.toString(),
+                walletAddress: walletAddress
+            });
+
+            if (ensResult.success && ensResult.subdomain) {
+                newUser.ensSubdomain = ensResult.subdomain;
+                newUser.ensSubdomainCreated = true;
+                newUser.ensSubdomainTxHash = ensResult.transactionHash;
+                await newUser.save();
+                console.log(`✅ ENS subdomain created: ${ensResult.subdomain}`);
+            } else {
+                console.error(`❌ Failed to create ENS subdomain: ${ensResult.error}`);
+                // Don't fail registration if ENS creation fails
+            }
+        } catch (ensError) {
+            console.error('Error creating ENS subdomain:', ensError);
+            // Don't fail registration if ENS creation fails
+        }
 
         const verificationChannel = verificationMethod === 'both' 
             ? 'email and phone' 
@@ -932,6 +958,46 @@ export const logout = async (req: Request, res: Response) => {
     }
 };
 
+export const getCurrentUser = async (req: Request, res: Response) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json(standardResponse(
+                false,
+                'Authentication required',
+                null,
+                { code: 'AUTH_REQUIRED', message: 'Authentication token is required' }
+            ));
+        }
+
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json(standardResponse(
+                false,
+                'User not found',
+                null,
+                { code: 'USER_NOT_FOUND', message: 'User not found' }
+            ));
+        }
+
+        return res.status(200).json(standardResponse(
+            true,
+            'Current user fetched',
+            {
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    walletAddress: user.walletAddress,
+                    role: user.role
+                }
+            }
+        ));
+    } catch (error: any) {
+        console.error('Error in getCurrentUser:', error);
+        return handleError(error, res, 'Failed to fetch current user');
+    }
+};
+
 /**
  * Google Sign In/Sign Up
  */
@@ -1010,6 +1076,28 @@ export const googleAuth = async (req: Request, res: Response) => {
             googleId: googleUser.id,
             authMethods: ['google']
         });
+
+        // Create ENS subdomain for the new Google user
+        try {
+            console.log(`Creating ENS subdomain for Google user: ${newUser._id}`);
+            const ensResult = await ensService.createUserSubdomain({
+                email: googleUser.email,
+                userId: newUser._id.toString(),
+                walletAddress: newUser.walletAddress
+            });
+
+            if (ensResult.success && ensResult.subdomain) {
+                newUser.ensSubdomain = ensResult.subdomain;
+                newUser.ensSubdomainCreated = true;
+                newUser.ensSubdomainTxHash = ensResult.transactionHash;
+                await newUser.save();
+                console.log(`✅ ENS subdomain created for Google user: ${ensResult.subdomain}`);
+            } else {
+                console.error(`❌ Failed to create ENS subdomain for Google user: ${ensResult.error}`);
+            }
+        } catch (ensError) {
+            console.error('Error creating ENS subdomain for Google user:', ensError);
+        }
 
         const token = jwt.sign(
             { id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },

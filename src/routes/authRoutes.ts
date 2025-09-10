@@ -16,7 +16,8 @@ import {
   googleAuth,
   addPhoneAndPassword,
   verifyPhoneAndPassword,
-  linkGoogleAccount
+  linkGoogleAccount,
+  getCurrentUser
 } from '../controllers/authController';
 import { validate } from '../middleware/validation';
 import {
@@ -47,6 +48,7 @@ const router = express.Router();
 // Login routes
 router.post('/login', validate(loginValidation), login);
 router.post('/login/verify', validate(phoneLoginVerifyValidation), verifyLogin);
+router.get('/me', authenticate, getCurrentUser);
 router.post('/logout', enforceStrictAuth, logout);
 
 // Phone OTP routes (for standalone OTP authentication)
