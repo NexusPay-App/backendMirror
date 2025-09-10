@@ -18,10 +18,18 @@ declare global {
  */
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Debug logging
+    console.log('🔍 AUTH MIDDLEWARE DEBUG:');
+    console.log('Request URL:', req.url);
+    console.log('Request method:', req.method);
+    console.log('All headers:', req.headers);
+    
     // Get the authorization header
     const authHeader = req.headers.authorization;
+    console.log('Authorization header:', authHeader);
     
     if (!authHeader) {
+      console.log('❌ No authorization header found');
       return res.status(401).json(standardResponse(
         false,
         'Authentication required',
@@ -32,6 +40,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     
     // Check header format
     if (!authHeader.startsWith('Bearer ')) {
+      console.log('❌ Authorization header does not start with "Bearer "');
       return res.status(401).json(standardResponse(
         false,
         'Invalid authentication format',
@@ -42,8 +51,10 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     
     // Extract the token
     const token = authHeader.split(' ')[1];
+    console.log('Extracted token:', token ? `${token.substring(0, 20)}...` : 'null');
     
     if (!token) {
+      console.log('❌ No token found after "Bearer "');
       return res.status(401).json(standardResponse(
         false,
         'Authentication failed',
@@ -66,10 +77,13 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       }
       
       // Verify and decode the token
+      console.log('Verifying JWT token...');
       const decoded = jwt.verify(token, config.JWT_SECRET);
+      console.log('Decoded token:', decoded);
       
       // Check if the decoded token has a valid user ID
       if (!decoded || typeof decoded !== 'object' || !decoded.id) {
+        console.log('❌ Invalid token payload - no user ID');
         return res.status(401).json(standardResponse(
           false,
           'Invalid token',
@@ -79,9 +93,11 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       }
       
       // Find the user
+      console.log('Looking up user with ID:', decoded.id);
       const user = await User.findById(decoded.id);
       
       if (!user) {
+        console.log('❌ User not found in database');
         return res.status(401).json(standardResponse(
           false,
           'User not found',
@@ -89,6 +105,8 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
           { code: 'USER_NOT_FOUND', message: 'User associated with this token no longer exists' }
         ));
       }
+      
+      console.log('✅ User found:', { id: user._id, phoneNumber: user.phoneNumber });
       
       // Attach the user to the request
       req.user = user;

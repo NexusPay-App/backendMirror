@@ -46,6 +46,10 @@ export interface IUser extends Document {
   role?: string;
   googleId?: string;
   authMethods: ('phone' | 'email' | 'google')[];
+  // ENS subdomain information
+  ensSubdomain?: string;
+  ensSubdomainCreated?: boolean;
+  ensSubdomainTxHash?: string;
   createdAt: Date;
   lastLoginAt?: Date;
 }
@@ -123,6 +127,21 @@ const userSchema: Schema = new Schema({
     type: String,
     enum: ['phone', 'email', 'google']
   }],
+  // ENS subdomain information
+  ensSubdomain: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true
+  },
+  ensSubdomainCreated: {
+    type: Boolean,
+    default: false
+  },
+  ensSubdomainTxHash: {
+    type: String,
+    required: false
+  },
   createdAt: {
     type: Date,
     default: Date.now,

@@ -142,6 +142,74 @@ export const AUTH_ERROR_CODES = {
     message: 'Service temporarily unavailable. Please try again later',
     status: 503,
     action: 'RETRY_LATER'
+  },
+
+  // ENS (Ethereum Name Service) Errors
+  AUTH_REQUIRED: {
+    code: 'AUTH_REQUIRED',
+    message: 'Authentication required to access this resource',
+    status: 401,
+    action: 'LOGIN_REQUIRED'
+  },
+  ENS_CREATION_FAILED: {
+    code: 'ENS_CREATION_FAILED',
+    message: 'Failed to create ENS subdomain',
+    status: 500,
+    action: 'RETRY_LATER'
+  },
+  NO_ENS_SUBDOMAIN: {
+    code: 'NO_ENS_SUBDOMAIN',
+    message: 'User does not have an ENS subdomain',
+    status: 404,
+    action: 'CREATE_SUBDOMAIN'
+  },
+  ENS_UPDATE_FAILED: {
+    code: 'ENS_UPDATE_FAILED',
+    message: 'Failed to update ENS resolver records',
+    status: 500,
+    action: 'RETRY_LATER'
+  },
+  MISSING_SUBDOMAIN: {
+    code: 'MISSING_SUBDOMAIN',
+    message: 'Subdomain parameter is required',
+    status: 400,
+    action: 'PROVIDE_SUBDOMAIN'
+  },
+  INVALID_SUBDOMAIN_FORMAT: {
+    code: 'INVALID_SUBDOMAIN_FORMAT',
+    message: 'Invalid ENS subdomain format',
+    status: 400,
+    action: 'CORRECT_FORMAT'
+  },
+  MISSING_SUBDOMAIN_LABEL: {
+    code: 'MISSING_SUBDOMAIN_LABEL',
+    message: 'Subdomain label parameter is required',
+    status: 400,
+    action: 'PROVIDE_LABEL'
+  },
+  INVALID_SUBDOMAIN_LABEL: {
+    code: 'INVALID_SUBDOMAIN_LABEL',
+    message: 'Subdomain label can only contain lowercase letters, numbers, and hyphens',
+    status: 400,
+    action: 'CORRECT_FORMAT'
+  },
+  ADMIN_REQUIRED: {
+    code: 'ADMIN_REQUIRED',
+    message: 'Admin access required for this operation',
+    status: 403,
+    action: 'CONTACT_ADMIN'
+  },
+  INVALID_USER_IDS: {
+    code: 'INVALID_USER_IDS',
+    message: 'User IDs array is required',
+    status: 400,
+    action: 'PROVIDE_USER_IDS'
+  },
+  ENS_SUBDOMAIN_EXISTS: {
+    code: 'ENS_SUBDOMAIN_EXISTS',
+    message: 'User already has an ENS subdomain',
+    status: 409,
+    action: 'USE_EXISTING_SUBDOMAIN'
   }
 };
 

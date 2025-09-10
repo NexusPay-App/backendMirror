@@ -6,6 +6,7 @@ import {
 } from './platformWallet';
 import { recoverFailedTransactions, scheduleRecoveryScans } from './transactionRecovery';
 import { getTransactionMetrics } from './transactionLogger';
+import { KPLCService } from './kplcService';
 import pino from 'pino';
 import { Redis } from 'ioredis';
 import config from '../config/env';
@@ -63,6 +64,17 @@ export const startSchedulers = async () => {
   const recoveryInterval = scheduleRecoveryScans(5 * 60 * 1000); // 5 minutes
   intervals.push(recoveryInterval);
   logger.info('Transaction recovery scheduler started (every 5 minutes)');
+  
+  // Schedule KPLC token monitoring every 10 minutes
+  const kplcMonitoringInterval = setInterval(async () => {
+    try {
+      await KPLCService.monitorPendingKPLCTokens();
+    } catch (error) {
+      logger.error('Error monitoring KPLC tokens:', error);
+    }
+  }, 10 * 60 * 1000); // 10 minutes
+  intervals.push(kplcMonitoringInterval);
+  logger.info('KPLC token monitoring scheduler started (every 10 minutes)');
   
   // Removed automatic MPESA retry scheduler
   logger.info('MPESA transactions will require manual claiming');

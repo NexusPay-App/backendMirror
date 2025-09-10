@@ -4,9 +4,10 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IEscrow extends Document {
   transactionId: string;
   userId: mongoose.Types.ObjectId;
+  businessId?: mongoose.Types.ObjectId;
   amount: number;
   cryptoAmount: number;
-  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'crypto_to_paybill' | 'crypto_to_till' | 'token_transfer' | 'platform_operation';
+  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'crypto_to_paybill' | 'crypto_to_till' | 'token_transfer' | 'platform_operation' | 'business_to_personal' | 'business_crypto_to_fiat';
   status: 'pending' | 'reserved' | 'processing' | 'completed' | 'failed' | 'error';
   cryptoTransactionHash?: string;
   mpesaTransactionId?: string;
@@ -14,6 +15,11 @@ export interface IEscrow extends Document {
   paybillNumber?: string;
   accountNumber?: string;
   tillNumber?: string;
+  fromAddress?: string;
+  toAddress?: string;
+  tokenType?: string;
+  chain?: string;
+  phoneNumber?: string;
   completedAt?: Date;
   retryCount?: number;
   lastRetryAt?: Date;
@@ -33,6 +39,10 @@ const escrowSchema: Schema = new Schema({
     ref: 'User', 
     required: true 
   },
+  businessId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Business' 
+  },
   amount: { 
     type: Number, 
     required: true 
@@ -43,7 +53,7 @@ const escrowSchema: Schema = new Schema({
   },
   type: { 
     type: String, 
-    enum: ['fiat_to_crypto', 'crypto_to_fiat', 'crypto_to_paybill', 'crypto_to_till', 'token_transfer', 'platform_operation'],
+    enum: ['fiat_to_crypto', 'crypto_to_fiat', 'crypto_to_paybill', 'crypto_to_till', 'token_transfer', 'platform_operation', 'business_to_personal', 'business_crypto_to_fiat'],
     required: true 
   },
   status: { 
@@ -67,6 +77,21 @@ const escrowSchema: Schema = new Schema({
     type: String
   },
   tillNumber: {
+    type: String
+  },
+  fromAddress: {
+    type: String
+  },
+  toAddress: {
+    type: String
+  },
+  tokenType: {
+    type: String
+  },
+  chain: {
+    type: String
+  },
+  phoneNumber: {
     type: String
   },
   completedAt: {

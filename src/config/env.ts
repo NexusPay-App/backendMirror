@@ -149,9 +149,9 @@ let config: Record<string, any> = {
         // For production, use a stable webhook service like webhook.site or ngrok with fixed subdomain
         // To get a stable URL: ngrok http 8000 --subdomain=nexuspay-mpesa
         MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://nexuspay-mpesa.ngrok.io",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
+        MPESA_STK_CALLBACK_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/stk-callback` : (process.env.MPESA_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback")),
+        MPESA_B2C_RESULT_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/b2c-callback` : (process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback")),
+        MPESA_B2C_TIMEOUT_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/queue-timeout` : (process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout")),
         MPESA_B2B_RESULT_URL: process.env.MPESA_B2B_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2b-callback",
         MPESA_B2B_TIMEOUT_URL: process.env.MPESA_B2B_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
         MPESA_INITIATOR_NAME: process.env.MPESA_DEV_INITIATOR_NAME,
@@ -251,6 +251,13 @@ let config: Record<string, any> = {
         GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
         GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
         GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+        // ENS Configuration
+        ENS_PARENT_DOMAIN: process.env.ENS_PARENT_DOMAIN || 'nexuspay.eth',
+        ENS_REGISTRY_ADDRESS: process.env.ENS_REGISTRY_ADDRESS || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e',
+        ENS_NAME_WRAPPER_ADDRESS: process.env.ENS_NAME_WRAPPER_ADDRESS || '0x0635513f179D50A207757E05759CbD106d7dFcE8',
+        ENS_RESOLVER_ADDRESS: process.env.ENS_RESOLVER_ADDRESS || '0x231b0Ee14048e9dCcD1d247744d114a4EB5E8E63',
+        ENS_SUBDOMAIN_REGISTRAR_ADDRESS: process.env.ENS_SUBDOMAIN_REGISTRAR_ADDRESS,
+        ETHEREUM_RPC_URL: process.env.ETHEREUM_RPC_URL,
     },
     production: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -270,9 +277,9 @@ let config: Record<string, any> = {
         // For testing with real callbacks, use ngrok and ensure the tunnel is running
         // To start ngrok: ngrok http 8000
         MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL,
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_DEV_STK_CALLBACK_URL,
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL,
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL,
+        MPESA_STK_CALLBACK_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/stk-callback` : process.env.MPESA_DEV_STK_CALLBACK_URL),
+        MPESA_B2C_RESULT_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/b2c-callback` : process.env.MPESA_B2C_RESULT_URL),
+        MPESA_B2C_TIMEOUT_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/queue-timeout` : process.env.MPESA_B2C_TIMEOUT_URL),
         MPESA_B2B_RESULT_URL: process.env.MPESA_B2B_RESULT_URL,
         MPESA_B2B_TIMEOUT_URL: process.env.MPESA_B2B_TIMEOUT_URL,
         MPESA_INITIATOR_NAME: process.env.MPESA_PROD_INITIATOR_NAME,
@@ -372,6 +379,13 @@ let config: Record<string, any> = {
         GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
         GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
         GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+        // ENS Configuration
+        ENS_PARENT_DOMAIN: process.env.ENS_PARENT_DOMAIN || 'nexuspay.eth',
+        ENS_REGISTRY_ADDRESS: process.env.ENS_REGISTRY_ADDRESS || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e',
+        ENS_NAME_WRAPPER_ADDRESS: process.env.ENS_NAME_WRAPPER_ADDRESS || '0x0635513f179D50A207757E05759CbD106d7dFcE8',
+        ENS_RESOLVER_ADDRESS: process.env.ENS_RESOLVER_ADDRESS || '0x231b0Ee14048e9dCcD1d247744d114a4EB5E8E63',
+        ENS_SUBDOMAIN_REGISTRAR_ADDRESS: process.env.ENS_SUBDOMAIN_REGISTRAR_ADDRESS,
+        ETHEREUM_RPC_URL: process.env.ETHEREUM_RPC_URL,
     },
     test: {
         JWT_SECRET: process.env.JWT_SECRET,
@@ -389,9 +403,9 @@ let config: Record<string, any> = {
         // For production, use a stable webhook service like webhook.site or ngrok with fixed subdomain
         // To get a stable URL: ngrok http 8000 --subdomain=nexuspay-mpesa
         MPESA_WEBHOOK_URL: process.env.MPESA_WEBHOOK_URL || "https://nexuspay-mpesa.ngrok.io",
-        MPESA_STK_CALLBACK_URL: process.env.MPESA_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback",
-        MPESA_B2C_RESULT_URL: process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback",
-        MPESA_B2C_TIMEOUT_URL: process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout",
+        MPESA_STK_CALLBACK_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/stk-callback` : (process.env.MPESA_STK_CALLBACK_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/stk-callback")),
+        MPESA_B2C_RESULT_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/b2c-callback` : (process.env.MPESA_B2C_RESULT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/b2c-callback")),
+        MPESA_B2C_TIMEOUT_URL: (process.env.MPESA_WEBHOOK_URL ? `${process.env.MPESA_WEBHOOK_URL}/api/mpesa/queue-timeout` : (process.env.MPESA_B2C_TIMEOUT_URL || "https://nexuspay-mpesa.ngrok.io/api/mpesa/queue-timeout")),
         celo: {
             chainId: 44787,
             tokenAddress: "0x3572c9ce620f80032Ee3b101d75300186a0D7787"
@@ -473,6 +487,13 @@ let config: Record<string, any> = {
         GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
         GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
         GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+        // ENS Configuration
+        ENS_PARENT_DOMAIN: process.env.ENS_PARENT_DOMAIN || 'nexuspay.eth',
+        ENS_REGISTRY_ADDRESS: process.env.ENS_REGISTRY_ADDRESS || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e',
+        ENS_NAME_WRAPPER_ADDRESS: process.env.ENS_NAME_WRAPPER_ADDRESS || '0x0635513f179D50A207757E05759CbD106d7dFcE8',
+        ENS_RESOLVER_ADDRESS: process.env.ENS_RESOLVER_ADDRESS || '0x231b0Ee14048e9dCcD1d247744d114a4EB5E8E63',
+        ENS_SUBDOMAIN_REGISTRAR_ADDRESS: process.env.ENS_SUBDOMAIN_REGISTRAR_ADDRESS,
+        ETHEREUM_RPC_URL: process.env.ETHEREUM_RPC_URL,
     }
 };
 
