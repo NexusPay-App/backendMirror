@@ -12,12 +12,14 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  // Immediately respond to prevent timeout
-  res.status(200).json({ 
-    success: true, 
-    message: 'Webhook received',
-    timestamp: new Date().toISOString()
-  });
+  // Immediately respond to prevent timeout (ack-only for MPesa)
+  try {
+    res.status(200).json({ 
+      success: true, 
+      message: 'Webhook received',
+      timestamp: new Date().toISOString()
+    });
+  } catch (_) {}
 
   try {
     // Get backend URL from environment variable

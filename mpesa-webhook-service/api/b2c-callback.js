@@ -36,11 +36,11 @@ module.exports = async (req, res) => {
     });
 
     console.log('✅ B2C Callback forwarded successfully');
-    return res.status(response.status).json(response.data);
+    return res.status(200).json({ success: true });
 
   } catch (error) {
     console.error('❌ B2C Callback forwarding failed:', error.message);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
       message: 'B2C callback forwarding failed',
       error: error.message

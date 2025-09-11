@@ -24,7 +24,7 @@ This document contains the business balance endpoints for the NexusPay platform.
 ```json
 {
   "success": true,
-  "message": "Business balance overview retrieved successfully",
+  "message": "Business balance overviehave you w retrieved successfully",
   "data": {
     "businessId": "67c9bd80c4e15a99274c2b73",
     "businessName": "Sample Business",
