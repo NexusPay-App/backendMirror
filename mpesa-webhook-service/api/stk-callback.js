@@ -11,11 +11,13 @@ module.exports = async (req, res) => {
   }
 
   // Immediately respond to M-Pesa to prevent timeout
-  res.status(200).json({ 
-    success: true, 
-    message: 'Callback received',
-    timestamp: new Date().toISOString()
-  });
+  try {
+    res.status(200).json({ 
+      success: true, 
+      message: 'Callback received',
+      timestamp: new Date().toISOString()
+    });
+  } catch (_) {}
 
   try {
     const backendUrl = process.env.BACKEND_URL;

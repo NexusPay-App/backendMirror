@@ -33,6 +33,7 @@ import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'
 import { SMSService } from '../services/smsService';
 const getConversionRateWithCaching = getKESRate
+import { acquireLock, isProcessed, markProcessed } from '../services/idempotency';
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -1515,6 +1516,19 @@ async function processSTKCallback(callbackData: any) {
         
         const checkoutRequestID = stkCallback.CheckoutRequestID;
         const resultCode = parseInt(stkCallback.ResultCode, 10);
+
+        // Idempotency guard (avoid double-processing from retries)
+        const idemKey = `mpesa:stk:${checkoutRequestID}:${stkCallback.MerchantRequestID || 'unknown'}`;
+        if (await isProcessed(idemKey)) {
+            console.log(`ℹ️ [CB:${callbackId}] Duplicate STK callback ignored for ${checkoutRequestID}`);
+            return;
+        }
+        const lockKey = `${idemKey}:lock`;
+        const haveLock = await acquireLock(lockKey, 30);
+        if (!haveLock) {
+            console.log(`ℹ️ [CB:${callbackId}] Another worker is processing ${checkoutRequestID}`);
+            return;
+        }
         
         console.log(`🔍 [CB:${callbackId}] Processing callback for CheckoutRequestID: ${checkoutRequestID}, ResultCode: ${resultCode}`);
         
@@ -1679,6 +1693,7 @@ async function processSTKCallback(callbackData: any) {
                         directProcessing: true // Flag to indicate direct processing
                     };
                     await escrow.save();
+                    await markProcessed(idemKey);
                     
                     // Send transaction success SMS notification
                     await SMSService.sendTransactionNotification({
@@ -1722,6 +1737,7 @@ async function processSTKCallback(callbackData: any) {
                 escrow.mpesaReceiptNumber = mpesaReceiptNumber;
                 escrow.metadata = { ...escrow.metadata, mpesaReceiptNumber };
                 await escrow.save();
+                await markProcessed(idemKey);
             } else if (escrow.status === 'completed') {
                 console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} already completed`);
                 // Just update receipt for reconciliation if needed
@@ -1730,6 +1746,7 @@ async function processSTKCallback(callbackData: any) {
                     escrow.metadata = { ...escrow.metadata, mpesaReceiptNumber };
                     await escrow.save();
                 }
+                await markProcessed(idemKey);
             } else {
                 console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} is not eligible for crypto transfer in current state: ${escrow.status}`);
                 
@@ -1741,6 +1758,7 @@ async function processSTKCallback(callbackData: any) {
                 escrow.completedAt = new Date();
                 escrow.metadata = { ...escrow.metadata, mpesaPaymentReceived: true, mpesaReceiptNumber };
                 await escrow.save();
+                await markProcessed(idemKey);
                 
                 // Log for reconciliation
                 logTransactionForReconciliation({
@@ -1769,6 +1787,7 @@ async function processSTKCallback(callbackData: any) {
                 errorCode: `MPESA_ERROR_${resultCode}`
             };
             await escrow.save();
+            await markProcessed(idemKey);
             
             // Log failed transaction for reconciliation
             logTransactionForReconciliation({
@@ -1834,6 +1853,18 @@ async function processB2CCallback(callbackData: any) {
         }
         
         const { ConversationID, ResultCode, ResultParameters } = Result;
+
+        // Idempotency guard for B2C
+        const idemKey = `mpesa:b2c:${ConversationID}`;
+        if (await isProcessed(idemKey)) {
+            console.log(`ℹ️ Duplicate B2C callback ignored for ${ConversationID}`);
+            return;
+        }
+        const haveLock = await acquireLock(`${idemKey}:lock`, 30);
+        if (!haveLock) {
+            console.log(`ℹ️ Another worker is processing B2C ${ConversationID}`);
+            return;
+        }
         
         // Find the corresponding escrow transaction
         const escrow = await Escrow.findOne({ mpesaTransactionId: ConversationID });
@@ -1859,6 +1890,7 @@ async function processB2CCallback(callbackData: any) {
             escrow.status = 'completed';
             escrow.completedAt = new Date();
             await escrow.save();
+            await markProcessed(idemKey);
             
             console.log(`✅ Successful B2C transaction for escrow: ${escrow.transactionId}`);
             
@@ -1891,6 +1923,7 @@ async function processB2CCallback(callbackData: any) {
             escrow.status = 'failed';
             escrow.completedAt = new Date();
             await escrow.save();
+            await markProcessed(idemKey);
             
             console.error(`❌ Failed B2C transaction for escrow: ${escrow.transactionId}, ResultCode: ${ResultCode}`);
             
@@ -1985,6 +2018,18 @@ async function processB2BCallback(callbackData: any) {
         }
         
         const { ConversationID, ResultCode, ResultDesc, ResultParameters } = Result;
+
+        // Idempotency guard for B2B
+        const idemKey = `mpesa:b2b:${ConversationID}`;
+        if (await isProcessed(idemKey)) {
+            console.log(`ℹ️ Duplicate B2B callback ignored for ${ConversationID}`);
+            return;
+        }
+        const haveLock = await acquireLock(`${idemKey}:lock`, 30);
+        if (!haveLock) {
+            console.log(`ℹ️ Another worker is processing B2B ${ConversationID}`);
+            return;
+        }
         
         // Find the corresponding escrow transaction
         const escrow = await Escrow.findOne({ mpesaTransactionId: ConversationID });
@@ -2015,6 +2060,7 @@ async function processB2BCallback(callbackData: any) {
                 callbackProcessed: true
             };
             await escrow.save();
+            await markProcessed(idemKey);
             
             // Send success SMS to user
             try {
@@ -2046,6 +2092,7 @@ async function processB2BCallback(callbackData: any) {
                 failureReason: 'B2B_PAYMENT_FAILED'
             };
             await escrow.save();
+            await markProcessed(idemKey);
             
             // Initiate rollback since B2B failed
             try {

@@ -1,3 +1,16 @@
+## Stable M-Pesa Webhooks (Production)
+
+We added a Vercel-based webhook service (`mpesa-webhook-service/`) and idempotency guards for STK, B2C, and B2B callbacks.
+
+Setup:
+- Deploy `mpesa-webhook-service` to Vercel and set env `BACKEND_URL=https://your-backend-domain`.
+- Set in backend `.env`:
+  - `MPESA_WEBHOOK_URL=https://your-vercel-app.vercel.app`
+  - Or set explicit `MPESA_STK_CALLBACK_URL`, `MPESA_B2C_RESULT_URL`, `MPESA_B2C_TIMEOUT_URL`.
+
+Notes:
+- Callbacks are acknowledged instantly (200) and processed asynchronously.
+- Redis-backed idempotency prevents duplicate processing across retries.
 # NexusPay Backend
 
 NexusPay is a crypto payment platform with MPESA integration, providing secure transactions and wallet management.

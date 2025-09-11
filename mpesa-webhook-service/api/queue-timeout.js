@@ -36,11 +36,11 @@ module.exports = async (req, res) => {
     });
 
     console.log('✅ Queue Timeout forwarded successfully');
-    return res.status(response.status).json(response.data);
+    return res.status(200).json({ success: true });
 
   } catch (error) {
     console.error('❌ Queue Timeout forwarding failed:', error.message);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
       message: 'Queue timeout forwarding failed',
       error: error.message
