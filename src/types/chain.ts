@@ -1,4 +1,4 @@
-export type Chain = 'arbitrum' | 'polygon' | 'base' | 'optimism' | 'celo' | 'scroll' | 'fuse' | 'gnosis' | 'aurora';
+export type Chain = 'arbitrum' | 'polygon' | 'base' | 'optimism' | 'celo' | 'scroll' | 'fuse' | 'gnosis' | 'aurora' | 'stellar';
 
 export type TokenSymbol = 'USDC' | 'cUSD';
 

@@ -18,6 +18,7 @@
     "check-balances": "ts-node src/scripts/checkBalances.ts",
     "monitor": "ts-node src/scripts/monitor.ts",
     "test:ens": "ts-node src/scripts/testENSIntegration.ts",
+    "test:stellar": "ts-node src/scripts/testStellarIntegration.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "husky install"
   },
@@ -89,6 +90,7 @@
     "pino-pretty": "^13.0.0",
     "rate-limit-redis": "^4.2.1",
     "redis": "^5.1.0",
+    "stellar-sdk": "^11.2.0",
     "thirdweb": "^5.20.0",
     "viem": "^1.19.11"
   },

@@ -10,6 +10,10 @@ import transactionRoutes from './routes/transactionRoutes';
 import usdcRoutes from './routes/usdcRoutes';
 import kplcRoutes from './routes/kplcRoutes';
 import ensRoutes from './routes/ensRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
+import stellarRoutes from './routes/stellarRoutes';
+import stellarMpesaRoutes from './routes/stellarMpesaRoutes';
+import stellarAdvancedRoutes from './routes/stellarAdvancedRoutes';
 import { virtualCardRoutes } from './virtual-cards';
 import { standardResponse } from './services/utils';
 
@@ -38,7 +42,12 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/usdc', usdcRoutes);
 app.use('/api/kplc', kplcRoutes);
 app.use('/api/ens', ensRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/stellar', stellarRoutes);
+app.use('/api/stellar-mpesa', stellarMpesaRoutes);
+app.use('/api/stellar-advanced', stellarAdvancedRoutes);
 app.use('/api/virtual-cards', virtualCardRoutes);
+
 
 // ... existing code ...
 
