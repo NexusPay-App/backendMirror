@@ -84,8 +84,6 @@ process.on('SIGINT', () => {
     }
 });
 
-startServer();
-
 // Security middlewares
 app.use(helmet());
 
@@ -286,3 +284,6 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     }
   ));
 });
+
+// Start the server after all middleware and routes are defined
+startServer();
