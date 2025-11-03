@@ -46,26 +46,33 @@ export async function getConversionRateWithCaching(tokenType: string = 'USDC'): 
     const RATE_LOCK_KEY = `rates:${token.toLowerCase()}_to_kes:lock`;
     
     try {
-        // Try to get from cache first
-        const cachedRate = await redis.get(RATE_CACHE_KEY);
-        if (cachedRate) {
-            return parseFloat(cachedRate);
+        // Try to get from cache first (skip if Redis not connected)
+        if (redis.status === 'ready') {
+            const cachedRate = await redis.get(RATE_CACHE_KEY);
+            if (cachedRate) {
+                return parseFloat(cachedRate);
+            }
         }
         
         // No cached rate, we need to fetch a new one
-        // First, try to obtain a lock to prevent multiple API calls
-        const lockId = randomUUID();
-        const acquired = await redis.set(
-            RATE_LOCK_KEY,
-            lockId,
-            'EX',
-            LOCK_DURATION,
-            'NX'
-        );
+        // First, try to obtain a lock to prevent multiple API calls (only if Redis is connected)
+        let acquired = true;
+        let lockId = '';
+        
+        if (redis.status === 'ready') {
+            lockId = randomUUID();
+            acquired = await redis.set(
+                RATE_LOCK_KEY,
+                lockId,
+                'EX',
+                LOCK_DURATION,
+                'NX'
+            ) as any;
+        }
         
         // If we couldn't acquire the lock, someone else is fetching
         // Wait briefly and try again from cache
-        if (!acquired) {
+        if (!acquired && redis.status === 'ready') {
             // Wait a moment (100-300ms)
             await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
             
@@ -89,15 +96,19 @@ export async function getConversionRateWithCaching(tokenType: string = 'USDC'): 
                 return DEFAULT_RATES[token];
             }
             
-            // Cache the rate
-            await redis.set(RATE_CACHE_KEY, rate.toString(), 'EX', CACHE_DURATION);
+            // Cache the rate (only if Redis is connected)
+            if (redis.status === 'ready') {
+                await redis.set(RATE_CACHE_KEY, rate.toString(), 'EX', CACHE_DURATION);
+            }
             
             return rate;
         } finally {
-            // Release lock if it's still ours
-            const currentLock = await redis.get(RATE_LOCK_KEY);
-            if (currentLock === lockId) {
-                await redis.del(RATE_LOCK_KEY);
+            // Release lock if it's still ours (only if Redis is connected)
+            if (redis.status === 'ready' && lockId) {
+                const currentLock = await redis.get(RATE_LOCK_KEY);
+                if (currentLock === lockId) {
+                    await redis.del(RATE_LOCK_KEY);
+                }
             }
         }
     } catch (error) {

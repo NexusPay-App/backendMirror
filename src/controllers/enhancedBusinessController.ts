@@ -6,7 +6,7 @@ import { Escrow } from '../models/escrowModel';
 import { createAccount, generateOTP, otpStore, SALT_ROUNDS } from '../services/auth';
 import { handleError, standardResponse } from '../services/utils';
 import config from '../config/env';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 import { sendToken, getAllTokenTransferEvents } from '../services/token';
 import { client } from '../services/auth';

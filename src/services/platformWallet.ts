@@ -537,15 +537,24 @@ function ensure0xAddress(address: string): `0x${string}` {
  * This creates or loads both the main platform wallet and the fees wallet
  */
 export async function initializePlatformWallets(): Promise<PlatformWallets> {
-  // Try to get from cache first
-  const cachedWallets = await redis.get(PLATFORM_WALLETS_CACHE_KEY);
-  
-  if (cachedWallets) {
-    try {
-      return JSON.parse(cachedWallets);
-    } catch (error) {
-      console.error('Error parsing cached wallets:', error);
-      // Continue to create new wallets if parsing fails
+  // Try to get from cache first (with error handling for Redis connection issues)
+  try {
+    const cachedWallets = await redis.get(PLATFORM_WALLETS_CACHE_KEY);
+    
+    if (cachedWallets) {
+      try {
+        return JSON.parse(cachedWallets);
+      } catch (error) {
+        console.error('Error parsing cached wallets:', error);
+        // Continue to create new wallets if parsing fails
+      }
+    }
+  } catch (error: any) {
+    // Redis connection error - proceed without cache
+    if (error.message?.includes('Connection is closed') || error.message?.includes('ECONNREFUSED')) {
+      // Silently continue without cache
+    } else {
+      console.error('Error getting cached wallets:', error);
     }
   }
   
@@ -573,8 +582,15 @@ export async function initializePlatformWallets(): Promise<PlatformWallets> {
     fees: feesWallet
   };
   
-  // Cache the wallets
-  await redis.set(PLATFORM_WALLETS_CACHE_KEY, JSON.stringify(platformWallets));
+  // Cache the wallets (with error handling for Redis connection issues)
+  try {
+    await redis.set(PLATFORM_WALLETS_CACHE_KEY, JSON.stringify(platformWallets));
+  } catch (error: any) {
+    // Redis connection error - continue without caching
+    if (!error.message?.includes('Connection is closed') && !error.message?.includes('ECONNREFUSED')) {
+      console.error('Error caching platform wallets:', error);
+    }
+  }
   
   return platformWallets;
 }
@@ -619,10 +635,19 @@ export async function getWalletBalance(
 ): Promise<number> {
   const cacheKey = `${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${walletAddress}`;
   
-  // Try to get from cache
-  const cachedBalance = await redis.get(cacheKey);
-  if (cachedBalance) {
-    return parseFloat(cachedBalance);
+  // Try to get from cache (with error handling for Redis connection issues)
+  try {
+    const cachedBalance = await redis.get(cacheKey);
+    if (cachedBalance) {
+      return parseFloat(cachedBalance);
+    }
+  } catch (error: any) {
+    // Redis connection error - proceed without cache
+    if (error.message?.includes('Connection is closed') || error.message?.includes('ECONNREFUSED')) {
+      // Silently continue without cache
+    } else {
+      console.error('Error getting cached balance:', error);
+    }
   }
   
   try {
@@ -671,8 +696,15 @@ export async function getWalletBalance(
     // Convert to human-readable format
     const humanReadableBalance = parseFloat(rawBalance.toString()) / Math.pow(10, decimals);
     
-    // Cache the human-readable balance for 2 minutes
-    await redis.set(cacheKey, humanReadableBalance.toString(), 'EX', 120);
+    // Cache the human-readable balance for 2 minutes (with error handling for Redis connection issues)
+    try {
+      await redis.set(cacheKey, humanReadableBalance.toString(), 'EX', 120);
+    } catch (error: any) {
+      // Redis connection error - continue without caching
+      if (!error.message?.includes('Connection is closed') && !error.message?.includes('ECONNREFUSED')) {
+        console.error('Error caching balance:', error);
+      }
+    }
     
     return humanReadableBalance;
   } catch (error) {
@@ -1827,11 +1859,18 @@ export async function sendTokenFromUser(
     console.log(`- Token Address: ${tokenAddress.substring(0, 10)}...`);
     console.log(`- Timestamp: ${new Date().toISOString()}`);
     
-    // Invalidate balance cache
-    await Promise.all([
-      redis.del(WALLET_BALANCE_CACHE_PREFIX + smartAccount.address),
-      redis.del(WALLET_BALANCE_CACHE_PREFIX + toAddress)
-    ]);
+    // Invalidate balance cache (best-effort; ignore Redis connectivity issues)
+    try {
+      await Promise.all([
+        redis.del(WALLET_BALANCE_CACHE_PREFIX + smartAccount.address),
+        redis.del(WALLET_BALANCE_CACHE_PREFIX + toAddress)
+      ]);
+    } catch (cacheError: any) {
+      if (!cacheError?.message?.includes('Connection is closed') && !cacheError?.message?.includes('ECONNREFUSED')) {
+        console.warn('⚠️ Failed to invalidate balance cache:', cacheError?.message || cacheError);
+      }
+      // proceed without failing the transfer
+    }
     
     return { transactionHash: txHash };
   } catch (error: any) {
@@ -2207,11 +2246,18 @@ export async function sendFromPlatformWallet(
     logger.info(`- To: ${maskAddress(recipientAddress)}`);
     logger.info(`- Explorer: ${generateExplorerUrl(chainName, result.transactionHash)}`);
 
-    // Invalidate balance cache
-    const cacheKey = `${PLATFORM_WALLETS_CACHE_KEY}:${chainName}`;
-    const walletAddress = await redis.get(cacheKey);
-    if (walletAddress) {
-      await redis.del(`${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${walletAddress}`);
+    // Invalidate balance cache (only if Redis is connected)
+    if (redis.status === 'ready') {
+      try {
+        const cacheKey = `${PLATFORM_WALLETS_CACHE_KEY}:${chainName}`;
+        const walletAddress = await redis.get(cacheKey);
+        if (walletAddress) {
+          await redis.del(`${WALLET_BALANCE_CACHE_PREFIX}${chainName}:${walletAddress}`);
+        }
+      } catch (redisError) {
+        logger.warn(`Failed to invalidate balance cache: ${redisError}`);
+        // Continue anyway - cache invalidation is not critical
+      }
     }
 
     return { transactionHash: result.transactionHash };

@@ -5,7 +5,7 @@ import { User } from '../models/models';
 import { createAccount, generateOTP, otpStore } from '../services/auth';
 import { handleError, standardResponse } from '../services/utils';
 import config from '../config/env';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { getTokenConfig } from '../services/token';
 import { sendToken, getAllTokenTransferEvents } from '../services/token';
 import { SMSService } from '../services/smsService';

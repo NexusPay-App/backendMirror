@@ -315,10 +315,11 @@
 
 import { client } from './auth';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
-import { defineChain, getContract, sendTransaction, waitForReceipt } from "thirdweb";
-import { transfer, approve, allowance } from "thirdweb/extensions/erc20";
+import { defineChain, getContract, sendTransaction, waitForReceipt, readContract } from "thirdweb";
+import { transfer, transferFrom, approve, allowance } from "thirdweb/extensions/erc20";
 import config from "../config/env";
 import { keccak256, toHex } from 'viem';
+import { getTokenConfig as getChainTokenConfig } from '../config/tokens';
 
 export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'fuse' | 'aurora' | 'lisk';
 
@@ -356,14 +357,9 @@ interface ChainConfig {
 }
 
 export const getTokenConfig = (chain: Chain, token: TokenSymbol): TokenConfig | null => {
-  const chainConfig = config[chain];
-  if (!chainConfig || !chainConfig.tokenAddress) {
-    return null;
-  }
-  return {
-    address: chainConfig.tokenAddress,
-    decimals: 6 // USDC has 6 decimals
-  };
+  const cfg = getChainTokenConfig(chain, token);
+  if (!cfg) return null;
+  return { address: cfg.address, decimals: cfg.decimals };
 };
 
 // Removed explicit FACTORY_ADDRESS; using Thirdweb's default factory
@@ -432,7 +428,7 @@ export async function sendToken(
         // Prepare contract handle (reused in both flows)
         const contract = getContract({ client, chain, address: tokenAddress });
 
-        // Convert amount to token units (used for allowance check in smart account flow)
+        // Convert amount to token units (used for allowance/transferFrom)
         const decimals = tokenConfig.decimals;
         const amountInUnits = BigInt(Math.floor(amount * 10 ** decimals));
 
@@ -443,45 +439,72 @@ export async function sendToken(
                 sponsorGas: true,
             });
             const smartAccount = await wallet.connect({ client, personalAccount });
+            console.log("[AA] personal:", personalAccount.address, " smart:", smartAccount.address);
 
-            // Check and handle allowance (smart account needs allowance from personal account)
-            let currentAllowance: bigint = BigInt(0);
+            // Determine where the spendable balance sits
+            const smartBalance = await readContract({
+                contract,
+                method: "function balanceOf(address) view returns (uint256)",
+                params: [smartAccount.address],
+            }) as unknown as bigint;
+            console.log("[AA] smart balance (raw):", smartBalance.toString());
+            console.log("[AA] requested units:", amountInUnits.toString());
+
+            if (smartBalance >= amountInUnits) {
+                // Smart account holds tokens → simple transfer from smart account
+                const transferTx = await sendTransaction({
+                    transaction: transfer({
+                        contract,
+                        to: recipientAddress,
+                        amount: amount,
+                    }),
+                    account: smartAccount,
+                });
+                await waitForReceipt(transferTx);
+                return transferTx.transactionHash;
+            }
+
+            // Tokens are likely on the personal EOA. Use allowance + transferFrom.
+            let currentAllowance: bigint = 0n;
             try {
                 currentAllowance = await allowance({
                     contract,
                     owner: personalAccount.address,
                     spender: smartAccount.address,
                 });
+                console.log("[AA] current allowance:", currentAllowance.toString());
             } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error("Allowance check failed, assuming 0:", errorMessage);
+                currentAllowance = 0n;
             }
 
             if (currentAllowance < amountInUnits) {
-                console.log("Insufficient allowance. Approving transfer...");
+                console.log("Insufficient allowance. Approving transferFrom as personal EOA...");
                 const approveTx = await sendTransaction({
                     transaction: approve({
                         contract,
                         spender: smartAccount.address,
                         amount: amount,
                     }),
-                    account: smartAccount,
+                    account: personalAccount,
                 });
                 await waitForReceipt(approveTx);
                 console.log(`✅ Approval transaction completed: ${approveTx.transactionHash}`);
             }
 
-            // Execute transfer through smart account
-            const transferTx = await sendTransaction({
-                transaction: transfer({
+            // Execute transferFrom to move tokens from personal EOA using smart account (gas sponsored)
+            const tx = await sendTransaction({
+                transaction: transferFrom({
                     contract,
+                    from: personalAccount.address,
                     to: recipientAddress,
                     amount: amount,
                 }),
                 account: smartAccount,
             });
-            await waitForReceipt(transferTx);
-            return transferTx.transactionHash;
+            await waitForReceipt(tx);
+            return tx.transactionHash;
         };
 
         // Helper to perform direct EOA transfer (no paymaster)
@@ -499,15 +522,16 @@ export async function sendToken(
             return transferTx.transactionHash;
         };
 
-        // Try sponsored gas first; on mainnet paymaster error, fallback to EOA transfer
+        // Try sponsored gas first; on failure, intelligently fallback to EOA
         let txHash: string;
         try {
             txHash = await transferWithSmartAccount();
         } catch (e: any) {
             const msg = (e?.message || "").toString();
             const isPaymasterDisabled = msg.includes("Mainnets not enabled for this account") || msg.includes("thirdweb_getUserOperationGasPrice") || e?.code === 401;
-            if (isPaymasterDisabled) {
-                console.warn("Thirdweb paymaster not enabled for mainnets. Retrying without gas sponsorship...");
+            const isInsufficientBalance = msg.includes("transfer amount exceeds balance") || msg.includes("insufficient funds") || msg.includes("ERC20");
+            if (isPaymasterDisabled || isInsufficientBalance) {
+                console.warn("Smart account path failed (", msg, ") — falling back to direct EOA transfer...");
                 txHash = await transferWithEOA();
             } else {
                 throw e;
@@ -757,13 +781,13 @@ export async function getTokenBalance(
             address: tokenConfig.address,
         });
 
-        const balance = await allowance({
+        const balance = await readContract({
             contract,
-            owner: address,
-            spender: tokenConfig.address,
-        });
+            method: "function balanceOf(address) view returns (uint256)",
+            params: [address],
+        }) as unknown as bigint;
 
-        return Number(balance.toString()) / 10 ** tokenConfig.decimals;
+        return Number(balance) / 10 ** tokenConfig.decimals;
     } catch (error: any) {
         console.error(`Failed to fetch ${symbol} balance on ${chain}:`, error);
         return 0;

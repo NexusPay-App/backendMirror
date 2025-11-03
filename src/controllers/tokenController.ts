@@ -3,11 +3,11 @@ import { User } from '../models/models';
 import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
 import { client, createAccount } from '../services/auth';
-import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
+import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, getTokenBalance, Chain, TokenSymbol } from '../services/token';
 import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
 import { defineChain, getContract, readContract } from "thirdweb";
 import config from '../config/env';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';
 import { Escrow } from '../models/escrowModel';
 import { randomUUID } from 'crypto';
@@ -419,6 +419,8 @@ export const send = async (req: Request, res: Response) => {
                 amount: amountDisplay,
                 tokenSymbol,
                 chain,
+                transactionCategory: 'onchain',
+                transactionSubType: 'sent',
                 sender: {
                     address: senderAddress,
                     phone: sender.phoneNumber,
@@ -445,7 +447,9 @@ export const send = async (req: Request, res: Response) => {
                     status: 'completed',
                     confirmations: 'pending',
                     gasUsed: 'estimated',
-                    blockNumber: 'pending'
+                    blockNumber: 'pending',
+                    category: 'onchain',
+                    subType: 'sent'
                 },
                 security: {
                     level: isHighValueTransaction ? "high" : "standard",
@@ -473,6 +477,39 @@ export const send = async (req: Request, res: Response) => {
         let errorCode = "TRANSFER_FAILED";
         let errorMessage = error.message || 'Unknown error occurred';
         let statusCode = 500;
+
+        // Friendly insufficient token balance message
+        const isExceedsBalance = /transfer amount exceeds balance/i.test(error.message || '') || /ERC20/i.test(error.message || '');
+        if (isExceedsBalance) {
+            try {
+                const senderAddressForBalance = (req.body.senderAddress as string) || '';
+                const chainForBalance = req.body.chain as Chain;
+                const tokenForBalance = (req.body.tokenSymbol as TokenSymbol) || 'USDC';
+                const available = senderAddressForBalance
+                  ? await getTokenBalance(senderAddressForBalance, chainForBalance, tokenForBalance)
+                  : 0;
+                errorCode = "INSUFFICIENT_TOKEN_BALANCE";
+                errorMessage = `Insufficient ${tokenForBalance} balance for this transfer`;
+                statusCode = 400;
+                return res.status(statusCode).json({
+                    success: false,
+                    message: errorMessage,
+                    error: {
+                        code: errorCode,
+                        message: `You have ${available} ${tokenForBalance} available on ${chainForBalance}. Reduce the amount or top up and try again.`,
+                        available,
+                        token: tokenForBalance,
+                        chain: chainForBalance,
+                        timestamp: new Date().toISOString(),
+                    }
+                });
+            } catch (balanceError) {
+                // If balance lookup fails, still return a clear insufficient error
+                errorCode = "INSUFFICIENT_TOKEN_BALANCE";
+                errorMessage = `Insufficient token balance for this transfer`;
+                statusCode = 400;
+            }
+        }
 
         if (error.message?.includes('insufficient funds')) {
             errorCode = "INSUFFICIENT_FUNDS";
@@ -715,6 +752,8 @@ export const pay = async (req: Request, res: Response) => {
                 transactionHash: result.transactionHash,
                 timestamp: new Date().toISOString(),
                 status: 'completed',
+                transactionCategory: 'onchain',
+                transactionSubType: 'sent',
                 securityLevel: isHighValueTransaction ? "high" : "standard",
                 authenticationMethod: password ? "password" : "google_auth",
                 authenticationDetails: {

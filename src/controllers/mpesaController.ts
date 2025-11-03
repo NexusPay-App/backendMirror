@@ -33,7 +33,7 @@ import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'
 import { SMSService } from '../services/smsService';
 const getConversionRateWithCaching = getKESRate
-import { acquireLock, isProcessed, markProcessed } from '../services/idempotency';
+// import { acquireLock, isProcessed, markProcessed } from '../services/idempotency';
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -66,13 +66,17 @@ async function getTokenBalanceOnChain(
             address: tokenConfig.address,
         });
         
-        // Get balance
-        const balance = await balanceOf({
+        // Get balance in raw units
+        const rawBalance = await balanceOf({
             contract,
             address: walletAddress
         });
         
-        return parseFloat(balance.toString());
+        // Convert to human-readable format using token decimals
+        const decimals = tokenConfig.decimals || 18;
+        const humanReadableBalance = parseFloat(rawBalance.toString()) / Math.pow(10, decimals);
+        
+        return humanReadableBalance;
     } catch (error) {
         console.error(`Error getting ${tokenSymbol} balance on ${chain}:`, error);
         return 0; // Return 0 on error to avoid breaking the flow
@@ -216,7 +220,9 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
                     status: 'pending',
                     checkoutRequestId: checkoutRequestId,
                     createdAt: escrow.createdAt,
-                    estimatedCompletionTime: new Date(Date.now() + 2 * 60 * 1000) // 2 minutes from now
+                    estimatedCompletionTime: new Date(Date.now() + 2 * 60 * 1000), // 2 minutes from now
+                    transactionCategory: 'onramp',
+                    transactionSubType: 'received'
                 }
             ));
         } catch (mpesaError: any) {
@@ -368,10 +374,10 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
             ));
         }
         
-        // Check if user has sufficient balance
+        // Check if user has sufficient balance for the specific token
         try {
-            console.log(`🔍 Checking balance for user ${authenticatedUser.walletAddress} on chain ${chain}`);
-            const userBalance = await getWalletBalance(authenticatedUser.walletAddress, chain);
+            console.log(`🔍 Checking balance for user ${authenticatedUser.walletAddress} on chain ${chain} for token ${tokenType}`);
+            const userBalance = await getTokenBalanceOnChain(authenticatedUser.walletAddress, chain, tokenType as TokenSymbol);
             console.log(`💰 User balance on ${chain}: ${userBalance} ${tokenType}`);
             
             if (userBalance < cryptoAmount) {
@@ -381,7 +387,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                     null,
                     { 
                         code: "INSUFFICIENT_BALANCE", 
-                        message: `Your balance (${userBalance.toFixed(6)}) is less than the requested amount (${cryptoAmount.toFixed(6)})` 
+                        message: `Your ${tokenType} balance (${userBalance.toFixed(6)}) is less than the requested amount (${cryptoAmount.toFixed(6)})` 
                     }
                 ));
             }
@@ -421,7 +427,8 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                 platformWallets.main.address, 
                 cryptoAmount,
                 authenticatedUser.privateKey,
-                chain // Use the chain parameter from request
+                chain,
+                tokenType as TokenSymbol // Pass the token type to ensure correct token transfer
             );
             
             if (!tokenTransferResult || !tokenTransferResult.transactionHash) {
@@ -507,6 +514,8 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                     createdAt: escrow.createdAt,
                     estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
                     message: "Your withdrawal is being processed. You'll receive an SMS confirmation shortly.",
+                    transactionCategory: 'offramp',
+                    transactionSubType: 'sent',
                     transactionDetails: {
                         type: 'CRYPTO_TO_MPESA',
                         chain: chain,
@@ -1215,6 +1224,8 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                             note: "Your M-Pesa transaction is being processed. We will credit your account once the payment is confirmed.",
                             estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
                             successCode,
+                            transactionCategory: 'onramp',
+                            transactionSubType: 'received',
                             // Enhanced response with comprehensive transaction details
                             transactionDetails: {
                                 mpesaAmount: mpesaAmount,
@@ -1288,6 +1299,8 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                         note: "Your M-Pesa payment is being processed. We'll update your balance once confirmed.",
                         estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
                         successCode,
+                        transactionCategory: 'onramp',
+                        transactionSubType: 'received',
                         // Enhanced response with comprehensive transaction details
                         transactionDetails: {
                             mpesaAmount: mpesaAmount,
@@ -1333,7 +1346,9 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                     checkoutRequestId: checkoutRequestId,
                     createdAt: escrow.createdAt,
                     estimatedCompletionTime: new Date(Date.now() + 2 * 60 * 1000),
-                    successCode
+                    successCode,
+                    transactionCategory: 'onramp',
+                    transactionSubType: 'received'
                 }
             ));
         } catch (mpesaError: any) {
@@ -1517,18 +1532,18 @@ async function processSTKCallback(callbackData: any) {
         const checkoutRequestID = stkCallback.CheckoutRequestID;
         const resultCode = parseInt(stkCallback.ResultCode, 10);
 
-        // Idempotency guard (avoid double-processing from retries)
-        const idemKey = `mpesa:stk:${checkoutRequestID}:${stkCallback.MerchantRequestID || 'unknown'}`;
-        if (await isProcessed(idemKey)) {
-            console.log(`ℹ️ [CB:${callbackId}] Duplicate STK callback ignored for ${checkoutRequestID}`);
-            return;
-        }
-        const lockKey = `${idemKey}:lock`;
-        const haveLock = await acquireLock(lockKey, 30);
-        if (!haveLock) {
-            console.log(`ℹ️ [CB:${callbackId}] Another worker is processing ${checkoutRequestID}`);
-            return;
-        }
+        // Idempotency guard removed for deploy branch compatibility
+        // const idemKey = `mpesa:stk:${checkoutRequestID}:${stkCallback.MerchantRequestID || 'unknown'}`;
+        // if (await isProcessed(idemKey)) {
+        //     console.log(`ℹ️ [CB:${callbackId}] Duplicate STK callback ignored for ${checkoutRequestID}`);
+        //     return;
+        // }
+        // const lockKey = `${idemKey}:lock`;
+        // const haveLock = await acquireLock(lockKey, 30);
+        // if (!haveLock) {
+        //     console.log(`ℹ️ [CB:${callbackId}] Another worker is processing ${checkoutRequestID}`);
+        //     return;
+        // }
         
         console.log(`🔍 [CB:${callbackId}] Processing callback for CheckoutRequestID: ${checkoutRequestID}, ResultCode: ${resultCode}`);
         
@@ -1693,9 +1708,36 @@ async function processSTKCallback(callbackData: any) {
                         directProcessing: true // Flag to indicate direct processing
                     };
                     await escrow.save();
-                    await markProcessed(idemKey);
+                    // await markProcessed(idemKey);
                     
-                    // Send transaction success SMS notification
+                    // Parse M-Pesa transaction date (format: YYYYMMDDHHmmss, e.g., 20251103174559)
+                    const parseMpesaDate = (dateStr: string): Date | undefined => {
+                        if (!dateStr || dateStr.length !== 14) return undefined;
+                        try {
+                            const year = parseInt(dateStr.substring(0, 4));
+                            const month = parseInt(dateStr.substring(4, 6)) - 1; // Month is 0-indexed
+                            const day = parseInt(dateStr.substring(6, 8));
+                            const hour = parseInt(dateStr.substring(8, 10));
+                            const minute = parseInt(dateStr.substring(10, 12));
+                            const second = parseInt(dateStr.substring(12, 14));
+                            return new Date(Date.UTC(year, month, day, hour, minute, second));
+                        } catch {
+                            return undefined;
+                        }
+                    };
+                    
+                    // Calculate transaction duration in seconds
+                    const transactionDuration = escrow.createdAt 
+                        ? Math.floor((new Date().getTime() - escrow.createdAt.getTime()) / 1000)
+                        : undefined;
+                    
+                    // Get NexusPay code from metadata
+                    const nexusPayCode = escrow.metadata?.successCode || escrow.metadata?.nexuspayPlatformCode;
+                    
+                    // Parse M-Pesa transaction time
+                    const mpesaTransactionDate = parseMpesaDate(transactionDate);
+                    
+                    // Send transaction success SMS notification with all details
                     await SMSService.sendTransactionNotification({
                         phoneNumber: user.phoneNumber,
                         amount: cryptoAmount.toString(),
@@ -1703,7 +1745,14 @@ async function processSTKCallback(callbackData: any) {
                         transactionHash: transferResult.transactionHash,
                         transactionType: 'buy',
                         status: 'success',
-                        explorerUrl: explorerUrl
+                        explorerUrl: explorerUrl,
+                        mpesaReceiptNumber: mpesaReceiptNumber,
+                        mpesaTransactionTime: mpesaTransactionDate || new Date(),
+                        nexusPayReceipt: escrow.transactionId,
+                        transactionDuration: transactionDuration,
+                        fiatAmount: amount,
+                        chain: chain,
+                        nexusPayCode: nexusPayCode
                     });
                     
                     console.log(`✅ [CB:${callbackId}] Crypto transfer completed successfully:`);
@@ -1737,7 +1786,7 @@ async function processSTKCallback(callbackData: any) {
                 escrow.mpesaReceiptNumber = mpesaReceiptNumber;
                 escrow.metadata = { ...escrow.metadata, mpesaReceiptNumber };
                 await escrow.save();
-                await markProcessed(idemKey);
+                // await markProcessed(idemKey);
             } else if (escrow.status === 'completed') {
                 console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} already completed`);
                 // Just update receipt for reconciliation if needed
@@ -1746,7 +1795,7 @@ async function processSTKCallback(callbackData: any) {
                     escrow.metadata = { ...escrow.metadata, mpesaReceiptNumber };
                     await escrow.save();
                 }
-                await markProcessed(idemKey);
+                // await markProcessed(idemKey);
             } else {
                 console.log(`ℹ️ [CB:${callbackId}] Transaction ${escrow.transactionId} is not eligible for crypto transfer in current state: ${escrow.status}`);
                 
@@ -1758,7 +1807,7 @@ async function processSTKCallback(callbackData: any) {
                 escrow.completedAt = new Date();
                 escrow.metadata = { ...escrow.metadata, mpesaPaymentReceived: true, mpesaReceiptNumber };
                 await escrow.save();
-                await markProcessed(idemKey);
+                // await markProcessed(idemKey);
                 
                 // Log for reconciliation
                 logTransactionForReconciliation({
@@ -1787,7 +1836,7 @@ async function processSTKCallback(callbackData: any) {
                 errorCode: `MPESA_ERROR_${resultCode}`
             };
             await escrow.save();
-            await markProcessed(idemKey);
+            // await markProcessed(idemKey);
             
             // Log failed transaction for reconciliation
             logTransactionForReconciliation({
@@ -1854,17 +1903,17 @@ async function processB2CCallback(callbackData: any) {
         
         const { ConversationID, ResultCode, ResultParameters } = Result;
 
-        // Idempotency guard for B2C
-        const idemKey = `mpesa:b2c:${ConversationID}`;
-        if (await isProcessed(idemKey)) {
-            console.log(`ℹ️ Duplicate B2C callback ignored for ${ConversationID}`);
-            return;
-        }
-        const haveLock = await acquireLock(`${idemKey}:lock`, 30);
-        if (!haveLock) {
-            console.log(`ℹ️ Another worker is processing B2C ${ConversationID}`);
-            return;
-        }
+        // Idempotency guard removed for deploy branch compatibility
+        // const idemKey = `mpesa:b2c:${ConversationID}`;
+        // if (await isProcessed(idemKey)) {
+        //     console.log(`ℹ️ Duplicate B2C callback ignored for ${ConversationID}`);
+        //     return;
+        // }
+        // const haveLock = await acquireLock(`${idemKey}:lock`, 30);
+        // if (!haveLock) {
+        //     console.log(`ℹ️ Another worker is processing B2C ${ConversationID}`);
+        //     return;
+        // }
         
         // Find the corresponding escrow transaction
         const escrow = await Escrow.findOne({ mpesaTransactionId: ConversationID });
@@ -1884,33 +1933,117 @@ async function processB2CCallback(callbackData: any) {
             console.log("B2C Result Parameters:", resultParams);
         }
         
+        // Minimal-overhead immediate persistence of receipt and raw params for auditability
+        try {
+          const immediateReceipt = (resultParams && (
+            resultParams.TransactionReceipt || resultParams.ReceiptNo || resultParams.ReceiptNumber || resultParams.MpesaReceiptNumber || resultParams.Receipt
+          )) || undefined;
+          const immediateSet: any = { 'metadata.b2cResultParams': resultParams, 'metadata.b2cConversationId': ConversationID, 'metadata.b2cResultCode': ResultCode };
+          if (immediateReceipt) immediateSet.mpesaReceiptNumber = immediateReceipt;
+          await Escrow.updateOne({ _id: escrow._id }, { $set: immediateSet });
+        } catch (persistErr) {
+          const msg = (persistErr as any)?.message || String(persistErr);
+          console.warn('⚠️ [B2C] Immediate receipt persist failed:', msg);
+        }
+
+        // Try to persist receipt number even if transaction fails, for diagnostics
+        const mappedReceipt = (resultParams && (
+          resultParams.TransactionReceipt ||
+          resultParams.ReceiptNo ||
+          resultParams.ReceiptNumber ||
+          resultParams.MpesaReceiptNumber ||
+          resultParams.Receipt
+        )) || undefined;
+
+        if (mappedReceipt) {
+          escrow.mpesaReceiptNumber = mappedReceipt;
+          console.log(`🧾 [B2C] Captured receipt ${mappedReceipt} for ConversationID=${ConversationID}`);
+        } else {
+          console.warn(`⚠️ [B2C] No receipt found in ResultParameters for ConversationID=${ConversationID}`);
+        }
+
+        // Always attach raw params and convo id to metadata for auditability
+        escrow.metadata = {
+          ...(escrow.metadata || {}),
+          b2cResultParams: resultParams,
+          b2cConversationId: ConversationID,
+          b2cResultCode: ResultCode
+        };
+
         // Check if transaction was successful
         if (ResultCode === 0) {
             // Update escrow as completed
             escrow.status = 'completed';
             escrow.completedAt = new Date();
             await escrow.save();
-            await markProcessed(idemKey);
+            // await markProcessed(idemKey);
             
             console.log(`✅ Successful B2C transaction for escrow: ${escrow.transactionId}`);
+            if (mappedReceipt) {
+                console.log(`🧾 B2C M-Pesa Receipt: ${mappedReceipt}`);
+            }
             
-            // Send completion SMS to user
+            // Send completion SMS to user with all transaction details
             try {
                 const user = await User.findById(escrow.userId);
                 if (user) {
+                    // Parse M-Pesa transaction date (format: YYYYMMDDHHmmss, e.g., 20251103174559)
+                    const parseMpesaDate = (dateStr: string | number): Date | undefined => {
+                        if (!dateStr) return undefined;
+                        const dateString = String(dateStr);
+                        if (dateString.length !== 14) return undefined;
+                        try {
+                            const year = parseInt(dateString.substring(0, 4));
+                            const month = parseInt(dateString.substring(4, 6)) - 1; // Month is 0-indexed
+                            const day = parseInt(dateString.substring(6, 8));
+                            const hour = parseInt(dateString.substring(8, 10));
+                            const minute = parseInt(dateString.substring(10, 12));
+                            const second = parseInt(dateString.substring(12, 14));
+                            return new Date(Date.UTC(year, month, day, hour, minute, second));
+                        } catch {
+                            return undefined;
+                        }
+                    };
+                    
+                    // Calculate transaction duration in seconds
+                    const transactionDuration = escrow.createdAt 
+                        ? Math.floor((new Date().getTime() - escrow.createdAt.getTime()) / 1000)
+                        : undefined;
+                    
+                    // Get NexusPay code from metadata
+                    const nexusPayCode = escrow.metadata?.successCode || escrow.metadata?.nexuspayPlatformCode;
+                    
+                    // Extract M-Pesa transaction date from resultParams (if available)
+                    const mpesaTransactionDateStr = resultParams.TransactionDate || resultParams.TransactionTime;
+                    const mpesaTransactionDate = mpesaTransactionDateStr 
+                        ? parseMpesaDate(mpesaTransactionDateStr)
+                        : undefined;
+                    
+                    // Generate explorer URL
+                    const explorerUrl = escrow.cryptoTransactionHash 
+                        ? (escrow.chain === 'arbitrum' 
+                            ? `https://arbiscan.io/tx/${escrow.cryptoTransactionHash}` 
+                            : escrow.chain === 'celo' 
+                                ? `https://explorer.celo.org/tx/${escrow.cryptoTransactionHash}`
+                                : `https://polygonscan.com/tx/${escrow.cryptoTransactionHash}`)
+                        : undefined;
+                    
                     await SMSService.sendTransactionNotification({
                         phoneNumber: user.phoneNumber || user.email || '',
-                        amount: escrow.amount.toFixed(2),
+                        amount: escrow.cryptoAmount.toFixed(6),
                         tokenType: escrow.tokenType || 'USDC',
                         transactionHash: escrow.cryptoTransactionHash || escrow.transactionId,
                         transactionType: 'sell',
                         status: 'success',
-                        recipientAddress: resultParams.TransactionReceipt || 'MPESA',
-                        explorerUrl: escrow.chain === 'arbitrum' 
-                            ? `https://arbiscan.io/tx/${escrow.cryptoTransactionHash}` 
-                            : escrow.chain === 'celo' 
-                                ? `https://explorer.celo.org/tx/${escrow.cryptoTransactionHash}`
-                                : `https://polygonscan.com/tx/${escrow.cryptoTransactionHash}`
+                        recipientAddress: mappedReceipt || 'MPESA',
+                        explorerUrl: explorerUrl,
+                        mpesaReceiptNumber: mappedReceipt,
+                        mpesaTransactionTime: mpesaTransactionDate || new Date(),
+                        nexusPayReceipt: escrow.transactionId,
+                        transactionDuration: transactionDuration,
+                        fiatAmount: escrow.amount,
+                        chain: escrow.chain,
+                        nexusPayCode: nexusPayCode
                     });
                     console.log(`📱 Completion SMS sent to user for successful transaction: ${escrow.transactionId}`);
                 }
@@ -1923,7 +2056,7 @@ async function processB2CCallback(callbackData: any) {
             escrow.status = 'failed';
             escrow.completedAt = new Date();
             await escrow.save();
-            await markProcessed(idemKey);
+            // await markProcessed(idemKey);
             
             console.error(`❌ Failed B2C transaction for escrow: ${escrow.transactionId}, ResultCode: ${ResultCode}`);
             
@@ -2019,17 +2152,17 @@ async function processB2BCallback(callbackData: any) {
         
         const { ConversationID, ResultCode, ResultDesc, ResultParameters } = Result;
 
-        // Idempotency guard for B2B
-        const idemKey = `mpesa:b2b:${ConversationID}`;
-        if (await isProcessed(idemKey)) {
-            console.log(`ℹ️ Duplicate B2B callback ignored for ${ConversationID}`);
-            return;
-        }
-        const haveLock = await acquireLock(`${idemKey}:lock`, 30);
-        if (!haveLock) {
-            console.log(`ℹ️ Another worker is processing B2B ${ConversationID}`);
-            return;
-        }
+        // Idempotency guard removed for deploy branch compatibility
+        // const idemKey = `mpesa:b2b:${ConversationID}`;
+        // if (await isProcessed(idemKey)) {
+        //     console.log(`ℹ️ Duplicate B2B callback ignored for ${ConversationID}`);
+        //     return;
+        // }
+        // const haveLock = await acquireLock(`${idemKey}:lock`, 30);
+        // if (!haveLock) {
+        //     console.log(`ℹ️ Another worker is processing B2B ${ConversationID}`);
+        //     return;
+        // }
         
         // Find the corresponding escrow transaction
         const escrow = await Escrow.findOne({ mpesaTransactionId: ConversationID });
@@ -2060,7 +2193,7 @@ async function processB2BCallback(callbackData: any) {
                 callbackProcessed: true
             };
             await escrow.save();
-            await markProcessed(idemKey);
+            // await markProcessed(idemKey);
             
             // Send success SMS to user
             try {
@@ -2092,7 +2225,7 @@ async function processB2BCallback(callbackData: any) {
                 failureReason: 'B2B_PAYMENT_FAILED'
             };
             await escrow.save();
-            await markProcessed(idemKey);
+            // await markProcessed(idemKey);
             
             // Initiate rollback since B2B failed
             try {

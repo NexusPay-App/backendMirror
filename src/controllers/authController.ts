@@ -1,6 +1,6 @@
 // src/controllers/authController.ts
 import { User } from '../models/models';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { createAccount, generateOTP, otpStore, SALT_ROUNDS } from "../services/auth";
