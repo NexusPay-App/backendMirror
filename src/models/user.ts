@@ -13,6 +13,10 @@ export interface IUser {
   googleId?: string;
   authMethods: ('phone' | 'email' | 'google')[];
   lastLogin?: Date;
+  // Stellar wallet fields
+  stellarAccountId?: string;
+  stellarSecretKey?: string; // Encrypted secret key
+  stellarWalletCreated?: boolean;
 }
 
 export interface IUserDocument extends IUser, Document {
@@ -69,6 +73,20 @@ const userSchema = new Schema<IUserDocument>({
   }],
   lastLogin: {
     type: Date
+  },
+  // Stellar wallet fields
+  stellarAccountId: {
+    type: String,
+    sparse: true,
+    unique: true
+  },
+  stellarSecretKey: {
+    type: String,
+    select: false // Don't include in queries by default for security
+  },
+  stellarWalletCreated: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

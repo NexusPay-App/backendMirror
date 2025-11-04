@@ -15,7 +15,10 @@ export enum TransactionType {
   USER_TO_EXTERNAL = 'user_to_external',
   EXTERNAL_TO_USER = 'external_to_user',
   MPESA_TO_ESCROW = 'mpesa_to_escrow',
-  ESCROW_TO_USER = 'escrow_to_user'
+  ESCROW_TO_USER = 'escrow_to_user',
+  STELLAR_MPESA_UPDATE = 'stellar_mpesa_update',
+  STELLAR_WALLET_CREATION = 'stellar_wallet_creation',
+  STELLAR_PAYMENT = 'stellar_payment'
 }
 
 /**

@@ -70,13 +70,57 @@ export class StellarWalletService {
         try {
           await stellarService.createAccount(secretKey);
           logger.info(`Funded testnet account: ${accountId}`);
+          // Wait a moment for the account to be available on the network
+          await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (error) {
           logger.warn('Failed to fund testnet account, user will need to fund manually:', error);
         }
       }
 
-      // Get initial account info
-      const accountInfo = await stellarService.getAccountInfo(accountId);
+      // Get initial account info with retry logic
+      let accountInfo;
+      let retries = 3;
+      let retryDelay = 1000;
+      
+      while (retries > 0) {
+        try {
+          accountInfo = await stellarService.getAccountInfo(accountId);
+          break; // Success, exit retry loop
+        } catch (error: any) {
+          retries--;
+          if (retries === 0) {
+            // If account info can't be fetched, create wallet with minimal info
+            logger.warn(`Could not fetch account info for ${accountId}, creating wallet with minimal info`);
+            accountInfo = {
+              id: accountId,
+              accountId: accountId,
+              balances: [],
+              sequence: '0',
+              subentryCount: 0,
+              lastModifiedLedger: 0,
+              thresholds: {
+                lowThreshold: 0,
+                medThreshold: 0,
+                highThreshold: 0
+              },
+              flags: {
+                authRequired: false,
+                authRevocable: false,
+                authImmutable: false
+              }
+            };
+            break;
+          }
+          logger.info(`Retrying account info fetch for ${accountId}, ${retries} retries left...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          retryDelay *= 2; // Exponential backoff
+        }
+      }
+      
+      // Ensure accountInfo is defined (should always be set by now, but TypeScript needs this)
+      if (!accountInfo) {
+        throw new Error('Failed to get account info after all retries');
+      }
       
       const walletInfo: StellarWalletInfo = {
         accountId,
@@ -96,16 +140,19 @@ export class StellarWalletService {
 
       // Log wallet creation
       await recordTransaction({
-        id: generateUUID(),
         type: TransactionType.STELLAR_WALLET_CREATION,
-        from: 'system',
-        to: accountId,
+        txHash: 'wallet_creation',
+        status: 'completed',
+        fromAddress: 'system',
+        toAddress: accountId,
         amount: 0,
-        asset: 'XLM',
-        chain: 'stellar',
-        transactionHash: 'wallet_creation',
-        status: 'success',
-        timestamp: new Date()
+        tokenType: 'XLM',
+        chainName: 'stellar',
+        userId,
+        metadata: {
+          accountId,
+          createdAt: new Date()
+        }
       });
 
       logger.info(`Created Stellar wallet for user ${userId}: ${accountId}`);
@@ -131,9 +178,37 @@ export class StellarWalletService {
         }
       }
 
-      // In a real implementation, you would query your database here
-      // For now, we'll return null to indicate no wallet exists
-      return null;
+      // Query database for user's Stellar wallet
+      const { User } = await import('../models/user');
+      const user = await User.findById(userId).select('+stellarSecretKey'); // Include secret key
+      
+      if (!user || !user.stellarAccountId || !user.stellarSecretKey) {
+        return null;
+      }
+
+      // Get current account info
+      const accountInfo = await stellarService.getAccountInfo(user.stellarAccountId);
+      
+      const walletInfo: StellarWalletInfo = {
+        accountId: user.stellarAccountId,
+        secretKey: user.stellarSecretKey,
+        balances: accountInfo.balances.map(balance => ({
+          asset: balance.asset.code,
+          balance: balance.balance,
+          usdValue: 0
+        })),
+        sequence: accountInfo.sequence,
+        isActive: true,
+        createdAt: user.createdAt || new Date(),
+        lastActivity: user.updatedAt || new Date()
+      };
+
+      // Cache the wallet info
+      if (isRedisConnected()) {
+        await redis.setex(cacheKey, 3600, JSON.stringify(walletInfo));
+      }
+
+      return walletInfo;
     } catch (error) {
       logger.error('Error getting user Stellar wallet:', error);
       return null;
@@ -147,14 +222,20 @@ export class StellarWalletService {
     try {
       const cacheKey = `stellar:wallet:${userId}`;
       
+      // Store in database
+      const { User } = await import('../models/user');
+      await User.findByIdAndUpdate(userId, {
+        stellarAccountId: walletInfo.accountId,
+        stellarSecretKey: walletInfo.secretKey,
+        stellarWalletCreated: true
+      });
+
       // Store in cache
       if (isRedisConnected()) {
         await redis.setex(cacheKey, 3600, JSON.stringify(walletInfo)); // Cache for 1 hour
       }
 
-      // In a real implementation, you would store this in your database
-      // For example, add a stellarWallet field to your User model
-      logger.info(`Stored Stellar wallet for user ${userId}`);
+      logger.info(`Stored Stellar wallet for user ${userId} in database`);
     } catch (error) {
       logger.error('Error storing user Stellar wallet:', error);
       throw error;

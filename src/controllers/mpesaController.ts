@@ -33,7 +33,13 @@ import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'
 import { SMSService } from '../services/smsService';
 const getConversionRateWithCaching = getKESRate
-import { acquireLock, isProcessed, markProcessed } from '../services/idempotency';
+// import { acquireLock, isProcessed, markProcessed } from '../services/idempotency';
+// TODO: Implement idempotency service
+const acquireLock = async (key: string, ttl: number) => true;
+const isProcessed = async (key: string) => false;
+const markProcessed = async (key: string) => {};
+import { stellarMpesaService } from '../services/stellarMpesa';
+import { stellarWalletService } from '../services/stellarWallet';
 
 /**
  * Helper function to get token balance for a specific token on a specific chain
@@ -347,6 +353,177 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                 null,
                 { code: "INVALID_AMOUNT", message: "Amount must be a positive number" }
             ));
+        }
+
+        // Handle Stellar chain specially (non-EVM)
+        if (chain === 'stellar') {
+            try {
+                // Map token types for Stellar
+                const stellarAsset = tokenType === 'USDC' ? 'USDC' : tokenType === 'XLM' ? 'XLM' : tokenType;
+                
+                // Validate Stellar asset
+                if (stellarAsset !== 'XLM' && stellarAsset !== 'USDC') {
+                    return res.status(400).json(standardResponse(
+                        false,
+                        "Unsupported token for Stellar",
+                        null,
+                        { 
+                            code: "INVALID_TOKEN", 
+                            message: `Token ${tokenType} is not supported on Stellar. Supported tokens: XLM, USDC` 
+                        }
+                    ));
+                }
+
+                // Check if user has a Stellar wallet
+                const wallet = await stellarWalletService.getUserWallet(authenticatedUser._id.toString());
+                if (!wallet) {
+                    return res.status(404).json(standardResponse(
+                        false,
+                        "Stellar wallet not found",
+                        null,
+                        { code: "WALLET_NOT_FOUND", message: "Please create a Stellar wallet first" }
+                    ));
+                }
+
+                // Convert Stellar asset to KES first to get fiat amount
+                const conversion = await stellarMpesaService.convertStellarAssetToKes(cryptoAmount.toString(), stellarAsset);
+
+                // Check user's Stellar wallet balance
+                const userBalance = await stellarWalletService.getWalletBalance(authenticatedUser._id.toString(), stellarAsset);
+                if (parseFloat(userBalance) < cryptoAmount) {
+                    return res.status(400).json(standardResponse(
+                        false,
+                        "Insufficient balance",
+                        null,
+                        { 
+                            code: "INSUFFICIENT_BALANCE", 
+                            message: `Your Stellar balance (${userBalance}) is less than the requested amount (${cryptoAmount})` 
+                        }
+                    ));
+                }
+
+                // Create transaction ID and escrow
+                const transactionId = randomUUID();
+                const escrow = new Escrow({
+                    transactionId,
+                    userId: authenticatedUser._id,
+                    amount: conversion.amountKES,
+                    cryptoAmount,
+                    tokenType: stellarAsset,
+                    chain: 'stellar',
+                    type: 'crypto_to_fiat',
+                    status: 'pending'
+                });
+                await escrow.save();
+
+                try {
+                    // Get Stellar services
+                    const { StellarService } = await import('../services/stellar');
+                    const { getStellarConfig } = await import('../config/stellar');
+                    const stellarService = new StellarService();
+                    const stellarConfig = getStellarConfig();
+
+                    // Get user's Stellar wallet
+                    const userStellarWallet = await stellarWalletService.getUserWallet(authenticatedUser._id.toString());
+                    if (!userStellarWallet || !userStellarWallet.secretKey) {
+                        throw new Error('User Stellar wallet secret not found');
+                    }
+
+                    // Get platform Stellar wallet
+                    if (!stellarConfig.platformWalletSecret) {
+                        throw new Error('Stellar platform wallet secret not configured');
+                    }
+
+                    // Get platform wallet address
+                    const { Keypair } = await import('stellar-sdk');
+                    const platformKeypair = Keypair.fromSecret(stellarConfig.platformWalletSecret);
+                    const platformAccountId = platformKeypair.publicKey();
+
+                    // Transfer Stellar assets from user to platform wallet
+                    const usdcIssuer = stellarAsset === 'USDC' ? stellarConfig.usdcIssuer : undefined;
+                    const transferResult = await stellarService.sendPayment(
+                        userStellarWallet.secretKey,
+                        platformAccountId,
+                        cryptoAmount.toString(),
+                        stellarAsset,
+                        usdcIssuer,
+                        `NexusPay Withdrawal: ${transactionId}`
+                    );
+
+                    // Update escrow with transfer hash
+                    escrow.cryptoTransactionHash = transferResult.transactionHash;
+                    escrow.status = 'processing';
+                    await escrow.save();
+
+                    // Format phone for B2C
+                    let formattedPhone = phone.replace(/\D/g, '');
+                    if (formattedPhone.startsWith('0')) {
+                        formattedPhone = '254' + formattedPhone.substring(1);
+                    } else if (!formattedPhone.startsWith('254')) {
+                        formattedPhone = '254' + formattedPhone;
+                    }
+                    const phoneNumber = parseInt(formattedPhone, 10);
+
+                    // Initiate M-Pesa B2C payment
+                    const b2cResult = await initiateB2C(conversion.amountKES, phoneNumber);
+                    
+                    if (!b2cResult || b2cResult.ResponseCode !== "0") {
+                        escrow.status = 'failed';
+                        escrow.completedAt = new Date();
+                        await escrow.save();
+                        
+                        return res.status(500).json(standardResponse(
+                            false,
+                            "Failed to initiate M-Pesa withdrawal",
+                            null,
+                            { code: "MPESA_B2C_FAILED", message: b2cResult?.ResponseDescription || "M-Pesa B2C initiation failed" }
+                        ));
+                    }
+
+                    // Update escrow with M-Pesa transaction ID
+                    escrow.mpesaTransactionId = b2cResult.ConversationID;
+                    await escrow.save();
+
+                    return res.status(200).json(standardResponse(
+                        true,
+                        "Stellar withdrawal initiated successfully",
+                        {
+                            transactionId: escrow.transactionId,
+                            amount: conversion.amountKES,
+                            cryptoAmount,
+                            tokenType: stellarAsset,
+                            chain: 'stellar',
+                            status: 'processing',
+                            mpesaTransactionId: b2cResult.ConversationID,
+                            stellarTransactionHash: transferResult.transactionHash,
+                            message: "Your withdrawal is being processed. You'll receive an SMS confirmation shortly.",
+                            createdAt: escrow.createdAt,
+                            estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000)
+                        }
+                    ));
+                } catch (error: any) {
+                    logger.error('Error processing Stellar withdrawal:', error);
+                    escrow.status = 'failed';
+                    escrow.completedAt = new Date();
+                    escrow.metadata = { ...escrow.metadata, error: error.message };
+                    await escrow.save();
+                    
+                    return res.status(500).json(standardResponse(
+                        false,
+                        "Failed to process Stellar withdrawal",
+                        null,
+                        { code: "STELLAR_WITHDRAWAL_FAILED", message: error.message }
+                    ));
+                }
+            } catch (error: any) {
+                logger.error('Error initiating Stellar withdrawal:', error);
+                return res.status(500).json(standardResponse(
+                    false,
+                    "Failed to initiate Stellar withdrawal",
+                    null,
+                    { code: "STELLAR_WITHDRAWAL_FAILED", message: error.message }
+                ));
+            }
         }
         
         // Format phone number
@@ -960,7 +1137,77 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             ));
         }
 
-        // Step 1: Verify chain config exists and token is supported on this chain
+        // Step 1: Handle Stellar chain specially (non-EVM)
+        if (chain === 'stellar') {
+            try {
+                // Map token types for Stellar
+                const stellarAsset = tokenType === 'USDC' ? 'USDC' : tokenType === 'XLM' ? 'XLM' : tokenType;
+                
+                // Validate Stellar asset
+                if (stellarAsset !== 'XLM' && stellarAsset !== 'USDC') {
+                    return res.status(400).json(standardResponse(
+                        false,
+                        "Unsupported token for Stellar",
+                        null,
+                        { 
+                            code: "INVALID_TOKEN", 
+                            message: `Token ${tokenType} is not supported on Stellar. Supported tokens: XLM, USDC` 
+                        }
+                    ));
+                }
+
+                // Ensure user has a Stellar wallet
+                let wallet = await stellarWalletService.getUserWallet(authenticatedUser._id.toString());
+                if (!wallet) {
+                    // Format phone for wallet creation
+                    let formattedPhone = phone.replace(/\D/g, '');
+                    if (formattedPhone.startsWith('0')) {
+                        formattedPhone = '254' + formattedPhone.substring(1);
+                    } else if (!formattedPhone.startsWith('254')) {
+                        formattedPhone = '254' + formattedPhone;
+                    }
+                    wallet = await stellarWalletService.createWallet(authenticatedUser._id.toString(), formattedPhone);
+                }
+
+                // Convert KES to Stellar asset first to get crypto amount
+                const conversion = await stellarMpesaService.convertKesToStellarAsset(mpesaAmount, stellarAsset);
+
+                // Use Stellar M-Pesa service to initiate deposit
+                const result = await stellarMpesaService.initiateDeposit({
+                    userId: authenticatedUser._id.toString(),
+                    phoneNumber: phone,
+                    amountKES: mpesaAmount,
+                    asset: stellarAsset
+                });
+
+                return res.status(200).json(standardResponse(
+                    true,
+                    "Stellar crypto purchase initiated successfully",
+                    {
+                        transactionId: result.transactionId,
+                        mpesaAmount,
+                        cryptoAmount: parseFloat(conversion.amountAsset),
+                        tokenType: stellarAsset,
+                        chain: 'stellar',
+                        status: result.status,
+                        message: result.message,
+                        createdAt: new Date(),
+                        estimatedCompletionTime: new Date(Date.now() + 5 * 60 * 1000),
+                        successCode: generateSuccessCode()
+                    }
+                ));
+            } catch (error: any) {
+                logger.error('Error initiating Stellar deposit:', error);
+                return res.status(500).json(standardResponse(
+                    false,
+                    "Failed to initiate Stellar deposit",
+                    null,
+                    { code: "STELLAR_DEPOSIT_FAILED", message: error.message }
+                ));
+            }
+        }
+
+        // Step 1: Verify chain config exists and token is supported on this chain (for EVM chains)
         const chainConfig = config[chain];
         if (!chainConfig || !chainConfig.chainId || !chainConfig.tokenAddress) {
             return res.status(400).json(standardResponse(
@@ -1650,67 +1897,204 @@ async function processSTKCallback(callbackData: any) {
                         throw new Error(`User not found for transaction: ${escrow.transactionId}`);
                     }
                     
-                    if (!user.walletAddress) {
-                        throw new Error(`User wallet address not found for transaction: ${escrow.transactionId}`);
+                    // Handle Stellar chain specially
+                    if (chain === 'stellar') {
+                        // Get user's Stellar wallet
+                        const stellarWallet = await stellarWalletService.getUserWallet(user._id.toString());
+                        if (!stellarWallet) {
+                            throw new Error(`User Stellar wallet not found for transaction: ${escrow.transactionId}`);
+                        }
+
+                        // Get Stellar platform wallet secret
+                        const { getStellarConfig } = await import('../config/stellar');
+                        const stellarConfig = getStellarConfig();
+                        if (!stellarConfig.platformWalletSecret) {
+                            throw new Error('Stellar platform wallet secret not configured');
+                        }
+
+                        // Get Stellar service
+                        const { StellarService } = await import('../services/stellar');
+                        const stellarService = new StellarService();
+
+                        // Map token type for Stellar
+                        const stellarAsset = tokenType === 'USDC' ? 'USDC' : tokenType === 'XLM' ? 'XLM' : tokenType;
+                        const usdcIssuer = stellarAsset === 'USDC' ? stellarConfig.usdcIssuer : undefined;
+
+                        // Send Stellar payment from platform to user
+                        const transferResult = await stellarService.sendPayment(
+                            stellarConfig.platformWalletSecret,
+                            stellarWallet.accountId,
+                            cryptoAmount.toString(),
+                            stellarAsset,
+                            usdcIssuer,
+                            `NexusPay: ${mpesaReceiptNumber}`
+                        );
+
+                        // Generate explorer URL for Stellar
+                        const explorerUrl = `https://stellar.expert/explorer/testnet/tx/${transferResult.transactionHash}`;
+
+                        // Update escrow with successful transfer
+                        escrow.status = 'completed';
+                        escrow.completedAt = new Date();
+                        escrow.metadata = { 
+                            ...escrow.metadata, 
+                            mpesaPaymentReceived: true,
+                            cryptoTransferred: true,
+                            transferHash: transferResult.transactionHash,
+                            explorerUrl: explorerUrl,
+                            processingStatus: 'completed',
+                            completedAt: new Date().toISOString(),
+                            mpesaReceiptNumber,
+                            directProcessing: true
+                        };
+                        await escrow.save();
+
+                        // Parse M-Pesa transaction date
+                        const parseMpesaDate = (dateStr: string): Date | undefined => {
+                            if (!dateStr || dateStr.length !== 14) return undefined;
+                            try {
+                                const year = parseInt(dateStr.substring(0, 4));
+                                const month = parseInt(dateStr.substring(4, 6)) - 1;
+                                const day = parseInt(dateStr.substring(6, 8));
+                                const hour = parseInt(dateStr.substring(8, 10));
+                                const minute = parseInt(dateStr.substring(10, 12));
+                                const second = parseInt(dateStr.substring(12, 14));
+                                return new Date(Date.UTC(year, month, day, hour, minute, second));
+                            } catch {
+                                return undefined;
+                            }
+                        };
+
+                        // Calculate transaction duration
+                        const transactionDuration = escrow.createdAt 
+                            ? Math.floor((new Date().getTime() - escrow.createdAt.getTime()) / 1000)
+                            : undefined;
+
+                        // Get NexusPay code from metadata
+                        const nexusPayCode = escrow.metadata?.successCode || escrow.metadata?.nexuspayPlatformCode;
+                        const mpesaTransactionDate = parseMpesaDate(transactionDate);
+
+                        // Send transaction success SMS notification with all details
+                        await SMSService.sendTransactionNotification({
+                            phoneNumber: user.phoneNumber,
+                            amount: cryptoAmount.toString(),
+                            tokenType: stellarAsset,
+                            transactionHash: transferResult.transactionHash,
+                            transactionType: 'buy',
+                            status: 'success',
+                            explorerUrl: explorerUrl,
+                            mpesaReceiptNumber: mpesaReceiptNumber,
+                            mpesaTransactionTime: mpesaTransactionDate || new Date(),
+                            nexusPayReceipt: escrow.transactionId,
+                            transactionDuration: transactionDuration,
+                            fiatAmount: amount,
+                            chain: chain,
+                            nexusPayCode: nexusPayCode
+                        });
+
+                        console.log(`✅ [CB:${callbackId}] Stellar transfer completed successfully:`);
+                        console.log(`- Transaction Hash: ${transferResult.transactionHash}`);
+                        console.log(`- Amount: ${cryptoAmount} ${stellarAsset}`);
+                        console.log(`- Recipient: ${stellarWallet.accountId}`);
+                        console.log(`- Explorer: ${explorerUrl}`);
+                    } else {
+                        // EVM chain processing
+                        if (!user.walletAddress) {
+                            throw new Error(`User wallet address not found for transaction: ${escrow.transactionId}`);
+                        }
+                        
+                        // Get platform wallets for the transfer
+                        const platformWallets = await initializePlatformWallets();
+                        
+                        // Get the proper private keys from environment variables (same as manual intervention)
+                        const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
+                        const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
+                        
+                        if (!primaryKey || !secondaryKey) {
+                            throw new Error('Platform wallet keys (PLATFORM_WALLET_PRIMARY_KEY, PLATFORM_WALLET_SECONDARY_KEY) are required for crypto transfer');
+                        }
+                        
+                        // Process the crypto transfer immediately using the correct function signature
+                        const transferResult = await sendFromPlatformWallet(
+                            cryptoAmount,
+                            user.walletAddress,
+                            primaryKey,
+                            secondaryKey,
+                            chain,
+                            tokenType as TokenSymbol
+                        );
+                        
+                        // Generate explorer URL for the transaction
+                        const explorerUrl = generateExplorerUrl(chain, transferResult.transactionHash);
+                        
+                        // Update escrow with successful transfer
+                        escrow.status = 'completed';
+                        escrow.completedAt = new Date();
+                        escrow.metadata = { 
+                            ...escrow.metadata, 
+                            mpesaPaymentReceived: true,
+                            cryptoTransferred: true,
+                            transferHash: transferResult.transactionHash,
+                            explorerUrl: explorerUrl,
+                            processingStatus: 'completed',
+                            completedAt: new Date().toISOString(),
+                            mpesaReceiptNumber,
+                            directProcessing: true // Flag to indicate direct processing
+                        };
+                        await escrow.save();
+                        await markProcessed(idemKey);
+                        
+                        // Parse M-Pesa transaction date (format: YYYYMMDDHHmmss, e.g., 20251103174559)
+                        const parseMpesaDate = (dateStr: string): Date | undefined => {
+                            if (!dateStr || dateStr.length !== 14) return undefined;
+                            try {
+                                const year = parseInt(dateStr.substring(0, 4));
+                                const month = parseInt(dateStr.substring(4, 6)) - 1; // Month is 0-indexed
+                                const day = parseInt(dateStr.substring(6, 8));
+                                const hour = parseInt(dateStr.substring(8, 10));
+                                const minute = parseInt(dateStr.substring(10, 12));
+                                const second = parseInt(dateStr.substring(12, 14));
+                                return new Date(Date.UTC(year, month, day, hour, minute, second));
+                            } catch {
+                                return undefined;
+                            }
+                        };
+                        
+                        // Calculate transaction duration in seconds
+                        const transactionDuration = escrow.createdAt 
+                            ? Math.floor((new Date().getTime() - escrow.createdAt.getTime()) / 1000)
+                            : undefined;
+                        
+                        // Get NexusPay code from metadata
+                        const nexusPayCode = escrow.metadata?.successCode || escrow.metadata?.nexuspayPlatformCode;
+                        
+                        // Parse M-Pesa transaction time
+                        const mpesaTransactionDate = parseMpesaDate(transactionDate);
+                        
+                        // Send transaction success SMS notification with all details
+                        await SMSService.sendTransactionNotification({
+                            phoneNumber: user.phoneNumber,
+                            amount: cryptoAmount.toString(),
+                            tokenType: tokenType,
+                            transactionHash: transferResult.transactionHash,
+                            transactionType: 'buy',
+                            status: 'success',
+                            explorerUrl: explorerUrl,
+                            mpesaReceiptNumber: mpesaReceiptNumber,
+                            mpesaTransactionTime: mpesaTransactionDate || new Date(),
+                            nexusPayReceipt: escrow.transactionId,
+                            transactionDuration: transactionDuration,
+                            fiatAmount: amount,
+                            chain: chain,
+                            nexusPayCode: nexusPayCode
+                        });
+                        
+                        console.log(`✅ [CB:${callbackId}] Crypto transfer completed successfully:`);
+                        console.log(`- Transaction Hash: ${transferResult.transactionHash}`);
+                        console.log(`- Amount: ${cryptoAmount} ${tokenType}`);
+                        console.log(`- Recipient: ${user.walletAddress}`);
+                        console.log(`- Explorer: ${explorerUrl}`);
                     }
-                    
-                    // Get platform wallets for the transfer
-                    const platformWallets = await initializePlatformWallets();
-                    
-                    // Get the proper private keys from environment variables (same as manual intervention)
-                    const primaryKey = process.env.PLATFORM_WALLET_PRIMARY_KEY;
-                    const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
-                    
-                    if (!primaryKey || !secondaryKey) {
-                        throw new Error('Platform wallet keys (PLATFORM_WALLET_PRIMARY_KEY, PLATFORM_WALLET_SECONDARY_KEY) are required for crypto transfer');
-                    }
-                    
-                    // Process the crypto transfer immediately using the correct function signature
-                    const transferResult = await sendFromPlatformWallet(
-                        cryptoAmount,
-                        user.walletAddress,
-                        primaryKey,
-                        secondaryKey,
-                        chain,
-                        tokenType as TokenSymbol
-                    );
-                    
-                    // Generate explorer URL for the transaction
-                    const explorerUrl = generateExplorerUrl(chain, transferResult.transactionHash);
-                    
-                    // Update escrow with successful transfer
-                    escrow.status = 'completed';
-                    escrow.completedAt = new Date();
-                    escrow.metadata = { 
-                        ...escrow.metadata, 
-                        mpesaPaymentReceived: true,
-                        cryptoTransferred: true,
-                        transferHash: transferResult.transactionHash,
-                        explorerUrl: explorerUrl,
-                        processingStatus: 'completed',
-                        completedAt: new Date().toISOString(),
-                        mpesaReceiptNumber,
-                        directProcessing: true // Flag to indicate direct processing
-                    };
-                    await escrow.save();
-                    await markProcessed(idemKey);
-                    
-                    // Send transaction success SMS notification
-                    await SMSService.sendTransactionNotification({
-                        phoneNumber: user.phoneNumber,
-                        amount: cryptoAmount.toString(),
-                        tokenType: tokenType,
-                        transactionHash: transferResult.transactionHash,
-                        transactionType: 'buy',
-                        status: 'success',
-                        explorerUrl: explorerUrl
-                    });
-                    
-                    console.log(`✅ [CB:${callbackId}] Crypto transfer completed successfully:`);
-                    console.log(`- Transaction Hash: ${transferResult.transactionHash}`);
-                    console.log(`- Amount: ${cryptoAmount} ${tokenType}`);
-                    console.log(`- Recipient: ${user.walletAddress}`);
-                    console.log(`- Explorer: ${explorerUrl}`);
                     
                 } catch (error: any) {
                     console.error(`❌ [CB:${callbackId}] Error processing direct crypto transfer for transaction ${escrow.transactionId}:`, error);

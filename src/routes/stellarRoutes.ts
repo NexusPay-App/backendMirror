@@ -5,6 +5,7 @@ import { body, query, param } from 'express-validator';
 import {
   createWallet,
   getWallet,
+  getSecretKey,
   getBalance,
   getAllBalances,
   sendPayment,
@@ -34,6 +35,14 @@ router.post('/wallet', createWallet);
  * @access  Private
  */
 router.get('/wallet', getWallet);
+
+/**
+ * @route   GET /api/stellar/secret-key
+ * @desc    Get user's Stellar secret key (private key)
+ * @access  Private
+ * @warning Returns sensitive information - user must be authenticated
+ */
+router.get('/secret-key', getSecretKey);
 
 /**
  * @route   GET /api/stellar/balance

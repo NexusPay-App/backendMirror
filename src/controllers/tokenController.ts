@@ -42,7 +42,8 @@ export const send = async (req: Request, res: Response) => {
         tokenSymbol = 'USDC',
         password,
         googleAuthCode,
-        transactionSignature
+        transactionSignature,
+        memo
     } = req.body;
     
     // Enhanced validation with better error messages
@@ -137,8 +138,8 @@ export const send = async (req: Request, res: Response) => {
             recipientEmail = recipient.email || '';
         }
 
-        // Enhanced chain validation - support all chains from config
-        const supportedChains = ['arbitrum', 'celo', 'polygon', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia'];
+        // Enhanced chain validation - support all chains from config including Stellar
+        const supportedChains = ['arbitrum', 'celo', 'polygon', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia', 'stellar'];
         if (!supportedChains.includes(chain)) {
             console.log("Invalid chain:", chain);
             return res.status(400).json({
@@ -153,6 +154,119 @@ export const send = async (req: Request, res: Response) => {
 
         // 🔐 ENHANCED SECURITY: Implement flexible authentication - user chooses password OR Google auth
         const amountNum = parseFloat(amount);
+
+        // Handle Stellar chain specially (non-EVM)
+        if (chain === 'stellar') {
+            try {
+                const { StellarService } = await import('../services/stellar');
+                const { stellarWalletService } = await import('../services/stellarWallet');
+                const stellarService = new StellarService();
+                
+                // Map token types for Stellar
+                const stellarAsset = tokenSymbol === 'USDC' ? 'USDC' : tokenSymbol === 'XLM' ? 'XLM' : tokenSymbol;
+                
+                // Validate Stellar asset
+                if (stellarAsset !== 'XLM' && stellarAsset !== 'USDC') {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Unsupported token for Stellar",
+                        error: {
+                            code: "INVALID_TOKEN",
+                            message: `Token ${tokenSymbol} is not supported on Stellar. Supported tokens: XLM, USDC`
+                        }
+                    });
+                }
+
+                // Get recipient wallet address
+                let recipientStellarAddress = recipientIdentifier;
+                
+                // If not a Stellar address, try to resolve it
+                if (!recipientIdentifier.startsWith('G')) {
+                    // Try to find user by phone/email
+                    const recipient = await User.findOne({
+                        $or: [
+                            { phoneNumber: recipientIdentifier },
+                            { email: recipientIdentifier }
+                        ]
+                    });
+                    
+                    if (recipient) {
+                        // Get user's Stellar wallet
+                        const recipientWallet = await stellarWalletService.getUserWallet(recipient._id.toString());
+                        if (!recipientWallet) {
+                            return res.status(404).json({
+                                success: false,
+                                message: "Recipient does not have a Stellar wallet",
+                                error: {
+                                    code: "WALLET_NOT_FOUND",
+                                    message: "The recipient needs to create a Stellar wallet first"
+                                }
+                            });
+                        }
+                        recipientStellarAddress = recipientWallet.accountId;
+                    } else {
+                        return res.status(404).json({
+                            success: false,
+                            message: "Recipient not found",
+                            error: {
+                                code: "RECIPIENT_NOT_FOUND",
+                                message: "Recipient must have a Stellar wallet address or be registered with NexusPay"
+                            }
+                        });
+                    }
+                }
+
+                // Get sender's Stellar wallet
+                const senderWallet = await stellarWalletService.getUserWallet(sender._id.toString());
+                if (!senderWallet) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Stellar wallet not found",
+                        error: {
+                            code: "WALLET_NOT_FOUND",
+                            message: "Please create a Stellar wallet first"
+                        }
+                    });
+                }
+
+                // Get USDC issuer for Stellar
+                const { getStellarConfig } = await import('../config/stellar');
+                const stellarConfig = getStellarConfig();
+                const usdcIssuer = stellarAsset === 'USDC' ? stellarConfig.usdcIssuer : undefined;
+
+                // Send Stellar payment
+                const result = await stellarService.sendPayment(
+                    senderWallet.secretKey,
+                    recipientStellarAddress,
+                    amountNum.toString(),
+                    stellarAsset,
+                    usdcIssuer,
+                    memo
+                );
+
+                return res.status(200).json({
+                    success: true,
+                    message: "Stellar payment sent successfully",
+                    data: {
+                        transactionHash: result.transactionHash,
+                        amount: amountNum,
+                        asset: stellarAsset,
+                        recipient: recipientStellarAddress,
+                        chain: 'stellar'
+                    }
+                });
+            } catch (error: any) {
+                console.error('Error sending Stellar payment:', error);
+                return res.status(500).json({
+                    success: false,
+                    message: "Failed to send Stellar payment",
+                    error: {
+                        code: "STELLAR_SEND_FAILED",
+                        message: error.message
+                    }
+                });
+            }
+        }
         const isHighValueTransaction = amountNum > 100; // $100 threshold
         
         if (isHighValueTransaction) {

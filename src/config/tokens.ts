@@ -83,6 +83,10 @@ export const tokenConfigs: TokenConfigurations = {
     },
     aurora: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0xB12BFcA5A55806AaF64E99521918A4bf0fC40802', name: 'USD Coin' }
+    },
+    stellar: {
+        XLM: { symbol: 'XLM', decimals: 7, address: 'native' as any, name: 'Stellar Lumens' },
+        USDC_STELLAR: { symbol: 'USDC_STELLAR', decimals: 7, address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' as any, name: 'USD Coin (Stellar)' }
     }
 };
 

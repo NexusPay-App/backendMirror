@@ -209,6 +209,30 @@ router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) 
     user.lastLoginAt = new Date();
     await user.save();
     
+    // Create Stellar wallet for existing users if they don't have one
+    if (!user.stellarWalletCreated || !user.stellarAccountId) {
+      try {
+        console.log(`🌟 Creating Stellar wallet for existing user: ${user._id}`);
+        const stellarWalletModule = await import('../services/stellarWallet');
+        const { stellarWalletService } = stellarWalletModule;
+        const stellarWallet = await stellarWalletService.createWallet(
+          user._id.toString(),
+          user.phoneNumber || user.email || undefined
+        );
+        console.log(`✅ Stellar wallet created for user ${user._id}: ${stellarWallet.accountId}`);
+        // Reload user from database to get updated stellarAccountId
+        const refreshedUser = await User.findById(user._id);
+        if (refreshedUser) {
+          user.stellarAccountId = refreshedUser.stellarAccountId;
+          user.stellarWalletCreated = refreshedUser.stellarWalletCreated || true;
+          console.log(`✅ User object updated with Stellar wallet: ${user.stellarAccountId}`);
+        }
+      } catch (stellarError) {
+        console.error('❌ Error creating Stellar wallet during login:', stellarError);
+        // Don't fail login if Stellar wallet creation fails
+      }
+    }
+    
     // Generate JWT token
     const token = jwt.sign(
       { 
@@ -224,14 +248,23 @@ router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) 
     // Register this as a verified session
     registerVerifiedSession(token, user._id.toString());
     
+    // Fetch updated user to get stellarAccountId if it was just created
+    const updatedUser = await User.findById(user._id);
+    
     return res.json({
       success: true,
       message: "Login successful",
       data: {
         token,
-        walletAddress: user.walletAddress,
-        email: user.email,
-        phoneNumber: user.phoneNumber
+        wallets: {
+          evm: updatedUser.walletAddress,
+          stellar: updatedUser.stellarAccountId || null
+        },
+        walletAddress: updatedUser.walletAddress, // Keep for backward compatibility
+        stellarAccountId: updatedUser.stellarAccountId || null, // Stellar wallet address
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        stellarWalletCreated: updatedUser.stellarWalletCreated || false
       }
     });
   } catch (error) {

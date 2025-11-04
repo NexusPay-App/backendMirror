@@ -26,7 +26,10 @@ export function generateExplorerUrl(chain: string, txHash: string): string {
     'scroll': 'https://scrollscan.com/tx/',
     'moonbeam': 'https://moonbeam.moonscan.io/tx/',
     'fuse': 'https://explorer.fuse.io/tx/',
-    'aurora': 'https://explorer.aurora.dev/tx/'
+    'aurora': 'https://explorer.aurora.dev/tx/',
+    'stellar': process.env.STELLAR_NETWORK === 'mainnet' 
+      ? 'https://stellar.expert/explorer/mainnet/tx/'
+      : 'https://stellar.expert/explorer/testnet/tx/'
   };
   
   const baseUrl = explorers[chain] || explorers['celo']; // Default to Celo if chain not found

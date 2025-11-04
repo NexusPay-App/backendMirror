@@ -354,16 +354,18 @@ export class StellarMpesaService {
       
       // Log the transaction update
       await recordTransaction({
-        id: generateUUID(),
         type: TransactionType.STELLAR_MPESA_UPDATE,
-        from: 'system',
-        to: transaction.userId,
+        txHash: transaction.stellarTransactionHash || 'status_update',
+        status: status === 'completed' ? 'completed' : 'failed',
         amount: transaction.amountKES,
-        asset: transaction.asset,
-        chain: 'stellar',
-        transactionHash: transaction.stellarTransactionHash || 'status_update',
-        status: status === 'completed' ? 'success' : 'failed',
-        timestamp: new Date()
+        tokenType: transaction.asset,
+        chainName: 'stellar',
+        userId: transaction.userId,
+        metadata: {
+          from: 'system',
+          to: transaction.userId,
+          asset: transaction.asset
+        }
       });
 
       logger.info(`Updated transaction ${transactionId} status to ${status}`);

@@ -23,7 +23,9 @@ const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
     TRX: 3,
     SOL: 6,
     OP: 5,
-    cUSD: 5
+    cUSD: 5,
+    XLM: 4, // 4% APY for Stellar Lumens
+    USDC_STELLAR: 5 // 5% APY for USDC on Stellar
 };
 
 // Bonus yield based on utilization (additional percentage)

@@ -23,6 +23,14 @@ export interface TransactionSMSData {
     recipientAddress?: string;
     senderAddress?: string;
     explorerUrl?: string;
+    // Enhanced transaction details
+    mpesaReceiptNumber?: string;
+    mpesaTransactionTime?: string | Date;
+    nexusPayReceipt?: string; // Transaction ID
+    transactionDuration?: number; // Duration in seconds
+    fiatAmount?: number; // KES amount for buy transactions
+    chain?: string; // Blockchain chain
+    nexusPayCode?: string; // NexusPay platform code
 }
 
 export interface OverdraftSMSData {

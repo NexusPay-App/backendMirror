@@ -15,7 +15,10 @@ const EXPLORERS = {
     moonbeam: 'https://moonbeam.moonscan.io',
     fuse: 'https://explorer.fuse.io',
     aurora: 'https://explorer.aurora.dev',
-    lisk: 'https://blockscout.lisk.com'
+    lisk: 'https://blockscout.lisk.com',
+    stellar: process.env.STELLAR_NETWORK === 'mainnet' 
+        ? 'https://stellar.expert/explorer/mainnet'
+        : 'https://stellar.expert/explorer/testnet'
 };
 
 /**

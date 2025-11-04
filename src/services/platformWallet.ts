@@ -443,6 +443,29 @@ export const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
         url: 'https://blockscout.lisk.com'
       }
     }
+  },
+  stellar: {
+    id: 0, // Stellar doesn't use chain IDs like EVM chains
+    name: 'Stellar',
+    network: 'stellar',
+    nativeCurrency: {
+      name: 'Stellar Lumens',
+      symbol: 'XLM',
+      decimals: 7
+    },
+    rpcUrls: {
+      default: {
+        http: [process.env.STELLAR_HORIZON_URL_TESTNET || 'https://horizon-testnet.stellar.org']
+      }
+    },
+    blockExplorers: {
+      default: {
+        name: 'Stellar Expert',
+        url: process.env.STELLAR_NETWORK === 'mainnet' 
+          ? 'https://stellar.expert/explorer/mainnet'
+          : 'https://stellar.expert/explorer/testnet'
+      }
+    }
   }
 } as const;
 

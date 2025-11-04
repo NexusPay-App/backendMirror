@@ -1,16 +1,4 @@
-import { 
-  Keypair, 
-  Asset, 
-  Operation, 
-  TransactionBuilder, 
-  Networks, 
-  BASE_FEE,
-  Memo,
-  MemoType,
-  Account,
-  TimeoutInfinite,
-  xdr
-} from 'stellar-sdk';
+import StellarSdk from 'stellar-sdk';
 import pino from 'pino';
 import { stellarService } from './stellar';
 import { getStellarConfig, STELLAR_ASSETS } from '../config/stellar';
@@ -82,8 +70,8 @@ export interface StellarSwapOffer {
 export class StellarAdvancedService {
   private config = getStellarConfig();
   private networkPassphrase = this.config.network === 'mainnet' 
-    ? Networks.PUBLIC 
-    : Networks.TESTNET;
+    ? StellarSdk.Networks.PUBLIC 
+    : StellarSdk.Networks.TESTNET;
 
   /**
    * Create a multi-signature wallet
@@ -95,7 +83,7 @@ export class StellarAdvancedService {
   ): Promise<MultiSigWallet> {
     try {
       // Generate new account for multi-sig
-      const keypair = Keypair.random();
+      const keypair = StellarSdk.Keypair.random();
       const accountId = keypair.publicKey();
 
       // Fund the account (testnet only)
@@ -103,18 +91,18 @@ export class StellarAdvancedService {
         await stellarService.createAccount(keypair.secret());
       }
 
-      // Set up multi-signature
-      const sourceAccount = await stellarService.getAccountInfo(accountId);
+      // Set up multi-signature - load the actual SDK Account object
+      const sourceAccount = await stellarService.server.loadAccount(accountId);
       
-      const transaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
+      const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+        fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase
       });
 
       // Add signers
       signers.forEach(signer => {
         transaction.addOperation(
-          Operation.setOptions({
+          StellarSdk.Operation.setOptions({
             signer: {
               ed25519PublicKey: signer.publicKey,
               weight: signer.weight
@@ -125,7 +113,7 @@ export class StellarAdvancedService {
 
       // Set thresholds
       transaction.addOperation(
-        Operation.setOptions({
+        StellarSdk.Operation.setOptions({
           masterWeight: 0, // Disable master key
           lowThreshold: threshold.low,
           medThreshold: threshold.medium,
@@ -133,7 +121,7 @@ export class StellarAdvancedService {
         })
       );
 
-      const transactionXDR = transaction.setTimeout(TimeoutInfinite).build();
+      const transactionXDR = transaction.setTimeout(StellarSdk.TimeoutInfinite).build();
       transactionXDR.sign(keypair);
 
       // Submit transaction
@@ -240,25 +228,25 @@ export class StellarAdvancedService {
       }
 
       // Create payment transaction using the channel sequence
-      const sourceAccount = await stellarService.getAccountInfo(channel.sourceAccount);
-      const asset = channel.asset === 'XLM' ? Asset.native() : new Asset(channel.asset, 'ISSUER');
+      const sourceAccount = await stellarService.server.loadAccount(channel.sourceAccount);
+      const asset = channel.asset === 'XLM' ? StellarSdk.Asset.native() : new StellarSdk.Asset(channel.asset, 'ISSUER');
 
-      const transaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
+      const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+        fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
         sequenceNumber: channel.sequence
       })
         .addOperation(
-          Operation.payment({
+          StellarSdk.Operation.payment({
             destination: channel.destinationAccount,
             asset: asset,
             amount: amount
           })
         )
-        .setTimeout(TimeoutInfinite);
+        .setTimeout(StellarSdk.TimeoutInfinite);
 
       if (memo) {
-        transaction.addMemo(Memo.text(memo));
+        transaction.addMemo(StellarSdk.Memo.text(memo));
       }
 
       const transactionXDR = transaction.build();
@@ -282,7 +270,7 @@ export class StellarAdvancedService {
    */
   async getAssetInfo(assetCode: string, issuer?: string): Promise<StellarAssetInfo> {
     try {
-      const asset = assetCode === 'XLM' ? Asset.native() : new Asset(assetCode, issuer!);
+      const asset = assetCode === 'XLM' ? StellarSdk.Asset.native() : new StellarSdk.Asset(assetCode, issuer!);
       
       // Get asset information from Horizon
       const response = await fetch(`${this.config.horizonUrl}/assets?asset_code=${assetCode}&asset_issuer=${issuer || ''}`);

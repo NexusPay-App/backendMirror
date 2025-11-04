@@ -187,6 +187,20 @@ export const registerUser = async (req: Request, res: Response) => {
             // Don't fail registration if ENS creation fails
         }
 
+        // Create Stellar wallet for the user automatically
+        try {
+            console.log(`🌟 Creating Stellar wallet for new user: ${newUser._id}`);
+            const { stellarWalletService } = await import('../services/stellarWallet');
+            const stellarWallet = await stellarWalletService.createWallet(
+                newUser._id.toString(),
+                phoneNumber || email || undefined
+            );
+            console.log(`✅ Stellar wallet created for user ${newUser._id}: ${stellarWallet.accountId}`);
+        } catch (stellarError) {
+            console.error('❌ Error creating Stellar wallet during registration:', stellarError);
+            // Don't fail registration if Stellar wallet creation fails - we can retry later
+        }
+
         const verificationChannel = verificationMethod === 'both' 
             ? 'email and phone' 
             : verificationMethod === 'email' ? 'email' : 'phone';
@@ -504,6 +518,48 @@ export const verifyLogin = async (req: Request, res: Response) => {
         user.lastLoginAt = new Date();
         await user.save();
 
+        // Create Stellar wallet for existing users if they don't have one
+        console.log(`🔍 Checking Stellar wallet for user ${user._id}:`, {
+            stellarWalletCreated: user.stellarWalletCreated,
+            stellarAccountId: user.stellarAccountId
+        });
+        
+        if (!user.stellarWalletCreated || !user.stellarAccountId) {
+            try {
+                console.log(`🌟 Creating Stellar wallet for existing user: ${user._id}`);
+                const { stellarWalletService } = await import('../services/stellarWallet');
+                const stellarWallet = await stellarWalletService.createWallet(
+                    user._id.toString(),
+                    user.phoneNumber || user.email || undefined
+                );
+                console.log(`✅ Stellar wallet created for user ${user._id}: ${stellarWallet.accountId}`);
+                
+                // Wait a moment for database update to complete
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Reload user from database to get updated stellarAccountId
+                const updatedUser = await User.findById(user._id);
+                if (updatedUser) {
+                    // Update the user object we're using
+                    user.stellarAccountId = (updatedUser as any).stellarAccountId || stellarWallet.accountId;
+                    user.stellarWalletCreated = (updatedUser as any).stellarWalletCreated !== undefined ? (updatedUser as any).stellarWalletCreated : true;
+                    console.log(`✅ User updated with Stellar wallet: ${user.stellarAccountId}`);
+                } else {
+                    // Fallback: use the wallet info directly
+                    user.stellarAccountId = stellarWallet.accountId;
+                    user.stellarWalletCreated = true;
+                    console.log(`✅ Using wallet info directly: ${stellarWallet.accountId}`);
+                }
+            } catch (stellarError: any) {
+                console.error('❌ Error creating Stellar wallet during login:', stellarError);
+                console.error('❌ Error stack:', stellarError?.stack);
+                console.error('❌ Error message:', stellarError?.message);
+                // Don't fail login if Stellar wallet creation fails - we can retry later
+            }
+        } else {
+            console.log(`✅ User already has Stellar wallet: ${user.stellarAccountId}`);
+        }
+
         // Generate token for authentication
         const token = jwt.sign(
             {
@@ -519,15 +575,21 @@ export const verifyLogin = async (req: Request, res: Response) => {
         // Register this as a verified session
         registerVerifiedSession(token, user._id.toString());
 
-        // Return user data and token
+        // Return user data and token with both EVM and Stellar wallet addresses
         return res.json(standardResponse(
             true, 
             "Login successful.",
             {
                 token,
-                walletAddress: user.walletAddress,
+                wallets: {
+                    evm: user.walletAddress,
+                    stellar: user.stellarAccountId || null
+                },
+                walletAddress: user.walletAddress, // Keep for backward compatibility
+                stellarAccountId: user.stellarAccountId || null, // Stellar wallet address
                 email: user.email,
-                phoneNumber: user.phoneNumber
+                phoneNumber: user.phoneNumber,
+                stellarWalletCreated: user.stellarWalletCreated || false
             }
         ));
     } catch (error) {

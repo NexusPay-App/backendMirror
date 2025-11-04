@@ -100,6 +100,55 @@ export const getWallet = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get user's Stellar secret key (private key)
+ * WARNING: This endpoint returns sensitive information. Only accessible by authenticated user.
+ */
+export const getSecretKey = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json(standardResponse(
+        false,
+        'User not authenticated',
+        null,
+        { code: 'AUTH_REQUIRED', message: 'Authentication required' }
+      ));
+    }
+
+    // Get user with secret key explicitly selected
+    const { User } = await import('../models/user');
+    const user = await User.findById(userId).select('+stellarSecretKey');
+    
+    if (!user || !user.stellarAccountId || !user.stellarSecretKey) {
+      return res.status(404).json(standardResponse(
+        false,
+        'Stellar wallet not found',
+        null,
+        { code: 'WALLET_NOT_FOUND', message: 'Please create a Stellar wallet first' }
+      ));
+    }
+
+    return res.status(200).json(standardResponse(
+      true,
+      'Secret key retrieved successfully',
+      {
+        accountId: user.stellarAccountId,
+        secretKey: user.stellarSecretKey,
+        warning: 'Keep this secret key secure. Never share it with anyone. Anyone with this key can access your wallet.'
+      }
+    ));
+  } catch (error: any) {
+    logger.error('Error getting Stellar secret key:', error);
+    return res.status(500).json(standardResponse(
+      false,
+      'Failed to get secret key',
+      null,
+      { code: 'SECRET_KEY_FETCH_FAILED', message: error.message }
+    ));
+  }
+};
+
+/**
  * Get wallet balance for a specific asset
  */
 export const getBalance = async (req: Request, res: Response) => {

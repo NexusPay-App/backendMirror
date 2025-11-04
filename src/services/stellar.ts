@@ -1,16 +1,4 @@
-import { 
-  Server, 
-  Keypair, 
-  Asset, 
-  Operation, 
-  TransactionBuilder, 
-  Networks, 
-  BASE_FEE,
-  Memo,
-  MemoType,
-  Account,
-  HorizonApi
-} from 'stellar-sdk';
+import StellarSdk from 'stellar-sdk';
 import pino from 'pino';
 import { 
   getStellarConfig, 
@@ -35,16 +23,16 @@ const logger = pino({
 });
 
 export class StellarService {
-  private server: Server;
+  public server: any; // Horizon.Server type from stellar-sdk - public for advanced operations
   private config: StellarConfig;
   private networkPassphrase: string;
 
   constructor() {
     this.config = getStellarConfig();
-    this.server = new Server(this.config.horizonUrl);
+    this.server = new StellarSdk.Horizon.Server(this.config.horizonUrl);
     this.networkPassphrase = this.config.network === 'mainnet' 
-      ? Networks.PUBLIC 
-      : Networks.TESTNET;
+      ? StellarSdk.Networks.PUBLIC 
+      : StellarSdk.Networks.TESTNET;
   }
 
   /**
@@ -52,7 +40,7 @@ export class StellarService {
    */
   generateKeypair(): { publicKey: string; secretKey: string } {
     try {
-      const keypair = Keypair.random();
+      const keypair = StellarSdk.Keypair.random();
       return {
         publicKey: keypair.publicKey(),
         secretKey: keypair.secret()
@@ -68,12 +56,12 @@ export class StellarService {
    */
   async createAccount(secretKey?: string): Promise<{ accountId: string; secretKey: string }> {
     try {
-      let keypair: Keypair;
+      let keypair: typeof StellarSdk.Keypair.prototype;
       
       if (secretKey) {
-        keypair = Keypair.fromSecret(secretKey);
+        keypair = StellarSdk.Keypair.fromSecret(secretKey);
       } else {
-        keypair = Keypair.random();
+        keypair = StellarSdk.Keypair.random();
       }
 
       const accountId = keypair.publicKey();
@@ -130,7 +118,7 @@ export class StellarService {
       const stellarAccount: StellarAccount = {
         id: accountId,
         accountId: accountId,
-        balances: account.balances.map(balance => ({
+        balances: account.balances.map((balance: any) => ({
           asset: {
             code: balance.asset_code || 'XLM',
             issuer: balance.asset_issuer,
@@ -201,21 +189,21 @@ export class StellarService {
     memo?: string
   ): Promise<{ transactionHash: string; transactionId: string }> {
     try {
-      const sourceKeypair = Keypair.fromSecret(fromSecretKey);
+      const sourceKeypair = StellarSdk.Keypair.fromSecret(fromSecretKey);
       const sourceAccount = await this.server.loadAccount(sourceKeypair.publicKey());
 
       // Create asset
       const asset = assetCode === 'XLM' 
-        ? Asset.native() 
-        : new Asset(assetCode, issuer!);
+        ? StellarSdk.Asset.native() 
+        : new StellarSdk.Asset(assetCode, issuer!);
 
       // Build transaction
-      const transaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
+      const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+        fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase
       })
         .addOperation(
-          Operation.payment({
+          StellarSdk.Operation.payment({
             destination: toAccountId,
             asset: asset,
             amount: amount
@@ -225,7 +213,7 @@ export class StellarService {
 
       // Add memo if provided
       if (memo) {
-        transaction.addMemo(Memo.text(memo));
+        transaction.addMemo(StellarSdk.Memo.text(memo));
       }
 
       const transactionXDR = transaction.build();
@@ -238,16 +226,18 @@ export class StellarService {
       
       // Log transaction
       await recordTransaction({
-        id: transactionId,
         type: TransactionType.STELLAR_PAYMENT,
-        from: sourceKeypair.publicKey(),
-        to: toAccountId,
+        txHash: result.hash,
+        status: 'completed',
+        fromAddress: sourceKeypair.publicKey(),
+        toAddress: toAccountId,
         amount: parseFloat(amount),
-        asset: assetCode,
-        chain: 'stellar',
-        transactionHash: result.hash,
-        status: 'success',
-        timestamp: new Date()
+        tokenType: assetCode,
+        chainName: 'stellar',
+        metadata: {
+          transactionId,
+          timestamp: new Date()
+        }
       });
 
       logger.info(`Stellar payment successful: ${result.hash}`);
@@ -293,7 +283,7 @@ export class StellarService {
 
       const response = await records.call();
       
-      const transactions: StellarTransaction[] = response.records.map(record => ({
+      const transactions: StellarTransaction[] = response.records.map((record: any) => ({
         id: record.id,
         hash: record.hash,
         source: record.source_account,
@@ -337,17 +327,17 @@ export class StellarService {
     limit?: string
   ): Promise<{ transactionHash: string }> {
     try {
-      const sourceKeypair = Keypair.fromSecret(accountSecretKey);
+      const sourceKeypair = StellarSdk.Keypair.fromSecret(accountSecretKey);
       const sourceAccount = await this.server.loadAccount(sourceKeypair.publicKey());
 
-      const asset = new Asset(assetCode, issuer);
+      const asset = new StellarSdk.Asset(assetCode, issuer);
 
-      const transaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
+      const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+        fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase
       })
         .addOperation(
-          Operation.changeTrust({
+          StellarSdk.Operation.changeTrust({
             asset: asset,
             limit: limit
           })
@@ -405,7 +395,7 @@ export class StellarService {
    */
   validateAddress(address: string): boolean {
     try {
-      Keypair.fromPublicKey(address);
+      StellarSdk.Keypair.fromPublicKey(address);
       return true;
     } catch {
       return false;
