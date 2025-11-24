@@ -52,17 +52,15 @@
 //     return { pk, walletAddress };
 // }
 
-import { ThirdwebClient, createThirdwebClient, defineChain } from "thirdweb";
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
+// Migrated from Thirdweb to NexusCore SDK
+import { createRandomWallet, createWalletFromPrivateKey, createNexusClient } from '../utils/nexusHelper';
 import { Wallet } from 'ethers';
 import config from "../config/env";
 import { SMSService } from './smsService';
 
-// Thirdweb client setup
-export const client: ThirdwebClient = createThirdwebClient({
-    secretKey: config.THIRDWEB_SECRET_KEY as string,
-});
-console.log("Thirdweb client initialized with secret key:", config.THIRDWEB_SECRET_KEY ? "present" : "missing");
+// NexusCore client setup - using Sepolia for account creation
+export const client = createNexusClient('sepolia');
+console.log("NexusCore client initialized for chain: sepolia");
 
 // Africa's Talking setup - now handled by SMSService
 console.log("Africa's Talking initialized with API key:", config.AFRICAS_TALKING_API_KEY ? "present" : "missing");
@@ -81,32 +79,15 @@ export const generateOTP = (): string => {
 
 // Create a unified wallet that works across all chains
 export async function createAccount() {
-    // Create a random wallet
-    const newWallet = Wallet.createRandom();
-    const pk = newWallet.privateKey;
-    const personalAccount = privateKeyToAccount({
-        client,
-        privateKey: pk as string,
-    });
-
-    // Use Ethereum mainnet as the default chain for account creation
-    const defaultChain = defineChain(1); // Ethereum mainnet
-
-    // Configure the smart wallet
-    const wallet = smartWallet({
-        chain: defaultChain,
-        sponsorGas: true, // Default factory address will be used
-    });
-
-    // Connect the smart wallet
-    const smartAccount = await wallet.connect({
-        client,
-        personalAccount,
-    });
+    // Create a random wallet using NexusCore
+    const wallet = createRandomWallet();
+    const pk = wallet.privateKey;
     
-    const walletAddress = smartAccount.address;
+    // For now, return the EOA address as the wallet address
+    // Smart account creation will happen on-demand when needed for transactions
+    const walletAddress = wallet.address;
 
-    console.log(`Created unified account - Personal: ${personalAccount.address}, Smart: ${walletAddress}`);
+    console.log(`Created unified account - Personal: ${wallet.address}, Smart: (created on-demand)`);
 
     return { pk, walletAddress };
 }
@@ -117,5 +98,6 @@ export function getChainConfig(chainName: string) {
     if (!chainConfig || !chainConfig.chainId) {
         throw new Error(`Invalid chain configuration for ${chainName}`);
     }
-    return defineChain(chainConfig.chainId);
+    // Return the chain name directly - NexusCore handles chain configuration internally
+    return chainName;
 }

@@ -314,9 +314,9 @@
 //################ new Code for Migrations #####################
 
 import { client } from './auth';
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
-import { defineChain, getContract, sendTransaction, waitForReceipt } from "thirdweb";
-import { transfer, approve, allowance } from "thirdweb/extensions/erc20";
+// Migrated from Thirdweb to NexusCore SDK
+import { createWalletFromPrivateKey, createRandomWallet, createNexusClient } from '../utils/nexusHelper';
+import { ethers } from 'ethers';
 import config from "../config/env";
 import { keccak256, toHex } from 'viem';
 
@@ -424,90 +424,74 @@ export async function sendToken(
             throw new Error(`Invalid chain configuration for ${chainName}`);
         }
 
-        const chain = defineChain(chainConfig.chainId);
         const tokenAddress = tokenConfig.address;
-
-        // Initialize accounts
-        const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-        // Prepare contract handle (reused in both flows)
-        const contract = getContract({ client, chain, address: tokenAddress });
-
-        // Convert amount to token units (used for allowance check in smart account flow)
         const decimals = tokenConfig.decimals;
+
+        // Create NexusCore client for this chain
+        const nexusClient = createNexusClient(chainName);
+
+        // Initialize wallet from private key
+        const wallet = createWalletFromPrivateKey(pk);
+        
+        // Convert amount to token units
         const amountInUnits = BigInt(Math.floor(amount * 10 ** decimals));
 
         // Helper to perform transfer via smart wallet (gas sponsored)
         const transferWithSmartAccount = async () => {
-            const wallet = smartWallet({
-                chain,
-                sponsorGas: true,
+            // Create smart account using NexusCore
+            const smartAccount = await nexusClient.createAccount({
+                owner: wallet.address
             });
-            const smartAccount = await wallet.connect({ client, personalAccount });
 
-            // Check and handle allowance (smart account needs allowance from personal account)
-            let currentAllowance: bigint = BigInt(0);
-            try {
-                currentAllowance = await allowance({
-                    contract,
-                    owner: personalAccount.address,
-                    spender: smartAccount.address,
-                });
-            } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                console.error("Allowance check failed, assuming 0:", errorMessage);
-            }
+            // Prepare ERC20 transfer transaction
+            const tokenInterface = new ethers.utils.Interface([
+                'function transfer(address to, uint256 amount) returns (bool)'
+            ]);
+            
+            const data = tokenInterface.encodeFunctionData('transfer', [
+                recipientAddress,
+                amountInUnits.toString()
+            ]);
 
-            if (currentAllowance < amountInUnits) {
-                console.log("Insufficient allowance. Approving transfer...");
-                const approveTx = await sendTransaction({
-                    transaction: approve({
-                        contract,
-                        spender: smartAccount.address,
-                        amount: amount,
-                    }),
-                    account: smartAccount,
-                });
-                await waitForReceipt(approveTx);
-                console.log(`✅ Approval transaction completed: ${approveTx.transactionHash}`);
-            }
-
-            // Execute transfer through smart account
-            const transferTx = await sendTransaction({
-                transaction: transfer({
-                    contract,
-                    to: recipientAddress,
-                    amount: amount,
-                }),
-                account: smartAccount,
+            // Execute transfer through smart account with gas sponsorship
+            const result = await smartAccount.execute({
+                to: tokenAddress as `0x${string}`,
+                value: BigInt(0),
+                data: data as `0x${string}`
             });
-            await waitForReceipt(transferTx);
-            return transferTx.transactionHash;
+
+            return result.userOpHash;
         };
 
         // Helper to perform direct EOA transfer (no paymaster)
         const transferWithEOA = async () => {
             console.log("Falling back to direct EOA transfer (no gas sponsorship)");
-            const transferTx = await sendTransaction({
-                transaction: transfer({
-                    contract,
-                    to: recipientAddress,
-                    amount: amount,
-                }),
-                account: personalAccount,
-            });
-            await waitForReceipt(transferTx);
-            return transferTx.transactionHash;
+            
+            // Use ethers.js for direct EOA transfer
+            const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrl);
+            const signer = new ethers.Wallet(pk, provider);
+            
+            const tokenContract = new ethers.Contract(
+                tokenAddress,
+                ['function transfer(address to, uint256 amount) returns (bool)'],
+                signer
+            );
+            
+            const tx = await tokenContract.transfer(recipientAddress, amountInUnits.toString());
+            const receipt = await tx.wait();
+            
+            return receipt.transactionHash;
         };
 
-        // Try sponsored gas first; on mainnet paymaster error, fallback to EOA transfer
+        // Try sponsored gas first; on paymaster error, fallback to EOA transfer
         let txHash: string;
         try {
             txHash = await transferWithSmartAccount();
         } catch (e: any) {
             const msg = (e?.message || "").toString();
-            const isPaymasterDisabled = msg.includes("Mainnets not enabled for this account") || msg.includes("thirdweb_getUserOperationGasPrice") || e?.code === 401;
-            if (isPaymasterDisabled) {
-                console.warn("Thirdweb paymaster not enabled for mainnets. Retrying without gas sponsorship...");
+            const isPaymasterError = msg.includes("paymaster") || msg.includes("sponsor") || e?.code === 401;
+            if (isPaymasterError) {
+                console.warn("Paymaster not available. Retrying without gas sponsorship...");
                 txHash = await transferWithEOA();
             } else {
                 throw e;
@@ -517,7 +501,7 @@ export async function sendToken(
         // Enhanced success logging with transaction hash
         console.log(`✅ Token Transfer Successful:`);
         console.log(`- Transaction Hash: ${txHash}`);
-        console.log(`- From: ${personalAccount.address.substring(0, 8)}...`);
+        console.log(`- From: ${wallet.address.substring(0, 8)}...`);
         console.log(`- To: ${recipientAddress.substring(0, 8)}...`);
         console.log(`- Amount: ${amount} ${tokenSymbol} on ${chainName}`);
         console.log(`- USD Value: ~$${amount} USD`);
@@ -539,17 +523,15 @@ export async function sendToken(
 export async function generateUnifiedWallet(phoneNumber: string): Promise<{ address: string, privateKey: string }> {
     const salt = Date.now().toString();
     const privateKey = keccak256(toHex(`${phoneNumber}${salt}`));
-    const newAccount = privateKeyToAccount({ client, privateKey });
-    console.log("Generated new personal account:", newAccount.address);
+    const wallet = createWalletFromPrivateKey(privateKey);
+    console.log("Generated new personal account:", wallet.address);
 
-    const chain = defineChain(42161); // Arbitrum as reference chain
-    const wallet = smartWallet({
-        chain,
-        // factoryAddress removed to use default
-        sponsorGas: true, // Enable gas sponsorship
+    // Use Arbitrum as reference chain for smart account creation
+    const nexusClient = createNexusClient('arbitrum');
+
+    const smartAccount = await nexusClient.createAccount({
+        owner: wallet.address
     });
-
-    const smartAccount = await wallet.connect({ client, personalAccount: newAccount });
     console.log("Generated new unified smart wallet address:", smartAccount.address);
 
     return { address: smartAccount.address, privateKey: privateKey };

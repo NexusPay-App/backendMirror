@@ -1,9 +1,10 @@
 import { ethers, providers } from "ethers";
 import { ERC20ABI } from "./abi";
-import { defineChain } from "thirdweb"
+// Migrated from Thirdweb to NexusCore SDK - chain definitions now handled by NexusCore
 import config from "./env";
 
-export const celo = defineChain(config["celo"].chainId)
+// Chain ID for Celo (no longer using defineChain)
+export const celo = config["celo"].chainId
 
 // export const provider = new providers.JsonRpcProvider("https://rpc.ankr.com/polygon_mumbai")
 export const provider = new providers.JsonRpcProvider(`https://arb-mainnet.g.alchemy.com/v2/${config.ALCHEMY_API_KEY || 'demo-key'}`)

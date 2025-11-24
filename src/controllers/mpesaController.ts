@@ -21,13 +21,13 @@ import {
 import { TokenSymbol } from '../types/token';
 import { Chain } from '../types/token';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';
-import { defineChain, getContract, sendTransaction } from "thirdweb";
-import { balanceOf, transfer } from "thirdweb/extensions/erc20";
+// Migrated from Thirdweb to NexusCore SDK
+import { createWalletFromPrivateKey, createNexusClient } from '../utils/nexusHelper';
+import { ethers } from 'ethers';
 import { client } from "../services/auth";
 import { recordTransaction, TransactionType, TransactionLogEntry } from '../services/transactionLogger';
 import { getRedisClient } from '../services/redis';
 import { logger } from '../config/logger';
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import axios from "axios";
 import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'
@@ -55,23 +55,20 @@ async function getTokenBalanceOnChain(
             throw new Error(`Token ${tokenSymbol} not supported on chain ${chain}`);
         }
         
-        // Define chain
-        const thirdwebChain = defineChain(chainConfig.chainId);
+        // Use ethers.js to get token balance
+        const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrl);
+        const tokenContract = new ethers.Contract(
+            tokenConfig.address,
+            ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
+            provider
+        );
         
-        // Get contract for the specific token
-        const contract = getContract({
-            client,
-            chain: thirdwebChain,
-            address: tokenConfig.address,
-        });
+        const [balance, decimals] = await Promise.all([
+            tokenContract.balanceOf(walletAddress),
+            tokenContract.decimals()
+        ]);
         
-        // Get balance
-        const balance = await balanceOf({
-            contract,
-            address: walletAddress
-        });
-        
-        return parseFloat(balance.toString());
+        return parseFloat(ethers.utils.formatUnits(balance, decimals));
     } catch (error) {
         console.error(`Error getting ${tokenSymbol} balance on ${chain}:`, error);
         return 0; // Return 0 on error to avoid breaking the flow

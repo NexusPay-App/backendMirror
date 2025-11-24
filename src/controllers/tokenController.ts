@@ -4,8 +4,8 @@ import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
 import { client, createAccount } from '../services/auth';
 import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
-import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
-import { defineChain, getContract, readContract } from "thirdweb";
+// Migrated from Thirdweb to NexusCore SDK
+import { createWalletFromPrivateKey, createNexusClient } from '../utils/nexusHelper';
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
 import { getTokenConfig, getSupportedTokens } from '../config/tokens';

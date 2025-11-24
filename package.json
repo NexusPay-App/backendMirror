@@ -52,6 +52,7 @@
     "@biconomy/common": "^3.1.1-alpha.0",
     "@biconomy/core-types": "^3.1.1-alpha.0",
     "@biconomy/paymaster": "^3.1.1-alpha.0",
+    "@nexus/nexuscore": "file:../NexusCore/packages/nexuscore",
     "@pushprotocol/restapi": "^1.4.31",
     "@thirdweb-dev/sdk": "^4.0.99",
     "@types/bcryptjs": "^2.4.6",

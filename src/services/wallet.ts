@@ -1,7 +1,6 @@
 import { ethers } from 'ethers';
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
-import { defineChain, getContract, sendTransaction } from "thirdweb";
-import { transfer, balanceOf } from "thirdweb/extensions/erc20";
+// Migrated from Thirdweb to NexusCore SDK
+import { createWalletFromPrivateKey, createNexusClient } from '../utils/nexusHelper';
 import { client } from './auth';
 import config from "../config/env";
 
@@ -18,23 +17,20 @@ export async function getWalletBalance(walletAddress: string, chainName: string 
       throw new Error(`Invalid chain configuration for ${chainName}`);
     }
     
-    const chain = defineChain(chainConfig.chainId);
-    const tokenAddress = chainConfig.tokenAddress;
+    // Create NexusCore client for the specified chain
+    const nexusClient = createNexusClient(chainName);
     
-    // Get contract
-    const contract = getContract({
-      client,
-      chain,
-      address: tokenAddress,
-    });
+    // Get token balance using ethers.js provider
+    const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrl);
+    const tokenContract = new ethers.Contract(
+      chainConfig.tokenAddress,
+      ['function balanceOf(address) view returns (uint256)'],
+      provider
+    );
     
-    // Get balance
-    const balance = await balanceOf({
-      contract,
-      address: walletAddress,
-    });
+    const balance = await tokenContract.balanceOf(walletAddress);
     
-    return Number(balance);
+    return Number(ethers.utils.formatUnits(balance, chainConfig.decimals || 18));
   } catch (error) {
     console.error(`Error getting wallet balance:`, error);
     throw error;
@@ -61,47 +57,33 @@ export async function transferTokens(
       throw new Error(`Invalid chain configuration for ${chainName}`);
     }
     
-    const chain = defineChain(chainConfig.chainId);
-    const tokenAddress = chainConfig.tokenAddress;
+    // Create NexusCore client for the specified chain
+    const nexusClient = createNexusClient(chainName);
     
     // Create wallet from private key
-    const personalAccount = privateKeyToAccount({
-      client,
-      privateKey: sourcePrivateKey
+    const wallet = createWalletFromPrivateKey(sourcePrivateKey);
+    
+    // Create smart account
+    const smartAccount = await nexusClient.createAccount({
+      owner: wallet.address
     });
     
-    // Connect the smart wallet
-    const wallet = smartWallet({
-      chain,
-      sponsorGas: true,
+    // Prepare ERC20 transfer transaction
+    const tokenInterface = new ethers.utils.Interface([
+      'function transfer(address to, uint256 amount) returns (bool)'
+    ]);
+    
+    const amountInWei = ethers.utils.parseUnits(amount.toString(), chainConfig.decimals || 18);
+    const data = tokenInterface.encodeFunctionData('transfer', [destinationAddress, amountInWei]);
+    
+    // Execute transaction via smart account
+    const result = await smartAccount.execute({
+      to: chainConfig.tokenAddress as `0x${string}`,
+      value: BigInt(0),
+      data: data as `0x${string}`
     });
     
-    const smartAccount = await wallet.connect({
-      client,
-      personalAccount,
-    });
-    
-    // Get contract
-    const contract = getContract({
-      client,
-      chain,
-      address: tokenAddress,
-    });
-    
-    // Transfer tokens
-    const transaction = transfer({
-      contract,
-      to: destinationAddress,
-      amount,
-    });
-    
-    // Execute transaction
-    const tx = await sendTransaction({
-      transaction,
-      account: smartAccount,
-    });
-    
-    return { transactionHash: tx.transactionHash };
+    return { transactionHash: result.userOpHash };
   } catch (error) {
     console.error(`Error transferring tokens:`, error);
     throw error;
