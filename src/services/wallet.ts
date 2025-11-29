@@ -57,33 +57,21 @@ export async function transferTokens(
       throw new Error(`Invalid chain configuration for ${chainName}`);
     }
     
-    // Create NexusCore client for the specified chain
-    const nexusClient = createNexusClient(chainName);
+    // For now, use direct ethers.js transfer (smart account integration coming in next phase)
+    const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrl);
+    const signer = new ethers.Wallet(sourcePrivateKey, provider);
     
-    // Create wallet from private key
-    const wallet = createWalletFromPrivateKey(sourcePrivateKey);
-    
-    // Create smart account
-    const smartAccount = await nexusClient.createAccount({
-      owner: wallet.address
-    });
-    
-    // Prepare ERC20 transfer transaction
-    const tokenInterface = new ethers.utils.Interface([
-      'function transfer(address to, uint256 amount) returns (bool)'
-    ]);
+    const tokenContract = new ethers.Contract(
+      chainConfig.tokenAddress,
+      ['function transfer(address to, uint256 amount) returns (bool)'],
+      signer
+    );
     
     const amountInWei = ethers.utils.parseUnits(amount.toString(), chainConfig.decimals || 18);
-    const data = tokenInterface.encodeFunctionData('transfer', [destinationAddress, amountInWei]);
+    const tx = await tokenContract.transfer(destinationAddress, amountInWei);
+    const receipt = await tx.wait();
     
-    // Execute transaction via smart account
-    const result = await smartAccount.execute({
-      to: chainConfig.tokenAddress as `0x${string}`,
-      value: BigInt(0),
-      data: data as `0x${string}`
-    });
-    
-    return { transactionHash: result.userOpHash };
+    return { transactionHash: receipt.transactionHash };
   } catch (error) {
     console.error(`Error transferring tokens:`, error);
     throw error;

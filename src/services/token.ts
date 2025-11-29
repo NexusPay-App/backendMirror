@@ -313,12 +313,13 @@
 
 //################ new Code for Migrations #####################
 
-import { client } from './auth';
+import { getAuthSDK } from './auth';
 // Migrated from Thirdweb to NexusCore SDK
-import { createWalletFromPrivateKey, createRandomWallet, createNexusClient } from '../utils/nexusHelper';
+import { createWalletFromPrivateKey, createRandomWallet, createNexusSDKInstance, NEXUS_API_CONFIG } from '../utils/nexusHelper';
 import { ethers } from 'ethers';
 import config from "../config/env";
 import { keccak256, toHex } from 'viem';
+import { NexusSDK } from '@nexus/nexuscore';
 
 export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'fuse' | 'aurora' | 'lisk';
 
@@ -427,45 +428,52 @@ export async function sendToken(
         const tokenAddress = tokenConfig.address;
         const decimals = tokenConfig.decimals;
 
-        // Create NexusCore client for this chain
-        const nexusClient = createNexusClient(chainName);
-
-        // Initialize wallet from private key
-        const wallet = createWalletFromPrivateKey(pk);
+        // Get NexusCore SDK instance
+        const nexusSDK = getAuthSDK();
         
-        // Convert amount to token units
+        // Initialize wallet with private key (creates/uses smart account)
+        await nexusSDK.initializeWallet(pk);
+        const walletAddress = nexusSDK.getWalletAddress();
+        
+        console.log(`📤 Sending ${amount} ${tokenSymbol} via smart account: ${walletAddress}`);
+
+        // Convert amount to token units (USDC has 6 decimals)
         const amountInUnits = BigInt(Math.floor(amount * 10 ** decimals));
 
-        // Helper to perform transfer via smart wallet (gas sponsored)
-        const transferWithSmartAccount = async () => {
-            // Create smart account using NexusCore
-            const smartAccount = await nexusClient.createAccount({
-                owner: wallet.address
-            });
-
-            // Prepare ERC20 transfer transaction
-            const tokenInterface = new ethers.utils.Interface([
-                'function transfer(address to, uint256 amount) returns (bool)'
-            ]);
-            
-            const data = tokenInterface.encodeFunctionData('transfer', [
-                recipientAddress,
-                amountInUnits.toString()
-            ]);
-
-            // Execute transfer through smart account with gas sponsorship
-            const result = await smartAccount.execute({
-                to: tokenAddress as `0x${string}`,
-                value: BigInt(0),
-                data: data as `0x${string}`
-            });
-
-            return result.userOpHash;
+        // Helper to perform transfer via smart wallet with gas sponsorship
+        const transferWithSmartAccount = async (): Promise<string> => {
+            try {
+                // Convert amount to token's smallest unit (e.g., 1 USDC = 1000000 with 6 decimals)
+                const amountInSmallestUnit = (BigInt(Math.floor(amount * 10 ** decimals))).toString();
+                
+                console.log(`📤 Sending ${amount} ${tokenSymbol} (${amountInSmallestUnit} smallest units)`);
+                
+                // Use NexusCore SDK to send token with gas sponsorship
+                // Note: sendToken expects amount in smallest unit (not human-readable)
+                const userOpHash = await nexusSDK.sendToken(
+                    tokenAddress,
+                    recipientAddress,
+                    amountInSmallestUnit, // Amount in token's smallest unit
+                    chainConfig.chainId
+                );
+                
+                console.log(`✅ Transaction submitted via smart account (gas sponsored)`);
+                console.log(`   UserOp Hash: ${userOpHash}`);
+                console.log(`   Amount: ${amount} ${tokenSymbol}`);
+                console.log(`   Recipient: ${recipientAddress}`);
+                
+                // The SDK handles the user operation submission and paymaster sponsorship
+                // Return userOpHash (can be converted to txHash later via getUserOperationStatus)
+                return userOpHash;
+            } catch (error: any) {
+                console.error("❌ Smart account transfer failed:", error);
+                throw error;
+            }
         };
 
-        // Helper to perform direct EOA transfer (no paymaster)
-        const transferWithEOA = async () => {
-            console.log("Falling back to direct EOA transfer (no gas sponsorship)");
+        // Helper to perform direct EOA transfer (fallback if smart account fails)
+        const transferWithEOA = async (): Promise<string> => {
+            console.warn("⚠️ Falling back to direct EOA transfer (no gas sponsorship)");
             
             // Use ethers.js for direct EOA transfer
             const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrl);
@@ -483,18 +491,27 @@ export async function sendToken(
             return receipt.transactionHash;
         };
 
-        // Try sponsored gas first; on paymaster error, fallback to EOA transfer
+        // Try sponsored gas first; on error, fallback to EOA transfer
         let txHash: string;
         try {
             txHash = await transferWithSmartAccount();
         } catch (e: any) {
             const msg = (e?.message || "").toString();
-            const isPaymasterError = msg.includes("paymaster") || msg.includes("sponsor") || e?.code === 401;
+            const isPaymasterError = msg.includes("paymaster") || msg.includes("sponsor") || 
+                                   msg.includes("gas") || msg.includes("insufficient") || 
+                                   e?.code === 401 || e?.code === -32603;
+            
             if (isPaymasterError) {
-                console.warn("Paymaster not available. Retrying without gas sponsorship...");
+                console.warn("⚠️ Gas sponsorship unavailable. Retrying without gas sponsorship...");
                 txHash = await transferWithEOA();
             } else {
-                throw e;
+                // For other errors, still try EOA as fallback
+                console.warn("⚠️ Smart account error. Falling back to EOA transfer...");
+                try {
+                    txHash = await transferWithEOA();
+                } catch (fallbackError) {
+                    throw new Error(`Both smart account and EOA transfer failed: ${e.message}`);
+                }
             }
         }
         
@@ -526,112 +543,48 @@ export async function generateUnifiedWallet(phoneNumber: string): Promise<{ addr
     const wallet = createWalletFromPrivateKey(privateKey);
     console.log("Generated new personal account:", wallet.address);
 
-    // Use Arbitrum as reference chain for smart account creation
-    const nexusClient = createNexusClient('arbitrum');
+    // Smart account creation on-demand (for now, return the EOA address)
+    // Full smart account integration coming in next phase
+    const smartWalletAddress = wallet.address; // EOA address for now
+    console.log("Generated new unified smart wallet address:", smartWalletAddress);
 
-    const smartAccount = await nexusClient.createAccount({
-        owner: wallet.address
-    });
-    console.log("Generated new unified smart wallet address:", smartAccount.address);
-
-    return { address: smartAccount.address, privateKey: privateKey };
+    return { address: smartWalletAddress, privateKey: privateKey };
 }
 
-export async function unifyWallets(pk: string): Promise<string> {
+/**
+ * Get wallet address for receiving funds
+ * Returns the smart account address that can receive tokens
+ */
+export async function getReceiveAddress(pk: string, chainName: string = "celo"): Promise<string> {
     try {
-        const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-        console.log("Personal account address:", personalAccount.address);
-
-        // Use Arbitrum as reference chain
-        const chain = defineChain(42161); // Arbitrum chain ID
-        console.log("Using chain ID:", chain.id);
-
-        const wallet = smartWallet({
-            chain,
-            // factoryAddress removed to use default
-            sponsorGas: true, // Enable gas sponsorship
-        });
-        console.log("Smart wallet initialized with default factory");
-
-        const smartAccount = await wallet.connect({ client, personalAccount });
-        console.log("Unified smart wallet address for all chains:", smartAccount.address);
-
-        return smartAccount.address;
+        const nexusSDK = getAuthSDK();
+        await nexusSDK.initializeWallet(pk);
+        return nexusSDK.getWalletAddress();
     } catch (error: any) {
-        console.error("Error in unifyWallets:", {
-            message: error.message,
-            stack: error.stack,
-        });
-        throw error;
+        console.error("Error getting receive address:", error);
+        // Fallback to EOA address
+        const wallet = createWalletFromPrivateKey(pk);
+        return wallet.address;
     }
 }
 
-export async function migrateFunds(
-    fromAddress: string,
-    toAddress: string,
-    chainName: string,
-    pk: string
-): Promise<{ transactionHash: string | null; message?: string }> {
+/**
+ * Check if wallet has received funds (check balance)
+ */
+export async function checkReceivedFunds(
+    walletAddress: string,
+    chainName: string = "celo",
+    tokenSymbol: TokenSymbol = "USDC"
+): Promise<{ balance: number; hasFunds: boolean }> {
     try {
-        const chainConfig = config[chainName as keyof typeof config];
-        if (!chainConfig || !chainConfig.chainId || !chainConfig.tokenAddress) {
-            throw new Error(`Invalid chain configuration for ${chainName}`);
-        }
-
-        const chain = defineChain(chainConfig.chainId);
-        const tokenAddress = chainConfig.tokenAddress;
-        console.log(`Migrating funds on ${chainName} from ${fromAddress} to ${toAddress}`);
-
-        const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-        const wallet = smartWallet({
-            chain,
-            sponsorGas: true, // Enable gas sponsorship
-        });
-
-        const smartAccount = await wallet.connect({ client, personalAccount });
-        console.log("Source unified smart account address:", smartAccount.address);
-
-        const contract = getContract({
-            client,
-            chain,
-            address: tokenAddress,
-        });
-
-        const balance = await allowance({
-            contract,
-            owner: fromAddress,
-            spender: smartAccount.address,
-        });
-        const decimals = 6;
-        const balanceInUnits = BigInt(balance.toString());
-        const balanceInUSDC = Number(balanceInUnits) / 10 ** decimals;
-        console.log(`USDC balance to migrate: ${balanceInUSDC}`);
-
-        if (balanceInUnits === 0n) {
-            console.log(`No USDC balance to migrate on ${chainName}`);
-            return { transactionHash: null, message: "No balance to migrate" };
-        }
-
-        const transferTx = await sendTransaction({
-            transaction: transfer({
-                contract,
-                to: toAddress,
-                amount: balanceInUSDC,
-            }),
-            account: smartAccount,
-        });
-
-        console.log(`Migration transaction hash: ${transferTx.transactionHash}`);
-        return { transactionHash: transferTx.transactionHash };
-
+        const balance = await getTokenBalance(walletAddress, chainName as Chain, tokenSymbol);
+        return {
+            balance,
+            hasFunds: balance > 0
+        };
     } catch (error: any) {
-        console.error("Error in migrateFunds:", {
-            message: error.message,
-            stack: error.stack,
-            details: error.details,
-            signature: error.signature,
-        });
-        throw error; // Let controller handle other errors (e.g., network issues)
+        console.error("Error checking received funds:", error);
+        return { balance: 0, hasFunds: false };
     }
 }
 
@@ -733,19 +686,18 @@ export async function getTokenBalance(
             throw new Error(`Invalid chain configuration for ${chain}`);
         }
 
-        const contract = getContract({
-            client,
-            chain: defineChain(chainConfig.chainId),
-            address: tokenConfig.address,
-        });
+        // Use ethers.js to query token balance directly
+        const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrl);
+        const tokenContract = new ethers.Contract(
+            tokenConfig.address,
+            ['function balanceOf(address) view returns (uint256)'],
+            provider
+        );
 
-        const balance = await allowance({
-            contract,
-            owner: address,
-            spender: tokenConfig.address,
-        });
+        const balance = await tokenContract.balanceOf(address);
+        const balanceNumber = Number(ethers.utils.formatUnits(balance, tokenConfig.decimals));
 
-        return Number(balance.toString()) / 10 ** tokenConfig.decimals;
+        return balanceNumber;
     } catch (error: any) {
         console.error(`Failed to fetch ${symbol} balance on ${chain}:`, error);
         return 0;

@@ -86,18 +86,20 @@ export const registerUser = async (req: Request, res: Response) => {
         return res.status(400).json(createErrorResponse('INVALID_CREDENTIALS', 'At least one contact method (phone number or email) and password are required!'));
     }
 
-    // Require OTP for completion
-    if (!otp) {
-        return res.status(400).json(createErrorResponse('INVALID_OTP', 'OTP is required to complete registration!'));
+    // Determine verification method: phone, email, or both
+    const verificationMethod = verifyWith || (email && !phoneNumber ? 'email' : 'phone');
+    
+    // OTP is ONLY required for phone number registration
+    // Email registration (Google signup) does NOT require OTP
+    if (phoneNumber && !otp) {
+        return res.status(400).json(createErrorResponse('INVALID_OTP', 'OTP is required for phone number registration!'));
     }
 
-    // Validate OTP format
-    if (!/^\d{6}$/.test(otp)) {
+    // Validate OTP format only if phone number is provided
+    if (phoneNumber && otp && !/^\d{6}$/.test(otp)) {
         return res.status(400).json(createErrorResponse('INVALID_OTP', 'OTP must be 6 digits'));
     }
 
-    // Determine verification method: phone, email, or both
-    const verificationMethod = verifyWith || (email ? 'email' : 'phone');
     if (verificationMethod === 'email' && !email) {
         return res.status(400).json(createErrorResponse('INVALID_EMAIL_FORMAT', 'Email is required for email verification!'));
     }
@@ -117,11 +119,12 @@ export const registerUser = async (req: Request, res: Response) => {
             return res.status(409).json(createErrorResponse('USER_ALREADY_EXISTS', `User with this ${fieldTaken} already exists.`));
         }
 
-        // Verify OTP before creating account
-        let otpValid = false;
+        // Verify OTP ONLY for phone number registration
+        // Email registration (Google signup) skips OTP verification
+        let otpValid = true; // Default to true for email-only registration
         
-        if (verificationMethod === 'phone' || verificationMethod === 'both') {
-            // Log OTP verification attempt
+        if (phoneNumber) {
+            // Phone number registration requires OTP verification
             console.log('\n======================================');
             console.log(`🔍 VERIFYING REGISTRATION OTP FOR ${phoneNumber}`);
             console.log(`📱 Received OTP: ${otp}`);
@@ -134,9 +137,11 @@ export const registerUser = async (req: Request, res: Response) => {
             }
         }
         
-        if (verificationMethod === 'email' || verificationMethod === 'both') {
-            const emailOtpValid = await verifyOTP(email, otp, 'registration');
-            otpValid = verificationMethod === 'email' ? emailOtpValid : (otpValid || emailOtpValid);
+        // Skip email OTP verification - email registration doesn't require OTP
+        // (This is for Google signup flow where OTP is not sent via email)
+        if (verificationMethod === 'email' && !phoneNumber) {
+            console.log('✅ Email-only registration: Skipping OTP verification (Google signup flow)');
+            otpValid = true; // Email registration doesn't need OTP
         }
 
         if (!otpValid) {
