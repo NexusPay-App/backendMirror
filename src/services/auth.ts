@@ -52,43 +52,14 @@
 //     return { pk, walletAddress };
 // }
 
-// Migrated from Thirdweb to NexusCore SDK
-import { createRandomWallet, createWalletFromPrivateKey, createNexusSDKInstance, NEXUS_API_CONFIG } from '../utils/nexusHelper';
+// Migrated from Thirdweb to NexusCore API
+import { createRandomWallet, createWalletFromPrivateKey, NEXUS_API_CONFIG } from '../utils/nexusHelper';
 import { Wallet } from 'ethers';
 import config from "../config/env";
 import { SMSService } from './smsService';
-import { NexusSDK } from '@nexus/nexuscore';
 
-// NexusCore SDK instance - lazy initialized when needed
-let _nexusSDK: NexusSDK | null = null;
-
-/**
- * Get or create NexusCore SDK instance for account operations
- */
-function getNexusSDK(): NexusSDK {
-    if (!_nexusSDK) {
-        try {
-            _nexusSDK = createNexusSDKInstance();
-            console.log("✅ NexusCore SDK initialized for Beach project");
-        } catch (error) {
-            console.error("❌ Failed to initialize NexusCore SDK:", error);
-            throw error;
-        }
-    }
-    return _nexusSDK;
-}
-
-// Export SDK getter
-export const getAuthSDK = getNexusSDK;
-
-// Export lazy-loaded client for backward compatibility (deprecated - use getAuthSDK)
-export const client = new Proxy({} as any, {
-    get(target, prop) {
-        console.warn("⚠️ Using deprecated 'client' export. Use getAuthSDK() instead.");
-        const sdk = getNexusSDK();
-        return sdk[prop];
-    }
-});
+// For backward compatibility with old ThirdWeb code
+export const client = { _isDeprecated: true };
 
 // Africa's Talking setup - now handled by SMSService
 console.log("Africa's Talking initialized with API key:", config.AFRICAS_TALKING_API_KEY ? "present" : "missing");
@@ -106,47 +77,96 @@ export const generateOTP = (): string => {
 };
 
 /**
- * Create a smart account using NexusCore SDK
+ * Create a smart account using NexusCore API
  * This creates an ERC-4337 smart contract wallet with gas sponsorship
+ * Contracts are deployed on Sepolia (11155111) and Arbitrum Sepolia (421614)
  */
 export async function createAccount(chainName: string = 'sepolia'): Promise<{ pk: string; walletAddress: string; smartAccountAddress?: string }> {
     try {
-        // Get NexusCore SDK instance
-        const nexusSDK = getNexusSDK();
-        
-        // Create a random EOA wallet (personal account)
+        // Create a random EOA wallet (personal account/owner)
         const personalWallet = createRandomWallet();
         const pk = personalWallet.privateKey;
         const eoaAddress = personalWallet.address;
 
         console.log(`🔐 Creating smart account for chain: ${chainName}`);
-        console.log(`   Personal Account (EOA): ${eoaAddress}`);
+        console.log(`   Owner (EOA): ${eoaAddress}`);
 
-        // Get chain configuration
-        const chainConfig = config[chainName];
-        if (!chainConfig || !chainConfig.chainId) {
-            throw new Error(`Invalid chain configuration for ${chainName}`);
-        }
-
-        // Initialize wallet with NexusCore SDK (creates smart account)
-        // The SDK will create a smart contract wallet that can be used across chains
-        const smartAccountAddress = await nexusSDK.initializeWallet(pk);
-        
-        console.log(`✅ Smart Account Created:`);
-        console.log(`   Personal (EOA): ${eoaAddress}`);
-        console.log(`   Smart Account: ${smartAccountAddress}`);
-        console.log(`   Chain: ${chainName} (${chainConfig.chainId})`);
-
-        return {
-            pk,
-            walletAddress: smartAccountAddress, // Return smart account address as primary
-            smartAccountAddress
+        // Map chain name to chain ID
+        const chainIdMap: Record<string, number> = {
+            'sepolia': 11155111,
+            'arbitrum-sepolia': 421614,
+            'arbitrum': 42161, // Mainnet, but we'll use testnet
         };
-    } catch (error: any) {
-        console.error("❌ Error creating smart account:", error);
+
+        // Default to Sepolia if chain not recognized
+        const chainId = chainIdMap[chainName.toLowerCase()] || 11155111;
+        const actualChainName = chainId === 11155111 ? 'sepolia' : 'arbitrum-sepolia';
+
+        console.log(`   Using chain: ${actualChainName} (${chainId})`);
+
+        // Use NexusCore API to create smart account
+        const { NEXUS_API_CONFIG } = await import('../utils/nexusHelper');
         
-        // Fallback to EOA if smart account creation fails
-        console.warn("⚠️ Falling back to EOA wallet creation");
+        try {
+            // Call NexusCore API to create smart account
+            // The route is /api/accounts (base URL is http://localhost:3000)
+            const apiBaseUrl = NEXUS_API_CONFIG.apiBaseUrl.replace('/api/v1', '');
+            const response = await fetch(`${apiBaseUrl}/api/accounts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': NEXUS_API_CONFIG.apiKey,
+                },
+                body: JSON.stringify({
+                    projectId: NEXUS_API_CONFIG.projectId,
+                    chainId: chainId,
+                    owner: eoaAddress,
+                    salt: Date.now().toString(), // Use timestamp as salt for uniqueness
+                    accountType: 'SIMPLE'
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                throw new Error(`NexusCore API error: ${errorData.message || response.statusText}`);
+            }
+
+            const accountData = await response.json();
+            const smartAccountAddress = accountData.account?.address || accountData.address;
+
+            if (!smartAccountAddress) {
+                throw new Error('No smart account address returned from API');
+            }
+
+            console.log(`✅ Smart Account Created:`);
+            console.log(`   Owner (EOA): ${eoaAddress}`);
+            console.log(`   Smart Wallet: ${smartAccountAddress}`);
+            console.log(`   Chain: ${actualChainName} (${chainId})`);
+            console.log(`   Deployed: ${accountData.account?.isDeployed || accountData.isDeployed || false}`);
+
+            return {
+                pk,
+                walletAddress: smartAccountAddress, // Return smart wallet address
+                smartAccountAddress: smartAccountAddress
+            };
+        } catch (apiError: any) {
+            console.error("❌ NexusCore API error:", apiError.message);
+            console.warn("⚠️ Falling back to EOA wallet (smart account will be created on first transaction)");
+            
+            // Fallback: return EOA address if API fails
+            // The smart wallet will be created when user makes their first transaction
+            return {
+                pk,
+                walletAddress: eoaAddress, // Return EOA as fallback
+                smartAccountAddress: undefined
+            };
+        }
+    } catch (error: any) {
+        console.error("❌ Error creating account:", error);
+        console.error("   Error details:", error.message);
+        
+        // Final fallback to basic EOA wallet creation
+        console.warn("⚠️ Falling back to basic wallet creation");
         const wallet = createRandomWallet();
         return {
             pk: wallet.privateKey,

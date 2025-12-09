@@ -160,8 +160,8 @@ export const registerUser = async (req: Request, res: Response) => {
             walletAddress,
             password: hashedPassword,
             privateKey: pk,
-            isEmailVerified: false,
-            isPhoneVerified: false,
+            isEmailVerified: email && !phoneNumber ? true : false, // Auto-verify email-only registrations
+            isPhoneVerified: phoneNumber ? false : false,
             isUnified: true // Mark as unified wallet
         });
         await newUser.save();
@@ -170,6 +170,32 @@ export const registerUser = async (req: Request, res: Response) => {
             ? 'email and phone' 
             : verificationMethod === 'email' ? 'email' : 'phone';
 
+        // For email-only registration, auto-complete and return token
+        if (email && !phoneNumber) {
+            const token = jwt.sign(
+                { 
+                    id: newUser._id,
+                    email: newUser.email,
+                    phoneNumber: newUser.phoneNumber,
+                    walletAddress: newUser.walletAddress 
+                },
+                config.JWT_SECRET!,
+                { expiresIn: '24h' }
+            );
+
+            return res.status(201).json(standardResponse(
+                true,
+                'Registration successful!',
+                {
+                    token,
+                    walletAddress: newUser.walletAddress,
+                    email: newUser.email,
+                    registrationId: newUser._id.toString()
+                }
+            ));
+        }
+
+        // For phone registration, require OTP verification
         const responseData = {
             registrationId: newUser._id.toString(),
             verificationMethod,
@@ -362,25 +388,34 @@ export const login = async (req: Request, res: Response) => {
             return res.status(401).json(createErrorResponse('PHONE_NOT_VERIFIED', 'Phone number not verified. Please use password reset to verify your phone number and set a new password.'));
         }
 
-        console.log('✅ All validation passed, sending OTP');
+        console.log('✅ All validation passed');
 
-        // Send OTP based on login method
-        if (email) {
-            // Send email OTP
-            const emailSent = await sendEmail(email, 'login');
-            if (!emailSent) {
-                return res.status(500).json(standardResponse(
-                    false, 
-                    "Failed to send login verification code."
-                ));
-            }
+        // For email login: Direct login without OTP (email already verified during registration)
+        if (email && user.isEmailVerified) {
+            console.log('✅ Email login - issuing JWT token directly');
+            
+            const token = jwt.sign(
+                { 
+                    id: user._id,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    walletAddress: user.walletAddress 
+                },
+                config.JWT_SECRET!,
+                { expiresIn: '24h' }
+            );
 
             return res.json(standardResponse(
-                true, 
-                "Please verify your login with the code sent to your email.",
-                { email }
+                true,
+                "Login successful!",
+                {
+                    token,
+                    walletAddress: user.walletAddress,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber
+                }
             ));
-        } else {
+        } else if (phoneNumber) {
             // Send SMS OTP for phone login
             const otp = generateOTP();
             otpStore[phoneNumber] = otp;

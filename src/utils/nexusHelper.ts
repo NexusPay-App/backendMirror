@@ -3,7 +3,7 @@
  * Provides convenient wrappers for common operations
  */
 
-import { NexusClient, NexusSDK, createNexusSDK } from '@nexus/nexuscore';
+import { NexusClient, NexusSDK } from '@nexus/nexuscore';
 import { ethers } from 'ethers';
 import config from '../config/env';
 
@@ -13,9 +13,9 @@ import config from '../config/env';
 export const NEXUS_API_CONFIG = {
     apiKey: 'nex_z4mvnhgjtzk_44rrxxxdtnb',
     apiBaseUrl: 'http://localhost:3000/api/v1',
-    sdkUrl: 'http://localhost:3000/api/v1/sdk/beach',
+    sdkUrl: 'http://localhost:3000/api/v1/sdk/cmihfksay000212pkg2ye6xun',
     webhookUrl: 'http://localhost:3000/api/v1/webhooks/cmihfksay000212pkg2ye6xun',
-    projectId: 'beach', // Project name
+    projectId: 'cmihfksay000212pkg2ye6xun', // Correct Project ID from NexusCore
     environment: 'testnet' as const
 };
 
@@ -56,7 +56,7 @@ const CHAIN_CONFIG_MAP: Record<string, { chainId: number; rpcUrl: string }> = {
     // Testnet chains
     sepolia: {
         chainId: 11155111,
-        rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com'
+        rpcUrl: 'https://rpc.ankr.com/eth_sepolia'
     },
     'arbitrum-sepolia': {
         chainId: 421614,
@@ -67,13 +67,43 @@ const CHAIN_CONFIG_MAP: Record<string, { chainId: number; rpcUrl: string }> = {
 /**
  * Create a NexusClient instance for a specific chain
  */
+/**
+ * Create NexusSDK with Account Abstraction support (paymaster, bundler, gas sponsorship)
+ */
+export function createNexusSDK(chainName: string): NexusSDK {
+    const mappedConfig = CHAIN_CONFIG_MAP[chainName.toLowerCase()];
+    const envConfig = config[chainName];
+    
+    let chainId: number;
+    let rpcUrl: string;
+    
+    if (mappedConfig) {
+        chainId = mappedConfig.chainId;
+        rpcUrl = mappedConfig.rpcUrl;
+    } else if (envConfig && envConfig.chainId) {
+        chainId = envConfig.chainId;
+        rpcUrl = envConfig.rpcUrl || getRpcUrlForChainId(envConfig.chainId);
+    } else {
+        throw new Error(`Invalid chain configuration for ${chainName}`);
+    }
+    
+    return new NexusSDK({
+        apiKey: NEXUS_API_CONFIG.apiKey,
+        projectId: NEXUS_API_CONFIG.projectId,
+        chain: chainId,
+        rpcUrl,
+        bundlerUrl: NEXUS_API_CONFIG.apiBaseUrl.replace('/api/v1', '') + '/api/v1/bundler',
+        paymasterUrl: NEXUS_API_CONFIG.apiBaseUrl.replace('/api/v1', '') + '/api/v1/paymaster'
+    });
+}
+
 export function createNexusClient(chainName: string): NexusClient {
     // Check if chain is in our mapping
     const mappedConfig = CHAIN_CONFIG_MAP[chainName.toLowerCase()];
     
     if (mappedConfig) {
         return new NexusClient({
-            chainId: mappedConfig.chainId,
+            chain: mappedConfig.chainId,
             rpcUrl: mappedConfig.rpcUrl,
             timeout: 30000,  // 30 seconds timeout
             retries: 3,      // 3 retry attempts
@@ -88,7 +118,7 @@ export function createNexusClient(chainName: string): NexusClient {
         const rpcUrl = envConfig.rpcUrl || getRpcUrlForChainId(envConfig.chainId);
         
         return new NexusClient({
-            chainId: envConfig.chainId,
+            chain: envConfig.chainId,
             rpcUrl,
             timeout: 30000,
             retries: 3,
@@ -109,7 +139,7 @@ function getRpcUrlForChainId(chainId: number): string {
         137: 'https://polygon-rpc.com',
         10: 'https://mainnet.optimism.io',
         8453: 'https://mainnet.base.org',
-        11155111: 'https://ethereum-sepolia.publicnode.com',
+        11155111: 'https://rpc.ankr.com/eth_sepolia',
         421614: 'https://sepolia-rollup.arbitrum.io/rpc'
     };
     
@@ -117,16 +147,32 @@ function getRpcUrlForChainId(chainId: number): string {
 }
 
 /**
- * Create NexusSDK instance with Beach project configuration
+ * Helper to call NexusCore API directly
  */
-export function createNexusSDKInstance(privateKey?: string): NexusSDK {
-    return createNexusSDK({
-        apiKey: NEXUS_API_CONFIG.apiKey,
-        apiBaseUrl: NEXUS_API_CONFIG.apiBaseUrl,
-        projectId: NEXUS_API_CONFIG.projectId,
-        environment: NEXUS_API_CONFIG.environment,
-        debug: process.env.NODE_ENV === 'development'
-    });
+export async function callNexusAPI(endpoint: string, method: string = 'GET', body?: any) {
+    const apiBaseUrl = NEXUS_API_CONFIG.apiBaseUrl.replace('/api/v1', '');
+    const url = `${apiBaseUrl}${endpoint}`;
+    
+    const options: RequestInit = {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': NEXUS_API_CONFIG.apiKey,
+        },
+    };
+    
+    if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        options.body = JSON.stringify(body);
+    }
+    
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        throw new Error(`NexusCore API error: ${errorData.message || response.statusText}`);
+    }
+    
+    return await response.json();
 }
 
 /**

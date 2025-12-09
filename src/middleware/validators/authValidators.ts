@@ -32,14 +32,25 @@ export const registerValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
   
-  // OTP validation for registration completion
+  // OTP validation - required only for phone registration, optional for email-only
   body('otp')
-    .notEmpty()
-    .withMessage('OTP is required to complete registration')
-    .isLength({ min: 6, max: 6 })
-    .withMessage('OTP must be 6 digits')
-    .isNumeric()
-    .withMessage('OTP must contain only numbers'),
+    .optional()
+    .custom((value, { req }) => {
+      // OTP is required if phoneNumber is provided
+      if (req.body.phoneNumber && !value) {
+        throw new Error('OTP is required for phone number registration');
+      }
+      // If OTP is provided, validate format
+      if (value) {
+        if (value.length !== 6) {
+          throw new Error('OTP must be 6 digits');
+        }
+        if (!/^\d+$/.test(value)) {
+          throw new Error('OTP must contain only numbers');
+        }
+      }
+      return true;
+    }),
   
   // Verify with validation
   body('verifyWith')

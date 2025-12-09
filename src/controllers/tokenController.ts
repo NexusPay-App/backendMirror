@@ -138,7 +138,7 @@ export const send = async (req: Request, res: Response) => {
         }
 
         // Enhanced chain validation - support all chains from config
-        const supportedChains = ['arbitrum', 'celo', 'polygon', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia'];
+        const supportedChains = ['arbitrum', 'celo', 'polygon', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia', 'sepolia', 'arbitrum-sepolia'];
         if (!supportedChains.includes(chain)) {
             console.log("Invalid chain:", chain);
             return res.status(400).json({

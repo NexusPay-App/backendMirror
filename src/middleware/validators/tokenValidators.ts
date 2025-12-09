@@ -47,8 +47,8 @@ export const sendTokenValidation = [
   body('chain')
     .notEmpty()
     .withMessage('Chain is required')
-    .isIn(['arbitrum', 'celo'])
-    .withMessage('Chain must be either "arbitrum" or "celo"')
+    .isIn(['arbitrum', 'celo', 'sepolia', 'arbitrum-sepolia'])
+    .withMessage('Chain must be one of: "arbitrum", "celo", "sepolia", "arbitrum-sepolia"')
 ];
 
 /**
@@ -107,8 +107,8 @@ export const tokenTransferEventsValidation = [
   query('chain')
     .notEmpty()
     .withMessage('Chain is required')
-    .isIn(['arbitrum', 'celo'])
-    .withMessage('Chain must be either "arbitrum" or "celo"'),
+    .isIn(['arbitrum', 'celo', 'sepolia', 'arbitrum-sepolia'])
+    .withMessage('Chain must be one of: "arbitrum", "celo", "sepolia", "arbitrum-sepolia"'),
     
   query('page')
     .optional()

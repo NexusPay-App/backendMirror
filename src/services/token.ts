@@ -313,9 +313,8 @@
 
 //################ new Code for Migrations #####################
 
-import { getAuthSDK } from './auth';
 // Migrated from Thirdweb to NexusCore SDK
-import { createWalletFromPrivateKey, createRandomWallet, createNexusSDKInstance, NEXUS_API_CONFIG } from '../utils/nexusHelper';
+import { createWalletFromPrivateKey, createRandomWallet, createNexusSDK, NEXUS_API_CONFIG, callNexusAPI } from '../utils/nexusHelper';
 import { ethers } from 'ethers';
 import config from "../config/env";
 import { keccak256, toHex } from 'viem';
@@ -403,13 +402,35 @@ export async function sendToken(
             throw new Error("Private key is required");
         }
 
-        // Get token configuration
+        // Check if transferring native token (ETH, MATIC, etc.)
+        const isNativeToken = tokenSymbol === 'ETH' || tokenSymbol === 'MATIC' || tokenSymbol === 'BNB' || tokenSymbol === 'AVAX';
+        
+        let tokenAddress: string;
+        let decimals: number;
+        
+        if (isNativeToken) {
+            // Native token transfer - no token address needed
+            tokenAddress = '0x0000000000000000000000000000000000000000';
+            decimals = 18; // Native tokens use 18 decimals
+            
+            console.log("🔁 Native Token Transfer Initiated:", {
+                recipient: `${recipientAddress.substring(0, 6)}...${recipientAddress.substring(recipientAddress.length - 4)}`,
+                amount,
+                tokenSymbol,
+                chain: chainName,
+                type: 'NATIVE',
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            // ERC20 token transfer
         const tokenConfig = getTokenConfig(chainName as Chain, tokenSymbol);
         if (!tokenConfig) {
             throw new Error(`Token ${tokenSymbol} not supported on chain ${chainName}`);
         }
 
-        // Enhanced debug logging with transaction details
+            tokenAddress = tokenConfig.address;
+            decimals = tokenConfig.decimals;
+            
         console.log("🔁 Token Transfer Initiated:", {
             recipient: `${recipientAddress.substring(0, 6)}...${recipientAddress.substring(recipientAddress.length - 4)}`,
             amount,
@@ -418,6 +439,7 @@ export async function sendToken(
             tokenAddress: tokenConfig.address.substring(0, 10) + '...',
             timestamp: new Date().toISOString()
         });
+        }
 
         // Get chain configuration
         const chainConfig = config[chainName];
@@ -425,45 +447,88 @@ export async function sendToken(
             throw new Error(`Invalid chain configuration for ${chainName}`);
         }
 
-        const tokenAddress = tokenConfig.address;
-        const decimals = tokenConfig.decimals;
-
-        // Get NexusCore SDK instance
-        const nexusSDK = getAuthSDK();
-        
-        // Initialize wallet with private key (creates/uses smart account)
-        await nexusSDK.initializeWallet(pk);
-        const walletAddress = nexusSDK.getWalletAddress();
-        
-        console.log(`📤 Sending ${amount} ${tokenSymbol} via smart account: ${walletAddress}`);
+        console.log(`📤 Preparing to send ${amount} ${tokenSymbol} via NexusCore API`);
 
         // Convert amount to token units (USDC has 6 decimals)
         const amountInUnits = BigInt(Math.floor(amount * 10 ** decimals));
 
-        // Helper to perform transfer via smart wallet with gas sponsorship
+        // Helper to perform transfer via smart wallet using ERC-4337 bundler
         const transferWithSmartAccount = async (): Promise<string> => {
             try {
-                // Convert amount to token's smallest unit (e.g., 1 USDC = 1000000 with 6 decimals)
+                // Convert amount to token's smallest unit
                 const amountInSmallestUnit = (BigInt(Math.floor(amount * 10 ** decimals))).toString();
                 
                 console.log(`📤 Sending ${amount} ${tokenSymbol} (${amountInSmallestUnit} smallest units)`);
+                console.log(`   Chain: ${chainName} (${chainConfig.chainId})`);
+                console.log(`   Type: ${isNativeToken ? 'NATIVE ETH' : 'ERC20'}`);
                 
-                // Use NexusCore SDK to send token with gas sponsorship
-                // Note: sendToken expects amount in smallest unit (not human-readable)
-                const userOpHash = await nexusSDK.sendToken(
-                    tokenAddress,
-                    recipientAddress,
-                    amountInSmallestUnit, // Amount in token's smallest unit
-                    chainConfig.chainId
+                // Get smart account address from database
+                const User = require('../models/models').User;
+                const user = await User.findOne({ privateKey: pk });
+                if (!user || !user.walletAddress) {
+                    throw new Error('Smart account not found for this user');
+                }
+                const smartAccountAddress = user.walletAddress;
+                
+                console.log(`   Smart Account: ${smartAccountAddress}`);
+                
+                // Prepare transaction data
+                let to: string;
+                let value: string;
+                let data: string;
+                
+                if (isNativeToken) {
+                    // Native token transfer
+                    to = recipientAddress;
+                    value = amountInSmallestUnit;
+                    data = '0x';
+                } else {
+                    // ERC20 token transfer
+                    const { Interface } = require('ethers');
+                    const iface = new Interface(['function transfer(address to, uint256 amount)']);
+                    to = tokenAddress;
+                    value = '0';
+                    data = iface.encodeFunctionData('transfer', [recipientAddress, amountInSmallestUnit]);
+                }
+                
+                // Build and submit UserOperation via bundler
+                const { buildUserOperation, submitUserOperation } = require('./userOpBuilder');
+                const { JsonRpcProvider } = require('ethers');
+                
+                const provider = new JsonRpcProvider(chainConfig.rpcUrl);
+                const entryPoint = '0x0000000071727De22E5E9d8BAf0edAc6f37da032'; // v0.7 EntryPoint
+                const factoryAddress = '0xFb57b2e568B796ab66075FB8637f20683B0d4E77'; // SimpleAccountFactory
+                const bundlerUrl = process.env.BUNDLER_URL || 'http://localhost:4337';
+                
+                console.log(`📦 Building UserOperation...`);
+                
+                const userOp = await buildUserOperation(
+                    {
+                        sender: smartAccountAddress,
+                        to,
+                        value,
+                        data,
+                        chainId: chainConfig.chainId,
+                        entryPoint,
+                        factoryAddress,
+                        usePaymaster: true // Enable gas sponsorship
+                    },
+                    pk,
+                    provider
                 );
                 
-                console.log(`✅ Transaction submitted via smart account (gas sponsored)`);
+                console.log(`📤 Submitting UserOperation to bundler...`);
+                
+                const userOpHash = await submitUserOperation(userOp, entryPoint, bundlerUrl);
+                
+                console.log(`✅ UserOperation submitted`);
                 console.log(`   UserOp Hash: ${userOpHash}`);
                 console.log(`   Amount: ${amount} ${tokenSymbol}`);
                 console.log(`   Recipient: ${recipientAddress}`);
+                console.log(`   Gas: Sponsored by paymaster`);
                 
-                // The SDK handles the user operation submission and paymaster sponsorship
-                // Return userOpHash (can be converted to txHash later via getUserOperationStatus)
+                // Return userOpHash as transaction hash
+                // In production, should poll for actual tx hash
                 return userOpHash;
             } catch (error: any) {
                 console.error("❌ Smart account transfer failed:", error);
@@ -491,37 +556,27 @@ export async function sendToken(
             return receipt.transactionHash;
         };
 
-        // Try sponsored gas first; on error, fallback to EOA transfer
+        // Use smart account direct execute (temporary until bundler is ready)
         let txHash: string;
+        
         try {
+            console.log('📤 Using smart account direct execute');
             txHash = await transferWithSmartAccount();
-        } catch (e: any) {
-            const msg = (e?.message || "").toString();
-            const isPaymasterError = msg.includes("paymaster") || msg.includes("sponsor") || 
-                                   msg.includes("gas") || msg.includes("insufficient") || 
-                                   e?.code === 401 || e?.code === -32603;
-            
-            if (isPaymasterError) {
-                console.warn("⚠️ Gas sponsorship unavailable. Retrying without gas sponsorship...");
+        } catch (smartAccountError: any) {
+            console.error("❌ Smart account transfer failed:", smartAccountError);
+            console.log("⚠️ Falling back to EOA transfer");
+            try {
                 txHash = await transferWithEOA();
-            } else {
-                // For other errors, still try EOA as fallback
-                console.warn("⚠️ Smart account error. Falling back to EOA transfer...");
-                try {
-                    txHash = await transferWithEOA();
-                } catch (fallbackError) {
-                    throw new Error(`Both smart account and EOA transfer failed: ${e.message}`);
-                }
+            } catch (fallbackError: any) {
+                throw new Error(`Token transfer failed: ${smartAccountError.message}`);
             }
         }
         
         // Enhanced success logging with transaction hash
         console.log(`✅ Token Transfer Successful:`);
         console.log(`- Transaction Hash: ${txHash}`);
-        console.log(`- From: ${wallet.address.substring(0, 8)}...`);
         console.log(`- To: ${recipientAddress.substring(0, 8)}...`);
         console.log(`- Amount: ${amount} ${tokenSymbol} on ${chainName}`);
-        console.log(`- USD Value: ~$${amount} USD`);
         console.log(`- Timestamp: ${new Date().toISOString()}`);
         
         return { transactionHash: txHash };

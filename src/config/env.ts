@@ -178,6 +178,16 @@ let config: Record<string, any> = {
             chainId: 42161,
             tokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
         },
+        sepolia: {
+            chainId: 11155111,
+            tokenAddress: "0x0000000000000000000000000000000000000000", // Native ETH
+            rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com"
+        },
+        "arbitrum-sepolia": {
+            chainId: 421614,
+            tokenAddress: "0x0000000000000000000000000000000000000000", // Native ETH  
+            rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc"
+        },
         optimism: {
             chainId: 10,
             tokenAddress: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85"
