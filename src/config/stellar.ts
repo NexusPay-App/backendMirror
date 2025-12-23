@@ -5,6 +5,8 @@ export interface StellarConfig {
   horizonUrl: string;
   friendbotUrl?: string;
   usdcIssuer: string;
+  usdtIssuer: string;
+  btcIssuer: string;
   xlmAssetCode: string;
   platformWalletSecret?: string;
 }
@@ -55,7 +57,7 @@ export interface StellarAccount {
 
 // Get Stellar configuration based on environment
 export function getStellarConfig(): StellarConfig {
-  const network = process.env.STELLAR_NETWORK || 'testnet';
+  const network = process.env.STELLAR_NETWORK || 'mainnet';
   const isTestnet = network === 'testnet';
   
   return {
@@ -68,7 +70,13 @@ export function getStellarConfig(): StellarConfig {
       : undefined,
     usdcIssuer: isTestnet
       ? process.env.STELLAR_USDC_ISSUER_TESTNET || 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
-      : process.env.STELLAR_USDC_ISSUER_MAINNET || 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+      : process.env.STELLAR_USDC_ISSUER_MAINNET || 'GA24LJXFG73JGARIBG2GP6V5TNUUOS6BD23KOFCW3INLDY5KPKS7GACZ',
+    usdtIssuer: isTestnet
+      ? process.env.STELLAR_USDT_ISSUER_TESTNET || 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
+      : process.env.STELLAR_USDT_ISSUER_MAINNET || 'GA24LJXFG73JGARIBG2GP6V5TNUUOS6BD23KOFCW3INLDY5KPKS7GACZ',
+    btcIssuer: isTestnet
+      ? process.env.STELLAR_BTC_ISSUER_TESTNET || 'GA23XTUUTBEW2ULZWZY4PRN6JUX7YLMARUHNUXJ347JPWFHN5GN2H3IX'
+      : process.env.STELLAR_BTC_ISSUER_MAINNET || 'GA23XTUUTBEW2ULZWZY4PRN6JUX7YLMARUHNUXJ347JPWFHN5GN2H3IX',
     xlmAssetCode: process.env.STELLAR_XLM_ASSET_CODE || 'XLM',
     platformWalletSecret: process.env.STELLAR_PLATFORM_WALLET_SECRET
   };
@@ -83,6 +91,16 @@ export const STELLAR_ASSETS = {
   USDC: {
     code: 'USDC',
     issuer: getStellarConfig().usdcIssuer,
+    type: 'credit_alphanum4' as const
+  },
+  USDT: {
+    code: 'USDT',
+    issuer: getStellarConfig().usdtIssuer,
+    type: 'credit_alphanum4' as const
+  },
+  BTC: {
+    code: 'BTC',
+    issuer: getStellarConfig().btcIssuer,
     type: 'credit_alphanum4' as const
   }
 } as const;

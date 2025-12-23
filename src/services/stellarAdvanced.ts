@@ -5,6 +5,9 @@ import { getStellarConfig, STELLAR_ASSETS } from '../config/stellar';
 import { redis, isRedisConnected } from '../config/redis';
 import { recordTransaction, TransactionType } from './transactionLogger';
 import { generateUUID } from '../utils';
+import { StellarMultiSigWallet } from '../models/stellarMultiSig';
+import { StellarPaymentChannel } from '../models/stellarPaymentChannel';
+import mongoose from 'mongoose';
 
 // Configure logger
 const logger = pino({
@@ -127,23 +130,30 @@ export class StellarAdvancedService {
       // Submit transaction
       await stellarService.server.submitTransaction(transactionXDR);
 
-      const multiSigWallet: MultiSigWallet = {
-        id: generateUUID(),
+      const id = generateUUID();
+      
+      // Store in database
+      const multiSigWallet = new StellarMultiSigWallet({
+        id,
+        userId: new mongoose.Types.ObjectId(userId),
         accountId,
         signers,
         threshold,
-        createdAt: new Date(),
         isActive: true
-      };
+      });
 
-      // Store in cache
-      const cacheKey = `stellar:multisig:${userId}:${multiSigWallet.id}`;
-      if (isRedisConnected()) {
-        await redis.setex(cacheKey, 3600, JSON.stringify(multiSigWallet));
-      }
+      await multiSigWallet.save();
 
       logger.info(`Created multi-sig wallet: ${accountId}`);
-      return multiSigWallet;
+      
+      return {
+        id,
+        accountId,
+        signers,
+        threshold,
+        createdAt: multiSigWallet.createdAt,
+        isActive: true
+      };
     } catch (error) {
       logger.error('Error creating multi-sig wallet:', error);
       throw new Error('Failed to create multi-signature wallet');
@@ -168,26 +178,43 @@ export class StellarAdvancedService {
       const channelId = generateUUID();
       const sequence = (parseInt(sourceAccount.sequence) + 1).toString();
 
-      const paymentChannel: PaymentChannel = {
+      // Get asset issuer if needed
+      const stellarConfig = getStellarConfig();
+      const assetIssuer = asset === 'USDC' ? stellarConfig.usdcIssuer 
+        : asset === 'USDT' ? stellarConfig.usdtIssuer
+        : asset === 'BTC' ? stellarConfig.btcIssuer
+        : undefined;
+
+      // Store in database
+      const paymentChannel = new StellarPaymentChannel({
+        id: channelId,
+        userId: new mongoose.Types.ObjectId(sourceAccountId), // TODO: Get actual userId
+        sourceAccount: sourceAccountId,
+        destinationAccount: destinationAccountId,
+        asset,
+        assetIssuer,
+        totalAmount: amount,
+        usedAmount: '0',
+        sequence,
+        expiresAt,
+        status: 'active'
+      });
+
+      await paymentChannel.save();
+
+      logger.info(`Created payment channel: ${channelId}`);
+      
+      return {
         id: channelId,
         sourceAccount: sourceAccountId,
         destinationAccount: destinationAccountId,
         asset,
         amount,
         sequence,
-        createdAt: new Date(),
+        createdAt: paymentChannel.createdAt,
         expiresAt,
         status: 'active'
       };
-
-      // Store in cache
-      const cacheKey = `stellar:payment_channel:${channelId}`;
-      if (isRedisConnected()) {
-        await redis.setex(cacheKey, durationHours * 3600, JSON.stringify(paymentChannel));
-      }
-
-      logger.info(`Created payment channel: ${channelId}`);
-      return paymentChannel;
     } catch (error) {
       logger.error('Error creating payment channel:', error);
       throw new Error('Failed to create payment channel');
@@ -509,10 +536,19 @@ export class StellarAdvancedService {
    */
   async getUserMultiSigWallets(userId: string): Promise<MultiSigWallet[]> {
     try {
-      // In a real implementation, you would query your database
-      // For now, return empty array
-      logger.info(`Getting multi-sig wallets for user: ${userId}`);
-      return [];
+      const wallets = await StellarMultiSigWallet.find({
+        userId: new mongoose.Types.ObjectId(userId),
+        isActive: true
+      }).sort({ createdAt: -1 }).lean();
+
+      return wallets.map(w => ({
+        id: w.id,
+        accountId: w.accountId,
+        signers: w.signers,
+        threshold: w.threshold,
+        createdAt: w.createdAt,
+        isActive: w.isActive
+      }));
     } catch (error) {
       logger.error('Error getting user multi-sig wallets:', error);
       return [];
@@ -524,10 +560,23 @@ export class StellarAdvancedService {
    */
   async getUserPaymentChannels(userId: string): Promise<PaymentChannel[]> {
     try {
-      // In a real implementation, you would query your database
-      // For now, return empty array
-      logger.info(`Getting payment channels for user: ${userId}`);
-      return [];
+      const channels = await StellarPaymentChannel.find({
+        userId: new mongoose.Types.ObjectId(userId),
+        status: 'active',
+        expiresAt: { $gt: new Date() }
+      }).sort({ createdAt: -1 }).lean();
+
+      return channels.map(c => ({
+        id: c.id,
+        sourceAccount: c.sourceAccount,
+        destinationAccount: c.destinationAccount,
+        asset: c.asset,
+        amount: c.totalAmount,
+        sequence: c.sequence,
+        createdAt: c.createdAt,
+        expiresAt: c.expiresAt,
+        status: c.status
+      }));
     } catch (error) {
       logger.error('Error getting user payment channels:', error);
       return [];

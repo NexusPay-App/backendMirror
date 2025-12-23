@@ -518,46 +518,52 @@ export const verifyLogin = async (req: Request, res: Response) => {
         user.lastLoginAt = new Date();
         await user.save();
 
-        // Create Stellar wallet for existing users if they don't have one
-        console.log(`🔍 Checking Stellar wallet for user ${user._id}:`, {
-            stellarWalletCreated: user.stellarWalletCreated,
-            stellarAccountId: user.stellarAccountId
-        });
+        // CRITICAL: Check database directly to prevent duplicate wallet creation
+        const { User: UserModel } = await import('../models/user');
+        const userWithWallet = await UserModel.findById(user._id).select('+stellarSecretKey');
         
-        if (!user.stellarWalletCreated || !user.stellarAccountId) {
+        console.log(`🔍 [WALLET CHECK] User ID: ${user._id}`);
+        console.log(`🔍 [WALLET CHECK] stellarAccountId: ${userWithWallet?.stellarAccountId}`);
+        console.log(`🔍 [WALLET CHECK] hasSecretKey: ${!!userWithWallet?.stellarSecretKey}`);
+        console.log(`🔍 [WALLET CHECK] stellarWalletCreated: ${userWithWallet?.stellarWalletCreated}`);
+        
+        if (userWithWallet && userWithWallet.stellarAccountId && userWithWallet.stellarSecretKey) {
+            // Wallet exists in database - use it
+            user.stellarAccountId = userWithWallet.stellarAccountId;
+            user.stellarWalletCreated = true;
+            console.log(`✅ User already has Stellar wallet: ${user.stellarAccountId}`);
+        } else {
+            console.log(`⚠️ [WALLET CHECK] Wallet check failed - creating new wallet`);
+            console.log(`⚠️ [WALLET CHECK] userWithWallet exists: ${!!userWithWallet}`);
+            console.log(`⚠️ [WALLET CHECK] has accountId: ${!!userWithWallet?.stellarAccountId}`);
+            console.log(`⚠️ [WALLET CHECK] has secretKey: ${!!userWithWallet?.stellarSecretKey}`);
+            // No wallet exists - create new one
             try {
-                console.log(`🌟 Creating Stellar wallet for existing user: ${user._id}`);
+                console.log(`🌟 Creating Stellar wallet for user ${user._id}`);
                 const { stellarWalletService } = await import('../services/stellarWallet');
-                const stellarWallet = await stellarWalletService.createWallet(
+                const newWallet = await stellarWalletService.createWallet(
                     user._id.toString(),
                     user.phoneNumber || user.email || undefined
                 );
-                console.log(`✅ Stellar wallet created for user ${user._id}: ${stellarWallet.accountId}`);
+
+                // CRITICAL: Wait for database update and verify it succeeded
+                await new Promise(resolve => setTimeout(resolve, 2000));
                 
-                // Wait a moment for database update to complete
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // Reload user from database to get updated stellarAccountId
-                const updatedUser = await User.findById(user._id);
-                if (updatedUser) {
-                    // Update the user object we're using
-                    user.stellarAccountId = (updatedUser as any).stellarAccountId || stellarWallet.accountId;
-                    user.stellarWalletCreated = (updatedUser as any).stellarWalletCreated !== undefined ? (updatedUser as any).stellarWalletCreated : true;
-                    console.log(`✅ User updated with Stellar wallet: ${user.stellarAccountId}`);
-                } else {
-                    // Fallback: use the wallet info directly
-                    user.stellarAccountId = stellarWallet.accountId;
+                const verifyUser = await UserModel.findById(user._id).select('+stellarSecretKey');
+                if (verifyUser && verifyUser.stellarAccountId && verifyUser.stellarSecretKey) {
+                    user.stellarAccountId = verifyUser.stellarAccountId;
                     user.stellarWalletCreated = true;
-                    console.log(`✅ Using wallet info directly: ${stellarWallet.accountId}`);
+                    console.log(`✅ Stellar wallet created and verified: ${user.stellarAccountId}`);
+                } else {
+                    console.error(`❌ CRITICAL: Wallet created but not saved to database!`);
+                    user.stellarAccountId = newWallet.accountId;
+                    user.stellarWalletCreated = true;
                 }
             } catch (stellarError: any) {
                 console.error('❌ Error creating Stellar wallet during login:', stellarError);
                 console.error('❌ Error stack:', stellarError?.stack);
                 console.error('❌ Error message:', stellarError?.message);
-                // Don't fail login if Stellar wallet creation fails - we can retry later
             }
-        } else {
-            console.log(`✅ User already has Stellar wallet: ${user.stellarAccountId}`);
         }
 
         // Generate token for authentication
@@ -1101,6 +1107,33 @@ export const googleAuth = async (req: Request, res: Response) => {
                 await UserOptimizationService.linkGoogleToExistingUser(existingUser._id, googleUser.id);
             }
             
+            // Create Stellar wallet for existing users if they don't have one
+            if (!existingUser.stellarWalletCreated || !existingUser.stellarAccountId) {
+                try {
+                    console.log(`🌟 Creating Stellar wallet for existing Google user: ${existingUser._id}`);
+                    const { stellarWalletService } = await import('../services/stellarWallet');
+                    const stellarWallet = await stellarWalletService.createWallet(
+                        existingUser._id.toString(),
+                        existingUser.phoneNumber || existingUser.email || undefined
+                    );
+                    console.log(`✅ Stellar wallet created for Google user ${existingUser._id}: ${stellarWallet.accountId}`);
+                    
+                    // Reload user to get updated stellarAccountId
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    const updatedUser = await User.findById(existingUser._id);
+                    if (updatedUser) {
+                        existingUser.stellarAccountId = (updatedUser as any).stellarAccountId || stellarWallet.accountId;
+                        existingUser.stellarWalletCreated = (updatedUser as any).stellarWalletCreated !== undefined ? (updatedUser as any).stellarWalletCreated : true;
+                    } else {
+                        existingUser.stellarAccountId = stellarWallet.accountId;
+                        existingUser.stellarWalletCreated = true;
+                    }
+                } catch (stellarError: any) {
+                    console.error('❌ Error creating Stellar wallet during Google login:', stellarError);
+                    // Don't fail login if Stellar wallet creation fails
+                }
+            }
+            
             existingUser.lastLogin = new Date();
             await existingUser.save();
 
@@ -1110,23 +1143,32 @@ export const googleAuth = async (req: Request, res: Response) => {
                 { expiresIn: '7d' }
             );
 
+            // Register this as a verified session
+            registerVerifiedSession(token, existingUser._id.toString());
+
             return res.json(standardResponse(
                 true,
                 "Google sign in successful",
                 {
                     token,
+                    wallets: {
+                        evm: existingUser.walletAddress,
+                        stellar: existingUser.stellarAccountId || null
+                    },
                     user: {
                         id: existingUser._id,
                         email: existingUser.email,
                         phoneNumber: existingUser.phoneNumber,
                         walletAddress: existingUser.walletAddress,
+                        stellarAccountId: existingUser.stellarAccountId || null,
                         role: existingUser.role,
                         isVerified: existingUser.isVerified,
                         isPhoneVerified: existingUser.isPhoneVerified,
                         isEmailVerified: existingUser.isEmailVerified,
                         authMethods: existingUser.authMethods,
                         hasPassword: !!existingUser.password,
-                        hasPhoneNumber: !!existingUser.phoneNumber
+                        hasPhoneNumber: !!existingUser.phoneNumber,
+                        stellarWalletCreated: existingUser.stellarWalletCreated || false
                     }
                 }
             ));
@@ -1161,29 +1203,63 @@ export const googleAuth = async (req: Request, res: Response) => {
             console.error('Error creating ENS subdomain for Google user:', ensError);
         }
 
+        // Create Stellar wallet for new Google user automatically
+        try {
+            console.log(`🌟 Creating Stellar wallet for new Google user: ${newUser._id}`);
+            const { stellarWalletService } = await import('../services/stellarWallet');
+            const stellarWallet = await stellarWalletService.createWallet(
+                newUser._id.toString(),
+                newUser.phoneNumber || newUser.email || undefined
+            );
+            console.log(`✅ Stellar wallet created for Google user ${newUser._id}: ${stellarWallet.accountId}`);
+            
+            // Reload user to get updated stellarAccountId
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const updatedUser = await User.findById(newUser._id);
+            if (updatedUser) {
+                newUser.stellarAccountId = (updatedUser as any).stellarAccountId || stellarWallet.accountId;
+                newUser.stellarWalletCreated = (updatedUser as any).stellarWalletCreated !== undefined ? (updatedUser as any).stellarWalletCreated : true;
+            } else {
+                newUser.stellarAccountId = stellarWallet.accountId;
+                newUser.stellarWalletCreated = true;
+            }
+        } catch (stellarError: any) {
+            console.error('❌ Error creating Stellar wallet during Google registration:', stellarError);
+            // Don't fail registration if Stellar wallet creation fails
+        }
+
         const token = jwt.sign(
             { id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },
             config.JWT_SECRET,
             { expiresIn: '7d' }
         );
 
+        // Register this as a verified session
+        registerVerifiedSession(token, newUser._id.toString());
+
         return res.status(201).json(standardResponse(
             true,
             "Google sign up successful",
             {
                 token,
+                wallets: {
+                    evm: newUser.walletAddress,
+                    stellar: newUser.stellarAccountId || null
+                },
                 user: {
                     id: newUser._id,
                     email: newUser.email,
                     phoneNumber: newUser.phoneNumber,
                     walletAddress: newUser.walletAddress,
+                    stellarAccountId: newUser.stellarAccountId || null,
                     role: newUser.role,
                     isVerified: newUser.isVerified,
                     isPhoneVerified: newUser.isPhoneVerified,
                     isEmailVerified: newUser.isEmailVerified,
                     authMethods: newUser.authMethods,
                     hasPassword: false,
-                    hasPhoneNumber: false
+                    hasPhoneNumber: false,
+                    stellarWalletCreated: newUser.stellarWalletCreated || false
                 }
             }
         ));

@@ -86,7 +86,9 @@ export const tokenConfigs: TokenConfigurations = {
     },
     stellar: {
         XLM: { symbol: 'XLM', decimals: 7, address: 'native' as any, name: 'Stellar Lumens' },
-        USDC_STELLAR: { symbol: 'USDC_STELLAR', decimals: 7, address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' as any, name: 'USD Coin (Stellar)' }
+        USDC_STELLAR: { symbol: 'USDC_STELLAR', decimals: 7, address: 'GA24LJXFG73JGARIBG2GP6V5TNUUOS6BD23KOFCW3INLDY5KPKS7GACZ' as any, name: 'USD Coin (Stellar)' },
+        USDT_STELLAR: { symbol: 'USDT_STELLAR', decimals: 7, address: 'GA24LJXFG73JGARIBG2GP6V5TNUUOS6BD23KOFCW3INLDY5KPKS7GACZ' as any, name: 'Tether USD (Stellar)' },
+        BTC_STELLAR: { symbol: 'BTC_STELLAR', decimals: 7, address: 'GA23XTUUTBEW2ULZWZY4PRN6JUX7YLMARUHNUXJ347JPWFHN5GN2H3IX' as any, name: 'Bitcoin (Stellar)' }
     }
 };
 

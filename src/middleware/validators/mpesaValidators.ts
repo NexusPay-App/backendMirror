@@ -151,16 +151,16 @@ export const buyCryptoValidation = [
     .withMessage('Chain is required')
     .isString()
     .withMessage('Chain must be a string')
-    .isIn(['celo', 'polygon', 'base', 'optimism', 'bnb', 'ethereum', 'arbitrum'])
-    .withMessage('Unsupported blockchain selected. Choose one of: celo, polygon, base, optimism, bnb, ethereum, arbitrum'),
+    .isIn(['celo', 'polygon', 'base', 'optimism', 'bnb', 'ethereum', 'arbitrum', 'stellar'])
+    .withMessage('Unsupported blockchain selected. Choose one of: celo, polygon, base, optimism, bnb, ethereum, arbitrum, stellar'),
     
   body('tokenType')
     .notEmpty()
     .withMessage('Token type is required')
     .isString()
     .withMessage('Token type must be a string')
-    .isIn(['USDC', 'USDT', 'BTC', 'ETH'])
-    .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH')
+    .isIn(['USDC', 'USDT', 'BTC', 'ETH', 'XLM', 'USDC_STELLAR', 'USDT_STELLAR', 'BTC_STELLAR'])
+    .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH, XLM, USDC_STELLAR, USDT_STELLAR, BTC_STELLAR')
 ];
 
 /**
@@ -255,16 +255,16 @@ export const validateCryptoSpending = [
     .withMessage('Chain is required')
     .isString()
     .withMessage('Chain must be a string')
-    .isIn(['celo', 'polygon', 'base', 'optimism', 'bnb', 'ethereum', 'arbitrum'])
-    .withMessage('Unsupported blockchain selected. Choose one of: celo, polygon, base, optimism, bnb, ethereum, arbitrum'),
+    .isIn(['celo', 'polygon', 'base', 'optimism', 'bnb', 'ethereum', 'arbitrum', 'stellar'])
+    .withMessage('Unsupported blockchain selected. Choose one of: celo, polygon, base, optimism, bnb, ethereum, arbitrum, stellar'),
     
   body('tokenType')
     .notEmpty()
     .withMessage('Token type is required')
     .isString()
     .withMessage('Token type must be a string')
-    .isIn(['USDC', 'USDT', 'BTC', 'ETH'])
-    .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH'),
+    .isIn(['USDC', 'USDT', 'BTC', 'ETH', 'XLM', 'USDC_STELLAR', 'USDT_STELLAR', 'BTC_STELLAR'])
+    .withMessage('Unsupported token selected. Choose one of: USDC, USDT, BTC, ETH, XLM, USDC_STELLAR, USDT_STELLAR, BTC_STELLAR'),
     
   body('description')
     .optional()

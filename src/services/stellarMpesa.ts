@@ -4,6 +4,8 @@ import { stellarPriceService } from './stellarPrice';
 import { recordTransaction, TransactionType } from './transactionLogger';
 import { generateUUID } from '../utils';
 import { redis, isRedisConnected } from '../config/redis';
+import { StellarTransaction } from '../models/stellarTransaction';
+import mongoose from 'mongoose';
 
 // Configure logger
 const logger = pino({
@@ -171,36 +173,73 @@ export class StellarMpesaService {
       // Convert KES to Stellar asset
       const conversion = await this.convertKesToStellarAsset(request.amountKES, request.asset);
       
-      // Create transaction record
-      const transaction: StellarMpesaTransaction = {
-        id: transactionId,
-        userId: request.userId,
-        phoneNumber: request.phoneNumber,
+      // Create transaction record in database
+      const stellarTx = new StellarTransaction({
+        transactionId,
+        userId: new mongoose.Types.ObjectId(request.userId),
         type: 'deposit',
-        amountKES: request.amountKES,
-        amountAsset: conversion.amountAsset,
-        asset: request.asset,
-        exchangeRate: conversion.exchangeRate,
         status: 'pending',
-        createdAt: new Date()
-      };
+        asset: request.asset,
+        amount: conversion.amountAsset,
+        fee: '0',
+        memo: request.memo,
+        phoneNumber: request.phoneNumber,
+        amountKES: request.amountKES,
+        exchangeRate: conversion.exchangeRate,
+        metadata: {
+          conversion,
+          initiatedAt: new Date()
+        }
+      });
 
-      // Store transaction
-      await this.storeTransaction(transaction);
+      await stellarTx.save();
+      logger.info(`Stellar deposit transaction created in database: ${transactionId}`);
 
-      // Here you would integrate with your existing MPESA service
-      // For now, we'll simulate the MPESA STK Push
-      logger.info(`Stellar deposit initiated: ${transactionId}`);
+      // Import M-Pesa service and config
+      const { initiateSTKPush } = await import('./mpesa');
+      const config = (await import('../config/env')).default;
       
-      // In a real implementation, you would:
-      // 1. Call your existing MPESA STK Push service
-      // 2. Handle the MPESA callback
-      // 3. Convert the MPESA payment to Stellar assets
-      // 4. Send Stellar assets to user's wallet
+      // Format phone number for M-Pesa
+      let formattedPhone = request.phoneNumber.replace(/\D/g, '');
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = '254' + formattedPhone.substring(1);
+      } else if (!formattedPhone.startsWith('254')) {
+        formattedPhone = '254' + formattedPhone;
+      }
+
+      // Initiate M-Pesa STK Push
+      logger.info(`Initiating M-Pesa STK Push for Stellar deposit: ${transactionId}`);
+      const mpesaResponse = await initiateSTKPush(
+        formattedPhone,
+        config.MPESA_SHORTCODE!,
+        request.amountKES,
+        `NexusPay Stellar ${request.asset}`,
+        request.userId
+      );
+
+      if (!mpesaResponse) {
+        stellarTx.status = 'failed';
+        stellarTx.error = 'M-Pesa STK Push failed';
+        await stellarTx.save();
+        throw new Error('Failed to initiate M-Pesa STK Push');
+      }
+
+      // Update transaction with M-Pesa checkout request ID
+      stellarTx.mpesaCheckoutRequestId = mpesaResponse.checkoutRequestId;
+      stellarTx.status = 'processing';
+      await stellarTx.save();
+
+      // Also store in cache for quick lookup
+      const cacheKey = `stellar:mpesa:checkout:${mpesaResponse.checkoutRequestId}`;
+      if (isRedisConnected()) {
+        await redis.setex(cacheKey, 3600, transactionId);
+      }
+
+      logger.info(`Stellar deposit initiated: ${transactionId}, M-Pesa checkout: ${mpesaResponse.checkoutRequestId}`);
 
       return {
         transactionId,
-        status: 'pending',
+        status: 'processing',
         message: `Deposit initiated. You will receive ${conversion.amountAsset} ${request.asset} for ${request.amountKES} KES`
       };
     } catch (error) {
@@ -229,33 +268,106 @@ export class StellarMpesaService {
         throw new Error('Insufficient Stellar balance');
       }
 
-      // Create transaction record
-      const transaction: StellarMpesaTransaction = {
-        id: transactionId,
-        userId: request.userId,
-        phoneNumber: request.phoneNumber,
+      // Get user wallet
+      const userWallet = await stellarWalletService.getUserWallet(request.userId);
+      if (!userWallet) {
+        throw new Error('Stellar wallet not found');
+      }
+
+      // Create transaction record in database
+      const stellarTx = new StellarTransaction({
+        transactionId,
+        userId: new mongoose.Types.ObjectId(request.userId),
         type: 'withdrawal',
-        amountKES: conversion.amountKES,
-        amountAsset: request.amountAsset,
+        status: 'processing',
         asset: request.asset,
+        amount: request.amountAsset,
+        fee: '0',
+        memo: request.memo,
+        fromAccountId: userWallet.accountId,
+        phoneNumber: request.phoneNumber,
+        amountKES: conversion.amountKES,
         exchangeRate: conversion.exchangeRate,
-        status: 'pending',
-        createdAt: new Date()
-      };
+        metadata: {
+          conversion,
+          initiatedAt: new Date()
+        }
+      });
 
-      // Store transaction
-      await this.storeTransaction(transaction);
+      await stellarTx.save();
+      logger.info(`Stellar withdrawal transaction created in database: ${transactionId}`);
 
-      // Here you would:
-      // 1. Send Stellar assets from user's wallet to platform wallet
-      // 2. Initiate MPESA B2C payment to user's phone number
-      // 3. Handle the MPESA callback
+      // Transfer Stellar assets from user to platform wallet
+      const { stellarService } = await import('./stellar');
+      const { getStellarConfig } = await import('../config/stellar');
+      const stellarConfig = getStellarConfig();
+
+      if (!stellarConfig.platformWalletSecret) {
+        throw new Error('Platform wallet not configured');
+      }
+
+      const { Keypair } = await import('stellar-sdk');
+      const platformKeypair = Keypair.fromSecret(stellarConfig.platformWalletSecret);
+      const platformAccountId = platformKeypair.publicKey();
+
+      // Get asset issuer
+      const assetIssuer = request.asset === 'USDC' ? stellarConfig.usdcIssuer 
+        : request.asset === 'USDT' ? stellarConfig.usdtIssuer
+        : request.asset === 'BTC' ? stellarConfig.btcIssuer
+        : undefined;
+
+      // Send Stellar payment from user to platform
+      const transferResult = await stellarService.sendPayment(
+        userWallet.secretKey,
+        platformAccountId,
+        request.amountAsset,
+        request.asset,
+        assetIssuer,
+        `Withdrawal to M-Pesa: ${transactionId}`
+      );
+
+      // Update transaction with Stellar hash
+      stellarTx.stellarTransactionHash = transferResult.transactionHash;
+      stellarTx.toAccountId = platformAccountId;
+      await stellarTx.save();
+
+      logger.info(`Stellar assets transferred to platform: ${transferResult.transactionHash}`);
+
+      // Initiate M-Pesa B2C payment
+      const { initiateB2CPayment } = await import('./mpesa');
+      const config = (await import('../config/env')).default;
+
+      // Format phone number
+      let formattedPhone = request.phoneNumber.replace(/\D/g, '');
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = '254' + formattedPhone.substring(1);
+      } else if (!formattedPhone.startsWith('254')) {
+        formattedPhone = '254' + formattedPhone;
+      }
+
+      const b2cResponse = await initiateB2CPayment(
+        formattedPhone,
+        conversion.amountKES,
+        `Stellar ${request.asset} withdrawal`,
+        `NexusPay Stellar withdrawal ${transactionId}`
+      );
+
+      if (b2cResponse && b2cResponse.ConversationID) {
+        stellarTx.mpesaConversationId = b2cResponse.ConversationID;
+        await stellarTx.save();
+
+        // Store in cache for callback lookup
+        const cacheKey = `stellar:mpesa:b2c:${b2cResponse.ConversationID}`;
+        if (isRedisConnected()) {
+          await redis.setex(cacheKey, 3600, transactionId);
+        }
+      }
 
       logger.info(`Stellar withdrawal initiated: ${transactionId}`);
       
       return {
         transactionId,
-        status: 'pending',
+        status: 'processing',
         message: `Withdrawal initiated. You will receive ${conversion.amountKES} KES for ${request.amountAsset} ${request.asset}`
       };
     } catch (error) {
@@ -269,17 +381,32 @@ export class StellarMpesaService {
    */
   async getTransactionStatus(transactionId: string): Promise<StellarMpesaTransaction | null> {
     try {
-      const cacheKey = `stellar:mpesa:transaction:${transactionId}`;
+      // Query database
+      const stellarTx = await StellarTransaction.findOne({ transactionId }).lean();
       
-      if (isRedisConnected()) {
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-          return JSON.parse(cached);
-        }
+      if (!stellarTx) {
+        return null;
       }
 
-      // In a real implementation, you would query your database
-      return null;
+      // Map to StellarMpesaTransaction interface
+      const transaction: StellarMpesaTransaction = {
+        id: stellarTx.transactionId,
+        userId: stellarTx.userId.toString(),
+        phoneNumber: stellarTx.phoneNumber || '',
+        type: stellarTx.type as 'deposit' | 'withdrawal',
+        amountKES: stellarTx.amountKES || 0,
+        amountAsset: stellarTx.amount,
+        asset: stellarTx.asset,
+        exchangeRate: stellarTx.exchangeRate || 0,
+        status: stellarTx.status as 'pending' | 'processing' | 'completed' | 'failed',
+        mpesaTransactionId: stellarTx.mpesaReceiptNumber,
+        stellarTransactionHash: stellarTx.stellarTransactionHash,
+        createdAt: stellarTx.createdAt,
+        completedAt: stellarTx.completedAt,
+        error: stellarTx.error
+      };
+
+      return transaction;
     } catch (error) {
       logger.error('Error getting transaction status:', error);
       return null;
@@ -294,10 +421,34 @@ export class StellarMpesaService {
     limit: number = 10
   ): Promise<StellarMpesaTransaction[]> {
     try {
-      // In a real implementation, you would query your database
-      // For now, return empty array
-      logger.info(`Transaction history requested for user ${userId}`);
-      return [];
+      // Query database for user's transactions
+      const stellarTxs = await StellarTransaction.find({
+        userId: new mongoose.Types.ObjectId(userId),
+        type: { $in: ['deposit', 'withdrawal'] }
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+      // Map to StellarMpesaTransaction interface
+      const transactions: StellarMpesaTransaction[] = stellarTxs.map(tx => ({
+        id: tx.transactionId,
+        userId: tx.userId.toString(),
+        phoneNumber: tx.phoneNumber || '',
+        type: tx.type as 'deposit' | 'withdrawal',
+        amountKES: tx.amountKES || 0,
+        amountAsset: tx.amount,
+        asset: tx.asset,
+        exchangeRate: tx.exchangeRate || 0,
+        status: tx.status as 'pending' | 'processing' | 'completed' | 'failed',
+        mpesaTransactionId: tx.mpesaReceiptNumber,
+        stellarTransactionHash: tx.stellarTransactionHash,
+        createdAt: tx.createdAt,
+        completedAt: tx.completedAt,
+        error: tx.error
+      }));
+
+      return transactions;
     } catch (error) {
       logger.error('Error getting user transaction history:', error);
       return [];
@@ -305,22 +456,12 @@ export class StellarMpesaService {
   }
 
   /**
-   * Store transaction in cache/database
+   * Store transaction in cache/database (deprecated - now using StellarTransaction model directly)
    */
   private async storeTransaction(transaction: StellarMpesaTransaction): Promise<void> {
-    try {
-      const cacheKey = `stellar:mpesa:transaction:${transaction.id}`;
-      
-      if (isRedisConnected()) {
-        await redis.setex(cacheKey, this.CACHE_DURATION, JSON.stringify(transaction));
-      }
-
-      // In a real implementation, you would also store in your database
-      logger.info(`Stored Stellar MPESA transaction: ${transaction.id}`);
-    } catch (error) {
-      logger.error('Error storing transaction:', error);
-      throw error;
-    }
+    // This method is deprecated - transactions are now stored directly in the database
+    // Keeping for backwards compatibility
+    logger.warn('storeTransaction is deprecated - use StellarTransaction model directly');
   }
 
   /**
@@ -336,35 +477,47 @@ export class StellarMpesaService {
     }
   ): Promise<void> {
     try {
-      const transaction = await this.getTransactionStatus(transactionId);
-      if (!transaction) {
+      const stellarTx = await StellarTransaction.findOne({ transactionId });
+      if (!stellarTx) {
         throw new Error('Transaction not found');
       }
 
-      transaction.status = status;
+      // Update status
+      stellarTx.status = status;
+      
+      // Update additional data
       if (additionalData) {
-        Object.assign(transaction, additionalData);
+        if (additionalData.mpesaTransactionId) {
+          stellarTx.mpesaReceiptNumber = additionalData.mpesaTransactionId;
+        }
+        if (additionalData.stellarTransactionHash) {
+          stellarTx.stellarTransactionHash = additionalData.stellarTransactionHash;
+        }
+        if (additionalData.error) {
+          stellarTx.error = additionalData.error;
+        }
       }
       
+      // Set completion timestamp
       if (status === 'completed' || status === 'failed') {
-        transaction.completedAt = new Date();
+        stellarTx.completedAt = new Date();
       }
 
-      await this.storeTransaction(transaction);
+      await stellarTx.save();
       
       // Log the transaction update
       await recordTransaction({
         type: TransactionType.STELLAR_MPESA_UPDATE,
-        txHash: transaction.stellarTransactionHash || 'status_update',
+        txHash: stellarTx.stellarTransactionHash || 'status_update',
         status: status === 'completed' ? 'completed' : 'failed',
-        amount: transaction.amountKES,
-        tokenType: transaction.asset,
+        amount: stellarTx.amountKES || 0,
+        tokenType: stellarTx.asset,
         chainName: 'stellar',
-        userId: transaction.userId,
+        userId: stellarTx.userId.toString(),
         metadata: {
           from: 'system',
-          to: transaction.userId,
-          asset: transaction.asset
+          to: stellarTx.userId.toString(),
+          asset: stellarTx.asset
         }
       });
 

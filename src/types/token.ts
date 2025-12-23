@@ -22,7 +22,7 @@ export type TokenTransferEvent = {
 
 export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'lisk' | 'fuse' | 'aurora' | 'stellar';
 
-export type TokenSymbol = 'USDC' | 'USDT' | 'DAI' | 'BNB' | 'WBTC' | 'WETH' | 'MATIC' | 'ARB' | 'TRX' | 'SOL' | 'OP' | 'cUSD' | 'XLM' | 'USDC_STELLAR';
+export type TokenSymbol = 'USDC' | 'USDT' | 'DAI' | 'BNB' | 'WBTC' | 'BTC' | 'WETH' | 'MATIC' | 'ARB' | 'TRX' | 'SOL' | 'OP' | 'cUSD' | 'XLM' | 'USDC_STELLAR' | 'USDT_STELLAR' | 'BTC_STELLAR';
 
 export interface TokenConfig {
     address: `0x${string}`;

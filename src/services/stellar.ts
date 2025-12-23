@@ -197,19 +197,52 @@ export class StellarService {
         ? StellarSdk.Asset.native() 
         : new StellarSdk.Asset(assetCode, issuer!);
 
+      // Check if destination account exists
+      let destinationAccountExists = false;
+      try {
+        await this.server.loadAccount(toAccountId);
+        destinationAccountExists = true;
+      } catch (error) {
+        // Account doesn't exist
+        destinationAccountExists = false;
+      }
+
       // Build transaction
-      const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+      const transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
         fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase
-      })
-        .addOperation(
+      });
+
+      // For XLM payments to non-existent accounts, use createAccount operation
+      // For other assets, the account must exist (they need trustlines)
+      if (!destinationAccountExists && assetCode === 'XLM') {
+        // Use createAccount operation to create the account with the XLM amount
+        // The amount must be at least 1 XLM (minimum balance requirement)
+        const amountNum = parseFloat(amount);
+        if (amountNum < 1.0) {
+          throw new Error(`Cannot create Stellar account: Amount (${amount} XLM) is less than minimum required balance of 1 XLM`);
+        }
+        
+        transactionBuilder.addOperation(
+          StellarSdk.Operation.createAccount({
+            destination: toAccountId,
+            startingBalance: amount
+          })
+        );
+      } else if (!destinationAccountExists && assetCode !== 'XLM') {
+        throw new Error(`Cannot send ${assetCode} to non-existent account ${toAccountId}. Account must exist and have trustline for ${assetCode}.`);
+      } else {
+        // Account exists, use regular payment
+        transactionBuilder.addOperation(
           StellarSdk.Operation.payment({
             destination: toAccountId,
             asset: asset,
             amount: amount
           })
-        )
-        .setTimeout(STELLAR_CONSTANTS.TRANSACTION_TIMEOUT);
+        );
+      }
+
+      const transaction = transactionBuilder.setTimeout(STELLAR_CONSTANTS.TRANSACTION_TIMEOUT);
 
       // Add memo if provided
       if (memo) {
@@ -246,9 +279,19 @@ export class StellarService {
         transactionHash: result.hash,
         transactionId
       };
-    } catch (error) {
-      logger.error('Error sending Stellar payment:', error);
-      throw new Error('Failed to send payment');
+    } catch (error: any) {
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      const errorDetails = error?.response?.data || error?.extras || error;
+      logger.error('Error sending Stellar payment:', {
+        message: errorMessage,
+        details: errorDetails,
+        fromAccount: fromSecretKey ? StellarSdk.Keypair.fromSecret(fromSecretKey).publicKey() : 'unknown',
+        toAccount: toAccountId,
+        amount,
+        assetCode,
+        issuer
+      });
+      throw new Error(`Failed to send payment: ${errorMessage}`);
     }
   }
 
@@ -357,6 +400,57 @@ export class StellarService {
     } catch (error) {
       logger.error('Error creating Stellar trustline:', error);
       throw new Error('Failed to create trustline');
+    }
+  }
+
+  /**
+   * Create multiple trustlines in a single transaction (faster, more efficient)
+   */
+  async createTrustlinesBatch(
+    accountSecretKey: string,
+    assets: Array<{ code: string; issuer: string; limit?: string }>
+  ): Promise<{ transactionHash: string }> {
+    try {
+      if (assets.length === 0) {
+        throw new Error('No assets provided for trustline creation');
+      }
+
+      const sourceKeypair = StellarSdk.Keypair.fromSecret(accountSecretKey);
+      const sourceAccount = await this.server.loadAccount(sourceKeypair.publicKey());
+
+      const transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
+        fee: StellarSdk.BASE_FEE * assets.length, // Fee per operation
+        networkPassphrase: this.networkPassphrase
+      });
+
+      // Add all trustline operations to single transaction
+      for (const asset of assets) {
+        const stellarAsset = new StellarSdk.Asset(asset.code, asset.issuer);
+        transactionBuilder.addOperation(
+          StellarSdk.Operation.changeTrust({
+            asset: stellarAsset,
+            limit: asset.limit
+          })
+        );
+      }
+
+      const transaction = transactionBuilder
+        .setTimeout(STELLAR_CONSTANTS.TRANSACTION_TIMEOUT)
+        .build();
+
+      transaction.sign(sourceKeypair);
+
+      const result = await this.server.submitTransaction(transaction);
+      
+      logger.info(`Batch trustlines created (${assets.length} assets): ${result.hash}`);
+
+      return {
+        transactionHash: result.hash
+      };
+    } catch (error: any) {
+      logger.error('Error creating batch trustlines:', error);
+      // If batch fails, fall back to individual creation
+      throw new Error(`Failed to create trustlines: ${error?.message || error}`);
     }
   }
 

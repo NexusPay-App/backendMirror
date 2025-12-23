@@ -240,36 +240,81 @@ export class SMSService {
      * Format transaction message
      */
     private static formatTransactionMessage(data: TransactionSMSData): string {
-        const statusEmoji = data.status === 'success' ? '✅' : data.status === 'failed' ? '❌' : '⏳';
         const statusText = data.status === 'success' ? 'SUCCESSFUL' : data.status === 'failed' ? 'FAILED' : 'PENDING';
         
-        let message = `${statusEmoji} NEXUSPAY TRANSACTION ${statusText}\n\n`;
+        let message = `NEXUSPAY TRANSACTION ${statusText}\n\n`;
         
         switch (data.transactionType) {
             case 'send':
-                message += `💰 Sent: ${data.amount} ${data.tokenType}\n`;
-                message += `📤 To: ${data.recipientAddress?.slice(0, 8)}...${data.recipientAddress?.slice(-6)}\n`;
+                message += `Sent: ${data.amount} ${data.tokenType}\n`;
+                message += `To: ${data.recipientAddress?.slice(0, 8)}...${data.recipientAddress?.slice(-6)}\n`;
                 break;
             case 'receive':
-                message += `💰 Received: ${data.amount} ${data.tokenType}\n`;
-                message += `📥 From: ${data.senderAddress?.slice(0, 8)}...${data.senderAddress?.slice(-6)}\n`;
+                message += `Received: ${data.amount} ${data.tokenType}\n`;
+                message += `From: ${data.senderAddress?.slice(0, 8)}...${data.senderAddress?.slice(-6)}\n`;
                 break;
             case 'buy':
-                message += `💳 Crypto Purchase: ${data.amount} ${data.tokenType}\n`;
+                message += `Crypto Purchase: ${data.amount} ${data.tokenType}\n`;
+                if (data.fiatAmount) {
+                    message += `Amount Paid: ${data.fiatAmount} KES\n`;
+                }
                 break;
             case 'sell':
-                message += `💳 Crypto Sale: ${data.amount} ${data.tokenType}\n`;
+                message += `Crypto Sale: ${data.amount} ${data.tokenType}\n`;
+                if (data.fiatAmount) {
+                    message += `Amount Received: ${data.fiatAmount} KES\n`;
+                }
                 break;
             case 'overdraft_borrow':
-                message += `🏦 Overdraft Borrowed: ${data.amount} ${data.tokenType}\n`;
+                message += `Overdraft Borrowed: ${data.amount} ${data.tokenType}\n`;
                 break;
             case 'overdraft_repay':
-                message += `🏦 Overdraft Repaid: ${data.amount} ${data.tokenType}\n`;
+                message += `Overdraft Repaid: ${data.amount} ${data.tokenType}\n`;
                 break;
         }
         
-        message += `🔗 TX: ${data.transactionHash?.slice(0, 8)}...${data.transactionHash?.slice(-6)}\n`;
-        message += `⏰ ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Nairobi' })}\n\nNEXUSPAY Team`;
+        // Add chain information if available
+        if (data.chain) {
+            message += `Chain: ${data.chain.toUpperCase()}\n`;
+        }
+        
+        // Add M-Pesa details if available (for buy/sell transactions)
+        if (data.mpesaReceiptNumber) {
+            message += `M-Pesa Receipt: ${data.mpesaReceiptNumber}\n`;
+        }
+        if (data.mpesaTransactionTime) {
+            const mpesaTime = data.mpesaTransactionTime instanceof Date 
+                ? data.mpesaTransactionTime.toLocaleString('en-US', { timeZone: 'Africa/Nairobi' })
+                : data.mpesaTransactionTime;
+            message += `M-Pesa Time: ${mpesaTime}\n`;
+        }
+        
+        // Add NexusPay receipt
+        if (data.nexusPayReceipt) {
+            message += `NexusPay Receipt: ${data.nexusPayReceipt}\n`;
+        }
+        if (data.nexusPayCode) {
+            message += `NexusPay Code: ${data.nexusPayCode}\n`;
+        }
+        
+        // Add transaction duration if available
+        if (data.transactionDuration !== undefined) {
+            const minutes = Math.floor(data.transactionDuration / 60);
+            const seconds = data.transactionDuration % 60;
+            message += `Duration: ${minutes}m ${seconds}s\n`;
+        }
+        
+        // Add transaction hash
+        if (data.transactionHash) {
+            message += `TX Hash: ${data.transactionHash.slice(0, 8)}...${data.transactionHash.slice(-6)}\n`;
+        }
+        
+        // Add explorer URL if available
+        if (data.explorerUrl) {
+            message += `View: ${data.explorerUrl}\n`;
+        }
+        
+        message += `Time: ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Nairobi' })}\n\nNEXUSPAY`;
         
         return message;
     }

@@ -16,6 +16,7 @@
     "lint": "eslint . --ext .ts",
     "init-wallets": "ts-node src/scripts/initializeWallets.ts",
     "check-balances": "ts-node src/scripts/checkBalances.ts",
+    "check-platform-wallets": "ts-node src/scripts/checkPlatformWallets.ts",
     "monitor": "ts-node src/scripts/monitor.ts",
     "test:ens": "ts-node src/scripts/testENSIntegration.ts",
     "test:stellar": "ts-node src/scripts/testStellarIntegration.ts",

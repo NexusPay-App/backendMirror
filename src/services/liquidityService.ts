@@ -16,6 +16,7 @@ const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
     USDT: 5,
     DAI: 5.5,
     WBTC: 3,
+    BTC: 3, // 3% APY for Bitcoin
     WETH: 4,
     ARB: 6,
     MATIC: 4,
@@ -25,7 +26,9 @@ const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
     OP: 5,
     cUSD: 5,
     XLM: 4, // 4% APY for Stellar Lumens
-    USDC_STELLAR: 5 // 5% APY for USDC on Stellar
+    USDC_STELLAR: 5, // 5% APY for USDC on Stellar
+    USDT_STELLAR: 5, // 5% APY for USDT on Stellar
+    BTC_STELLAR: 3 // 3% APY for BTC on Stellar
 };
 
 // Bonus yield based on utilization (additional percentage)

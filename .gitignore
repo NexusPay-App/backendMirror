@@ -159,3 +159,22 @@ dump.rdb
 
 scripts/
 .vercel
+
+# ============================================
+# CRITICAL: Platform Wallet Security
+# ============================================
+# Never commit withdrawal or platform wallet scripts
+**/withdraw*.ts
+**/withdraw*.js
+**/setupWithdrawal*
+**/testPlatformWallet*
+**/testPlatformTransfer*
+src/scripts/withdraw*
+src/scripts/setup*
+
+# Platform wallet guides (contain sensitive operational info)
+PLATFORM_WALLET_GUIDE*.md
+WITHDRAWAL_GUIDE*.md
+ADMIN_WALLET_ACCESS*.md
+*_PRIVATE_GUIDE.md
+SECURITY_SUMMARY.txt

@@ -391,7 +391,7 @@ export const convertAssetToKes = async (req: Request, res: Response) => {
 export const handleMpesaCallback = async (req: Request, res: Response) => {
   try {
     const callbackData = req.body;
-    logger.info('Received MPESA callback for Stellar deposit:', callbackData);
+    logger.info('Received MPESA callback for Stellar deposit:', JSON.stringify(callbackData));
 
     // Extract transaction details from MPESA callback
     const { 
@@ -405,34 +405,101 @@ export const handleMpesaCallback = async (req: Request, res: Response) => {
       } 
     } = callbackData;
 
-    // Find the transaction by CheckoutRequestID
-    // In a real implementation, you would store this mapping in your database
-    const transactionId = CheckoutRequestID; // This should be mapped to your internal transaction ID
+    // Find transaction by CheckoutRequestID
+    const { StellarTransaction } = await import('../models/stellarTransaction');
+    const { redis, isRedisConnected } = await import('../config/redis');
+    
+    // First try cache for quick lookup
+    let transactionId: string | null = null;
+    if (isRedisConnected()) {
+      const cacheKey = `stellar:mpesa:checkout:${CheckoutRequestID}`;
+      transactionId = await redis.get(cacheKey);
+    }
+
+    // If not in cache, query database
+    if (!transactionId) {
+      const stellarTx = await StellarTransaction.findOne({ 
+        mpesaCheckoutRequestId: CheckoutRequestID 
+      });
+      
+      if (!stellarTx) {
+        logger.error(`Transaction not found for CheckoutRequestID: ${CheckoutRequestID}`);
+        return res.status(200).json({
+          ResultCode: 0,
+          ResultDesc: 'Transaction not found'
+        });
+      }
+      
+      transactionId = stellarTx.transactionId;
+    }
 
     if (ResultCode === 0) {
-      // Payment successful
+      // Payment successful - process the deposit
       const amount = CallbackMetadata?.Item?.find((item: any) => item.Name === 'Amount')?.Value;
       const mpesaReceiptNumber = CallbackMetadata?.Item?.find((item: any) => item.Name === 'MpesaReceiptNumber')?.Value;
       const phoneNumber = CallbackMetadata?.Item?.find((item: any) => item.Name === 'PhoneNumber')?.Value;
 
-      // Update transaction status
-      await stellarMpesaService.updateTransactionStatus(transactionId, 'completed', {
-        mpesaTransactionId: mpesaReceiptNumber
-      });
+      logger.info(`MPESA payment successful: ${mpesaReceiptNumber}, processing Stellar deposit...`);
 
-      // Here you would:
-      // 1. Convert the MPESA payment to Stellar assets
-      // 2. Send the Stellar assets to the user's wallet
-      // 3. Update the transaction with the Stellar transaction hash
+      // Get transaction details
+      const stellarTx = await StellarTransaction.findOne({ transactionId });
+      if (!stellarTx) {
+        throw new Error('Transaction not found');
+      }
 
-      logger.info(`Stellar deposit completed: ${transactionId}`);
+      // Send Stellar assets from platform to user wallet
+      const { stellarService } = await import('../services/stellar');
+      const { getStellarConfig } = await import('../config/stellar');
+      const { stellarWalletService } = await import('../services/stellarWallet');
+      const stellarConfig = getStellarConfig();
+
+      if (!stellarConfig.platformWalletSecret) {
+        throw new Error('Platform wallet not configured');
+      }
+
+      // Get user wallet
+      const userWallet = await stellarWalletService.getUserWallet(stellarTx.userId.toString());
+      if (!userWallet) {
+        throw new Error('User wallet not found');
+      }
+
+      // Get asset issuer
+      const assetIssuer = stellarTx.asset === 'USDC' ? stellarConfig.usdcIssuer 
+        : stellarTx.asset === 'USDT' ? stellarConfig.usdtIssuer
+        : stellarTx.asset === 'BTC' ? stellarConfig.btcIssuer
+        : undefined;
+
+      // Send payment from platform to user
+      const transferResult = await stellarService.sendPayment(
+        stellarConfig.platformWalletSecret,
+        userWallet.accountId,
+        stellarTx.amount,
+        stellarTx.asset,
+        assetIssuer,
+        `Deposit from M-Pesa: ${transactionId}`
+      );
+
+      // Update transaction with success details
+      stellarTx.status = 'completed';
+      stellarTx.mpesaReceiptNumber = mpesaReceiptNumber;
+      stellarTx.mpesaTransactionId = mpesaReceiptNumber;
+      stellarTx.stellarTransactionHash = transferResult.transactionHash;
+      stellarTx.toAccountId = userWallet.accountId;
+      stellarTx.completedAt = new Date();
+      await stellarTx.save();
+
+      logger.info(`✅ Stellar deposit completed: ${transactionId}, tx: ${transferResult.transactionHash}`);
     } else {
       // Payment failed
-      await stellarMpesaService.updateTransactionStatus(transactionId, 'failed', {
-        error: ResultDesc
-      });
+      const stellarTx = await StellarTransaction.findOne({ transactionId });
+      if (stellarTx) {
+        stellarTx.status = 'failed';
+        stellarTx.error = ResultDesc;
+        stellarTx.completedAt = new Date();
+        await stellarTx.save();
+      }
 
-      logger.error(`Stellar deposit failed: ${transactionId} - ${ResultDesc}`);
+      logger.error(`❌ Stellar deposit failed: ${transactionId} - ${ResultDesc}`);
     }
 
     // Respond to MPESA
@@ -442,9 +509,10 @@ export const handleMpesaCallback = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error('Error handling MPESA callback:', error);
-    return res.status(500).json({
-      ResultCode: 1,
-      ResultDesc: 'Internal server error'
+    // Still return success to MPESA to prevent retries
+    return res.status(200).json({
+      ResultCode: 0,
+      ResultDesc: 'Accepted'
     });
   }
 };

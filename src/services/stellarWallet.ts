@@ -5,6 +5,7 @@ import { getStellarConfig, STELLAR_ASSETS } from '../config/stellar';
 import { redis, isRedisConnected } from '../config/redis';
 import { recordTransaction, TransactionType } from './transactionLogger';
 import { generateUUID } from '../utils';
+import { decryptSecretKey } from '../utils/encryption';
 
 // Configure logger
 const logger = pino({
@@ -53,11 +54,23 @@ export class StellarWalletService {
    */
   async createWallet(userId: string, phoneNumber?: string): Promise<StellarWalletInfo> {
     try {
-      // Check if user already has a Stellar wallet
-      const existingWallet = await this.getUserWallet(userId);
-      if (existingWallet) {
-        logger.info(`User ${userId} already has a Stellar wallet: ${existingWallet.accountId}`);
-        return existingWallet;
+      // CRITICAL: Check database FIRST to prevent duplicate wallet creation
+      const { User } = await import('../models/user');
+      const existingUser = await User.findById(userId).select('+stellarSecretKey');
+      
+      if (existingUser && existingUser.stellarAccountId && existingUser.stellarSecretKey) {
+        logger.info(`User ${userId} already has a Stellar wallet in database: ${existingUser.stellarAccountId}`);
+        
+        // Return existing wallet info from database
+        return {
+          accountId: existingUser.stellarAccountId,
+          secretKey: existingUser.stellarSecretKey,
+          balances: [],
+          sequence: '0',
+          isActive: false,
+          createdAt: existingUser.createdAt || new Date(),
+          lastActivity: existingUser.updatedAt || new Date()
+        };
       }
 
       // Generate new keypair
@@ -135,8 +148,21 @@ export class StellarWalletService {
         createdAt: new Date()
       };
 
-      // Store wallet in cache and database
-      await this.storeUserWallet(userId, walletInfo);
+      // Store wallet in cache and database - CRITICAL: Must complete before returning
+      try {
+        await this.storeUserWallet(userId, walletInfo);
+        logger.info(`✅ Wallet stored successfully for user ${userId}: ${walletInfo.accountId}`);
+      } catch (storeError: any) {
+        logger.error(`❌ CRITICAL: Failed to store wallet for user ${userId}:`, storeError);
+        throw new Error(`Failed to store wallet: ${storeError.message}`);
+      }
+
+      // Automatically create trustlines for ALL supported assets
+      // This is done asynchronously to not block wallet creation
+      // Future tokens will be automatically included via STELLAR_ASSETS config
+      this.setupTrustlinesAsync(secretKey, accountId, userId).catch(error => {
+        logger.warn(`Background trustline setup failed for user ${userId}:`, error);
+      });
 
       // Log wallet creation
       await recordTransaction({
@@ -186,22 +212,49 @@ export class StellarWalletService {
         return null;
       }
 
-      // Get current account info
-      const accountInfo = await stellarService.getAccountInfo(user.stellarAccountId);
+      // Decrypt secret key
+      const decryptedSecretKey = decryptSecretKey(user.stellarSecretKey);
+
+      // Try to get current account info from Stellar
+      // If account doesn't exist on Stellar yet (not funded), return wallet info anyway
+      let accountInfo;
+      let balances: Array<{ asset: string; balance: string; usdValue: number }> = [];
+      let sequence = '0';
+      let isActive = false;
       
-      const walletInfo: StellarWalletInfo = {
-        accountId: user.stellarAccountId,
-        secretKey: user.stellarSecretKey,
-        balances: accountInfo.balances.map(balance => ({
+      try {
+        accountInfo = await stellarService.getAccountInfo(user.stellarAccountId);
+        balances = accountInfo.balances.map(balance => ({
           asset: balance.asset.code,
           balance: balance.balance,
           usdValue: 0
-        })),
-        sequence: accountInfo.sequence,
-        isActive: true,
+        }));
+        sequence = accountInfo.sequence;
+        isActive = true;
+      } catch (error) {
+        // Account doesn't exist on Stellar yet (not funded) - that's okay
+        // Return wallet info with empty balances so it can be used for funding
+        logger.info(`Account ${user.stellarAccountId} not found on Stellar yet (not funded), but wallet exists in database`);
+        balances = [];
+        sequence = '0';
+        isActive = false;
+      }
+      
+      const walletInfo: StellarWalletInfo = {
+        accountId: user.stellarAccountId,
+        secretKey: decryptedSecretKey, // Use decrypted secret key
+        balances: balances,
+        sequence: sequence,
+        isActive: isActive,
         createdAt: user.createdAt || new Date(),
         lastActivity: user.updatedAt || new Date()
       };
+
+      // Ensure trustlines exist (automatic, async, non-blocking)
+      // This ensures existing users get trustlines for new tokens automatically
+      this.ensureTrustlines(userId).catch(error => {
+        logger.warn(`Background trustline check failed for user ${userId}:`, error);
+      });
 
       // Cache the wallet info
       if (isRedisConnected()) {
@@ -222,22 +275,30 @@ export class StellarWalletService {
     try {
       const cacheKey = `stellar:wallet:${userId}`;
       
-      // Store in database
+      // Store in database with error handling
       const { User } = await import('../models/user');
-      await User.findByIdAndUpdate(userId, {
-        stellarAccountId: walletInfo.accountId,
-        stellarSecretKey: walletInfo.secretKey,
-        stellarWalletCreated: true
-      });
+      const updateResult = await User.findByIdAndUpdate(
+        userId,
+        {
+          stellarAccountId: walletInfo.accountId,
+          stellarSecretKey: walletInfo.secretKey,
+          stellarWalletCreated: true
+        },
+        { new: true, runValidators: false } // Skip validators to avoid unique constraint issues
+      );
+
+      if (!updateResult) {
+        throw new Error(`User ${userId} not found, cannot store wallet`);
+      }
+
+      logger.info(`Stored Stellar wallet for user ${userId} in database: ${walletInfo.accountId}`);
 
       // Store in cache
       if (isRedisConnected()) {
         await redis.setex(cacheKey, 3600, JSON.stringify(walletInfo)); // Cache for 1 hour
       }
-
-      logger.info(`Stored Stellar wallet for user ${userId} in database`);
-    } catch (error) {
-      logger.error('Error storing user Stellar wallet:', error);
+    } catch (error: any) {
+      logger.error(`Error storing user Stellar wallet for ${userId}:`, error?.message || error);
       throw error;
     }
   }
@@ -419,6 +480,108 @@ export class StellarWalletService {
    */
   async getNetworkInfo(): Promise<{ network: string; horizonUrl: string; passphrase: string }> {
     return await stellarService.getNetworkInfo();
+  }
+
+  /**
+   * Setup trustlines for all supported assets (automatic, async, future-proof)
+   * This method dynamically reads from STELLAR_ASSETS config, so new tokens are automatically included
+   */
+  private async setupTrustlinesAsync(
+    secretKey: string,
+    accountId: string,
+    userId: string
+  ): Promise<void> {
+    try {
+      // Get all supported assets from config (automatically includes future tokens)
+      const { STELLAR_ASSETS, getStellarConfig } = await import('../config/stellar');
+      const config = getStellarConfig();
+      
+      // Build list of assets that need trustlines (exclude XLM which is native)
+      const assetsToSetup = Object.entries(STELLAR_ASSETS)
+        .filter(([key, asset]) => {
+          // Type guard: check if asset has issuer (not native)
+          return asset.type !== 'native' && 'issuer' in asset && asset.issuer !== undefined;
+        })
+        .map(([key, asset]) => {
+          // TypeScript now knows asset has issuer after filter
+          const assetWithIssuer = asset as { code: string; issuer: string; type: string };
+          return {
+            code: assetWithIssuer.code,
+            issuer: assetWithIssuer.issuer
+          };
+        });
+
+      if (assetsToSetup.length === 0) {
+        logger.info(`No trustlines needed for user ${userId}`);
+        return;
+      }
+
+      // Get current account info once
+      const accountInfo = await stellarService.getAccountInfo(accountId);
+      const existingTrustlines = new Set(
+        accountInfo.balances
+          .filter((b: any) => b.asset_type !== 'native')
+          .map((b: any) => `${b.asset_code}:${b.asset_issuer}`)
+      );
+
+      // Filter out assets that already have trustlines
+      const missingAssets = assetsToSetup.filter(
+        asset => !existingTrustlines.has(`${asset.code}:${asset.issuer}`)
+      );
+
+      if (missingAssets.length === 0) {
+        logger.info(`All trustlines already exist for user ${userId}`);
+        return;
+      }
+
+      // Create all missing trustlines in a SINGLE transaction (fastest method)
+      try {
+        await stellarService.createTrustlinesBatch(secretKey, missingAssets);
+        logger.info(`✅ Auto-created ${missingAssets.length} trustlines in one transaction for user ${userId}`);
+      } catch (batchError: any) {
+        // If batch fails, try individual creation as fallback
+        logger.warn(`Batch trustline creation failed, trying individual creation for user ${userId}:`, batchError?.message);
+        
+        // Fallback: create individually (still parallel for speed)
+        const trustlinePromises = missingAssets.map(async (asset) => {
+          try {
+            await stellarService.createTrustline(secretKey, asset.code, asset.issuer);
+            logger.info(`✅ Auto-created trustline for ${asset.code} for user ${userId}`);
+            return { asset: asset.code, status: 'created' };
+          } catch (error: any) {
+            logger.warn(`Failed to create trustline for ${asset.code} for user ${userId}:`, error?.message || error);
+            return { asset: asset.code, status: 'failed', error: error?.message };
+          }
+        });
+
+        await Promise.allSettled(trustlinePromises);
+      }
+      
+      logger.info(`Trustline setup complete for user ${userId}: ${missingAssets.length} trustlines processed`);
+    } catch (error) {
+      logger.error(`Error in background trustline setup for user ${userId}:`, error);
+      // Don't throw - this is background process
+    }
+  }
+
+  /**
+   * Ensure all trustlines exist for a user's wallet (called on wallet access)
+   * This ensures existing users get trustlines automatically
+   */
+  async ensureTrustlines(userId: string): Promise<void> {
+    try {
+      const wallet = await this.getUserWallet(userId);
+      if (!wallet) {
+        return;
+      }
+
+      // Run trustline setup in background
+      this.setupTrustlinesAsync(wallet.secretKey, wallet.accountId, userId).catch(error => {
+        logger.warn(`Background trustline ensure failed for user ${userId}:`, error);
+      });
+    } catch (error) {
+      logger.error(`Error ensuring trustlines for user ${userId}:`, error);
+    }
   }
 
   /**

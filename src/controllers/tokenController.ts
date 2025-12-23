@@ -163,16 +163,20 @@ export const send = async (req: Request, res: Response) => {
                 const stellarService = new StellarService();
                 
                 // Map token types for Stellar
-                const stellarAsset = tokenSymbol === 'USDC' ? 'USDC' : tokenSymbol === 'XLM' ? 'XLM' : tokenSymbol;
+                const stellarAsset = tokenSymbol === 'USDC' || tokenSymbol === 'USDC_STELLAR' ? 'USDC' 
+                    : tokenSymbol === 'USDT' || tokenSymbol === 'USDT_STELLAR' ? 'USDT'
+                    : tokenSymbol === 'BTC' || tokenSymbol === 'BTC_STELLAR' ? 'BTC'
+                    : tokenSymbol === 'XLM' ? 'XLM' 
+                    : tokenSymbol;
                 
                 // Validate Stellar asset
-                if (stellarAsset !== 'XLM' && stellarAsset !== 'USDC') {
+                if (stellarAsset !== 'XLM' && stellarAsset !== 'USDC' && stellarAsset !== 'USDT' && stellarAsset !== 'BTC') {
                     return res.status(400).json({
                         success: false,
                         message: "Unsupported token for Stellar",
                         error: {
                             code: "INVALID_TOKEN",
-                            message: `Token ${tokenSymbol} is not supported on Stellar. Supported tokens: XLM, USDC`
+                            message: `Token ${tokenSymbol} is not supported on Stellar. Supported tokens: XLM, USDC, USDT, BTC`
                         }
                     });
                 }
@@ -229,10 +233,13 @@ export const send = async (req: Request, res: Response) => {
                     });
                 }
 
-                // Get USDC issuer for Stellar
+                // Get asset issuer for Stellar
                 const { getStellarConfig } = await import('../config/stellar');
                 const stellarConfig = getStellarConfig();
-                const usdcIssuer = stellarAsset === 'USDC' ? stellarConfig.usdcIssuer : undefined;
+                const assetIssuer = stellarAsset === 'USDC' ? stellarConfig.usdcIssuer 
+                    : stellarAsset === 'USDT' ? stellarConfig.usdtIssuer
+                    : stellarAsset === 'BTC' ? stellarConfig.btcIssuer
+                    : undefined;
 
                 // Send Stellar payment
                 const result = await stellarService.sendPayment(
@@ -240,7 +247,7 @@ export const send = async (req: Request, res: Response) => {
                     recipientStellarAddress,
                     amountNum.toString(),
                     stellarAsset,
-                    usdcIssuer,
+                    assetIssuer,
                     memo
                 );
 

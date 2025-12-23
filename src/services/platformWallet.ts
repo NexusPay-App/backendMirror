@@ -455,7 +455,9 @@ export const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
     },
     rpcUrls: {
       default: {
-        http: [process.env.STELLAR_HORIZON_URL_TESTNET || 'https://horizon-testnet.stellar.org']
+        http: [process.env.STELLAR_NETWORK === 'mainnet'
+          ? (process.env.STELLAR_HORIZON_URL_MAINNET || 'https://horizon.stellar.org')
+          : (process.env.STELLAR_HORIZON_URL_TESTNET || 'https://horizon-testnet.stellar.org')]
       }
     },
     blockExplorers: {
@@ -1083,8 +1085,14 @@ async function processQueueWithPriority(queueKey: string): Promise<void> {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`Error processing ${queueKey}: ${errorMessage}`);
   } finally {
-    // Release the lock
-    await redis.del(`${queueKey}:lock`);
+    // Release the lock only if Redis is connected
+    if (isRedisConnected()) {
+      try {
+        await redis.del(`${queueKey}:lock`);
+      } catch (delError) {
+        // Ignore errors when releasing lock (Redis might be down)
+      }
+    }
   }
 }
 
@@ -2016,9 +2024,16 @@ export function scheduleQueueProcessing(intervalMs: number = 60000): NodeJS.Time
   // that run more frequently to ensure they're processed quickly
   const highPriorityTimer = setInterval(async () => {
     try {
+      // Skip if Redis is not connected
+      if (!isRedisConnected()) {
+        return;
+      }
       await processQueueWithPriority(HIGH_PRIORITY_QUEUE_KEY);
     } catch (error) {
-      logger.error('Error in high priority queue processing:', error);
+      // Only log if Redis is connected (to avoid noise from connection errors)
+      if (isRedisConnected()) {
+        logger.error('Error in high priority queue processing:', error);
+      }
     }
   }, Math.floor(intervalMs / 2)); // Process high priority twice as often
   

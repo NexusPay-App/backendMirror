@@ -22,6 +22,8 @@ export interface StellarPriceData {
 export interface StellarAssetPrice {
   XLM: number;
   USDC: number;
+  USDT: number;
+  BTC: number;
   [key: string]: number;
 }
 
@@ -77,7 +79,9 @@ export class StellarPriceService {
       // Return fallback prices
       return {
         XLM: 0.1, // Fallback price
-        USDC: 1.0
+        USDC: 1.0,
+        USDT: 1.0,
+        BTC: 0
       };
     }
   }
@@ -88,7 +92,9 @@ export class StellarPriceService {
   private async fetchPricesFromSources(): Promise<StellarAssetPrice> {
     const prices: StellarAssetPrice = {
       XLM: 0,
-      USDC: 1.0
+      USDC: 1.0,
+      USDT: 1.0,
+      BTC: 0
     };
 
     try {
@@ -97,6 +103,9 @@ export class StellarPriceService {
       if (coinGeckoPrices.XLM > 0) {
         prices.XLM = coinGeckoPrices.XLM;
       }
+      if (coinGeckoPrices.BTC > 0) {
+        prices.BTC = coinGeckoPrices.BTC;
+      }
 
       // Try CoinMarketCap if available
       if (config.COINMARKETCAP_API_KEY) {
@@ -104,13 +113,19 @@ export class StellarPriceService {
         if (cmcPrices.XLM > 0) {
           prices.XLM = cmcPrices.XLM;
         }
+        if (cmcPrices.BTC > 0) {
+          prices.BTC = cmcPrices.BTC;
+        }
       }
 
       // Fallback to Binance API
-      if (prices.XLM === 0) {
+      if (prices.XLM === 0 || prices.BTC === 0) {
         const binancePrices = await this.fetchFromBinance();
-        if (binancePrices.XLM > 0) {
+        if (prices.XLM === 0 && binancePrices.XLM > 0) {
           prices.XLM = binancePrices.XLM;
+        }
+        if (prices.BTC === 0 && binancePrices.BTC > 0) {
+          prices.BTC = binancePrices.BTC;
         }
       }
 
@@ -138,11 +153,13 @@ export class StellarPriceService {
       const data = await response.json();
       return {
         XLM: data.stellar?.usd || 0,
-        USDC: 1.0
+        USDC: 1.0,
+        USDT: 1.0,
+        BTC: data.bitcoin?.usd || 0
       };
     } catch (error) {
       logger.error('Error fetching from CoinGecko:', error);
-      return { XLM: 0, USDC: 1.0 };
+      return { XLM: 0, USDC: 1.0, USDT: 1.0, BTC: 0 };
     }
   }
 
@@ -156,7 +173,7 @@ export class StellarPriceService {
       }
 
       const response = await fetch(
-        'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=XLM',
+        'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=XLM,BTC',
         {
           headers: {
             'X-CMC_PRO_API_KEY': config.COINMARKETCAP_API_KEY,
@@ -171,14 +188,17 @@ export class StellarPriceService {
 
       const data = await response.json();
       const xlmData = data.data?.XLM?.quote?.USD;
+      const btcData = data.data?.BTC?.quote?.USD;
       
       return {
         XLM: xlmData?.price || 0,
-        USDC: 1.0
+        USDC: 1.0,
+        USDT: 1.0,
+        BTC: btcData?.price || 0
       };
     } catch (error) {
       logger.error('Error fetching from CoinMarketCap:', error);
-      return { XLM: 0, USDC: 1.0 };
+      return { XLM: 0, USDC: 1.0, USDT: 1.0, BTC: 0 };
     }
   }
 
@@ -187,22 +207,34 @@ export class StellarPriceService {
    */
   private async fetchFromBinance(): Promise<StellarAssetPrice> {
     try {
-      const response = await fetch(
-        'https://api.binance.com/api/v3/ticker/price?symbol=XLMUSDT'
-      );
+      // Fetch XLM and BTC prices from Binance
+      const [xlmResponse, btcResponse] = await Promise.all([
+        fetch('https://api.binance.com/api/v3/ticker/price?symbol=XLMUSDT'),
+        fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')
+      ]);
 
-      if (!response.ok) {
-        throw new Error(`Binance API error: ${response.statusText}`);
+      let xlmPrice = 0;
+      let btcPrice = 0;
+
+      if (xlmResponse.ok) {
+        const xlmData = await xlmResponse.json();
+        xlmPrice = parseFloat(xlmData.price) || 0;
       }
 
-      const data = await response.json();
+      if (btcResponse.ok) {
+        const btcData = await btcResponse.json();
+        btcPrice = parseFloat(btcData.price) || 0;
+      }
+
       return {
-        XLM: parseFloat(data.price) || 0,
-        USDC: 1.0
+        XLM: xlmPrice,
+        USDC: 1.0,
+        USDT: 1.0,
+        BTC: btcPrice
       };
     } catch (error) {
       logger.error('Error fetching from Binance:', error);
-      return { XLM: 0, USDC: 1.0 };
+      return { XLM: 0, USDC: 1.0, USDT: 1.0, BTC: 0 };
     }
   }
 

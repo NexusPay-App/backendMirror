@@ -1,5 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { encryptSecretKey, decryptSecretKey } from '../utils/encryption';
 
 export interface IUser {
   phoneNumber?: string;
@@ -99,6 +100,19 @@ userSchema.pre('save', async function(next) {
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Encrypt Stellar secret key before saving
+userSchema.pre('save', function(next) {
+  if (!this.isModified('stellarSecretKey') || !this.stellarSecretKey) return next();
+  
+  try {
+    // Encrypt the secret key if not already encrypted
+    this.stellarSecretKey = encryptSecretKey(this.stellarSecretKey);
     next();
   } catch (error: any) {
     next(error);
