@@ -9,6 +9,8 @@ import { getProvider } from '../utils/provider';
 import { TransactionVerificationService } from './transactionVerification';
 import { verifyOtp } from './otpService';
 import { LiquidityUsageTracker } from './liquidityUsageTracker';
+import { zkVerifyClient } from './zkverify';
+import { logger } from '../config/logger';
 
 // Base yield rate per token (annual percentage)
 const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
@@ -145,6 +147,17 @@ export class LiquidityService {
                 amount: existingProvision.amount + amount
             });
             await existingProvision.save();
+
+            await this.submitZkVerifyProof('lp_provide', {
+                userId,
+                token,
+                chain: actualChain,
+                amount,
+                transactionHash: tokenTransferResult.transactionHash,
+                blockNumber: txReceipt.blockNumber,
+                action: 'provide',
+                mode: existingProvision ? 'update' : 'create',
+            });
             
             return {
                 ...existingProvision.toJSON(),
@@ -161,6 +174,17 @@ export class LiquidityService {
             amount
         });
         await provision.save();
+
+        await this.submitZkVerifyProof('lp_provide', {
+            userId,
+            token,
+            chain: actualChain,
+            amount,
+            transactionHash: tokenTransferResult.transactionHash,
+            blockNumber: txReceipt.blockNumber,
+            action: 'provide',
+            mode: 'create',
+        });
         
         return {
             ...provision.toJSON(),
@@ -364,6 +388,18 @@ export class LiquidityService {
         }
         await provision.save();
 
+        await this.submitZkVerifyProof('lp_withdraw', {
+            userId,
+            token,
+            chain,
+            amount,
+            yieldEarned: finalYield,
+            totalPayout: totalAmount,
+            transactionHash: tokenTransferResult.transactionHash,
+            blockNumber: txReceipt.blockNumber,
+            action: 'withdraw',
+        });
+
         // Return withdrawal details
         return {
             success: true,
@@ -442,6 +478,26 @@ export class LiquidityService {
         } catch (error) {
             console.error('Error deleting position:', error);
             throw error;
+        }
+    }
+
+    private static async submitZkVerifyProof(proofType: string, metadata: Record<string, any>) {
+        if (!zkVerifyClient.isEnabled()) {
+            return;
+        }
+        try {
+            await zkVerifyClient.submitProof({
+                proofType,
+                metadata: {
+                    ...metadata,
+                    timestamp: new Date().toISOString(),
+                },
+            });
+        } catch (error: any) {
+            logger.error('Failed to submit zkVerify proof for liquidity event', {
+                proofType,
+                error: error?.message,
+            });
         }
     }
 } 
