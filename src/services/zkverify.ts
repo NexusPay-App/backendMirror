@@ -37,16 +37,13 @@ class ZkVerifyClient {
     }
 
     async submitProof(payload: ProofPayload) {
+        // NO MOCK MODE - Testnet only
         if (!this.enabled) {
-            return {
-                success: true,
-                verificationId: `mock-${Date.now()}`,
-                status: 'mock',
-            };
+            throw new Error('zkVerify is disabled. Set ZKVERIFY_ENABLED=true in .env for testnet integration');
         }
 
         if (!process.env.ZKVERIFY_NODE_URL || !process.env.ZKVERIFY_API_KEY) {
-            throw new Error('zkVerify is enabled but node URL or API key is missing');
+            throw new Error('zkVerify credentials missing. Please set ZKVERIFY_NODE_URL and ZKVERIFY_API_KEY in .env');
         }
 
         try {
@@ -67,8 +64,9 @@ class ZkVerifyClient {
     }
 
     async getStatus(verificationId: string) {
+        // NO MOCK MODE - Testnet only
         if (!this.enabled) {
-            return { success: true, status: 'mock', verificationId };
+            throw new Error('zkVerify is disabled. Set ZKVERIFY_ENABLED=true in .env for testnet integration');
         }
 
         try {
