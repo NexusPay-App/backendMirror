@@ -17,6 +17,17 @@ export interface ILiquidityProvision extends Document {
     blockNumber: number;
     blockTimestamp: Date;
     transactionStatus: 'pending' | 'confirmed' | 'failed';
+    // zkVerify integration
+    zkVerifyProofs?: Array<{
+        proofType: string;
+        verificationId?: string;
+        verificationStatus?: string;
+        zkVerifyTxHash?: string;
+        submittedAt?: Date;
+    }>;
+    tier?: 'bronze' | 'silver' | 'gold' | 'platinum';
+    tierVerificationId?: string;
+    tierLastVerified?: Date;
 }
 
 const LiquidityProviderSchema = new Schema({
@@ -81,7 +92,22 @@ const LiquidityProviderSchema = new Schema({
         required: true,
         enum: ['pending', 'confirmed', 'failed'],
         default: 'pending'
-    }
+    },
+    // zkVerify integration
+    zkVerifyProofs: [{
+        proofType: String,
+        verificationId: String,
+        verificationStatus: String,
+        zkVerifyTxHash: String,
+        submittedAt: Date
+    }],
+    tier: {
+        type: String,
+        enum: ['bronze', 'silver', 'gold', 'platinum'],
+        default: 'bronze'
+    },
+    tierVerificationId: String,
+    tierLastVerified: Date
 }, {
     timestamps: true
 });
@@ -92,5 +118,7 @@ LiquidityProviderSchema.index({ walletAddress: 1 });
 LiquidityProviderSchema.index({ isActive: 1 });
 LiquidityProviderSchema.index({ transactionHash: 1 }, { unique: true });
 LiquidityProviderSchema.index({ chain: 1, blockNumber: 1 });
+LiquidityProviderSchema.index({ tier: 1 });
+LiquidityProviderSchema.index({ 'zkVerifyProofs.verificationId': 1 });
 
 export default mongoose.model<ILiquidityProvision>('LiquidityProvider', LiquidityProviderSchema); 

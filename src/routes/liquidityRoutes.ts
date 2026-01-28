@@ -8,6 +8,7 @@ import {
     initiateWithdrawal,
     deletePosition
 } from '../controllers/liquidityController';
+import { ZkVerifyMetricsController } from '../controllers/zkverifyMetricsController';
 
 const router = express.Router();
 
@@ -29,5 +30,9 @@ router.post('/withdraw/confirm', withdrawLiquidity);
 
 // Delete a liquidity position
 router.delete('/position/:positionId', deletePosition);
+
+// zkVerify Metrics (Grant Reporting)
+router.get('/zkverify/metrics', ZkVerifyMetricsController.getLiquidityProofMetrics);
+router.get('/zkverify/milestone-report', ZkVerifyMetricsController.getMilestoneReport);
 
 export default router; 

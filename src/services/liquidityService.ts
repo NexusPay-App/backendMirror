@@ -9,6 +9,7 @@ import { getProvider } from '../utils/provider';
 import { TransactionVerificationService } from './transactionVerification';
 import { verifyOtp } from './otpService';
 import { LiquidityUsageTracker } from './liquidityUsageTracker';
+import LiquidityProofService from './liquidityProofService';
 import { zkVerifyClient } from './zkverify';
 import { logger } from '../config/logger';
 
@@ -171,7 +172,8 @@ export class LiquidityService {
         // Create new provision
         const provision = new LiquidityProvider({
             ...provisionData,
-            amount
+            amount,
+            zkVerifyProofs: []
         });
         await provision.save();
 
@@ -186,11 +188,15 @@ export class LiquidityService {
             mode: 'create',
         });
         
+        // Verify and update tier (generates zkVerify proof)
+        const tier = await LiquidityProofService.verifyAndUpdateTier(userId, token);
+        
         return {
             ...provision.toJSON(),
             message: `Successfully provided ${amount} ${token} liquidity`,
             transactionHash: tokenTransferResult.transactionHash,
-            explorerUrl: tokenTransferResult.transactionHash ? `${SUPPORTED_CHAINS[actualChain].blockExplorers.default.url}/tx/${tokenTransferResult.transactionHash}` : ''
+            explorerUrl: tokenTransferResult.transactionHash ? `${SUPPORTED_CHAINS[actualChain].blockExplorers.default.url}/tx/${tokenTransferResult.transactionHash}` : '',
+            tier,
         };
     }
 
