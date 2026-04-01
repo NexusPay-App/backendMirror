@@ -2664,7 +2664,7 @@ async function processStellarB2CCallback(
                             amount: stellarTx.amountKES.toFixed(2),
                             tokenType: stellarTx.asset,
                             transactionHash: refundResult.transactionHash,
-                            transactionType: 'refund',
+                            transactionType: 'send', // Changed from 'refund' to 'send' to match type definition
                             status: 'success',
                             recipientAddress: userWallet.accountId,
                             explorerUrl: `https://stellar.expert/explorer/public/tx/${refundResult.transactionHash}`

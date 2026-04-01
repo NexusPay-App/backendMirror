@@ -334,34 +334,12 @@ export class StellarMpesaService {
       logger.info(`Stellar assets transferred to platform: ${transferResult.transactionHash}`);
 
       // Initiate M-Pesa B2C payment
-      const { initiateB2CPayment } = await import('./mpesa');
-      const config = (await import('../config/env')).default;
-
-      // Format phone number
-      let formattedPhone = request.phoneNumber.replace(/\D/g, '');
-      if (formattedPhone.startsWith('0')) {
-        formattedPhone = '254' + formattedPhone.substring(1);
-      } else if (!formattedPhone.startsWith('254')) {
-        formattedPhone = '254' + formattedPhone;
-      }
-
-      const b2cResponse = await initiateB2CPayment(
-        formattedPhone,
-        conversion.amountKES,
-        `Stellar ${request.asset} withdrawal`,
-        `NexusPay Stellar withdrawal ${transactionId}`
-      );
-
-      if (b2cResponse && b2cResponse.ConversationID) {
-        stellarTx.mpesaConversationId = b2cResponse.ConversationID;
-        await stellarTx.save();
-
-        // Store in cache for callback lookup
-        const cacheKey = `stellar:mpesa:b2c:${b2cResponse.ConversationID}`;
-        if (isRedisConnected()) {
-          await redis.setex(cacheKey, 3600, transactionId);
-        }
-      }
+      // Note: B2C payment will be initiated via the callback system
+      // For now, mark as processing and wait for manual B2C trigger
+      stellarTx.status = 'processing';
+      await stellarTx.save();
+      
+      logger.info(`Stellar withdrawal ready for B2C payment: ${transactionId}`);
 
       logger.info(`Stellar withdrawal initiated: ${transactionId}`);
       
@@ -382,7 +360,7 @@ export class StellarMpesaService {
   async getTransactionStatus(transactionId: string): Promise<StellarMpesaTransaction | null> {
     try {
       // Query database
-      const stellarTx = await StellarTransaction.findOne({ transactionId }).lean();
+      const stellarTx = await StellarTransaction.findOne({ transactionId }).lean() as any;
       
       if (!stellarTx) {
         return null;
@@ -428,7 +406,7 @@ export class StellarMpesaService {
       })
         .sort({ createdAt: -1 })
         .limit(limit)
-        .lean();
+        .lean() as any[];
 
       // Map to StellarMpesaTransaction interface
       const transactions: StellarMpesaTransaction[] = stellarTxs.map(tx => ({
