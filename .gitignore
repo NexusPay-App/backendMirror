@@ -159,3 +159,4 @@ dump.rdb
 
 scripts/
 .vercel
+.env*

@@ -5,8 +5,11 @@ import dotenv from "dotenv"
 import { defineChain } from "thirdweb"
 import path from 'path'
 
-// Load environment variables from .env file
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Load local environment variables during development only. Production secrets
+// must come from the deployment environment and must never be read from uploads.
+if (process.env.NODE_ENV !== 'production') {
+    dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+}
 
 export function validateEnvironment() {
     const required = ['JWT_SECRET', 'THIRDWEB_SECRET_KEY'];
