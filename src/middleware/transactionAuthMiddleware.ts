@@ -120,7 +120,7 @@ export const authenticateTransaction = async (req: Request, res: Response, next:
           ));
         }
       } catch (passwordError) {
-        console.error("Password verification error:", passwordError);
+        console.error("Password verification error:");
         return res.status(403).json(standardResponse(
           false,
           "Password verification failed",
@@ -156,7 +156,7 @@ export const authenticateTransaction = async (req: Request, res: Response, next:
     next();
 
   } catch (error) {
-    console.error("Transaction authentication error:", error);
+    console.error("Transaction authentication error:");
     return res.status(500).json(standardResponse(
       false,
       "Authentication error",

@@ -1,3 +1,5 @@
+import { getTokenConfig } from '../config/tokens';
+import { formatAmount } from '../utils/amounts';
 import { ethers } from 'ethers';
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import { defineChain, getContract, sendTransaction } from "thirdweb";
@@ -34,7 +36,9 @@ export async function getWalletBalance(walletAddress: string, chainName: string 
       address: walletAddress,
     });
     
-    return Number(balance);
+    const token = getTokenConfig(chainName as any, 'USDC');
+    if (!token) throw new Error('Unsupported asset');
+    return Number(formatAmount(balance, token.decimals));
   } catch (error) {
     console.error(`Error getting wallet balance:`, error);
     throw error;
@@ -103,7 +107,7 @@ export async function transferTokens(
     
     return { transactionHash: tx.transactionHash };
   } catch (error) {
-    console.error(`Error transferring tokens:`, error);
+    console.error("Operation diagnostic");
     throw error;
   }
 } 

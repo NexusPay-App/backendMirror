@@ -1,44 +1,61 @@
-import express from 'express';
+import express, { type ErrorRequestHandler } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import tokenRoutes from './routes/tokenRoutes';
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/authRoutes';
+import tokenRoutes from './routes/tokenRoutes';
 import businessRoutes from './routes/businessRoutes';
 import mpesaRoutes from './routes/mpesaRoutes';
 import adminRoutes from './routes/adminRoutes';
 import transactionRoutes from './routes/transactionRoutes';
 import usdcRoutes from './routes/usdcRoutes';
-import { standardResponse } from './services/utils';
-
-// Load environment variables
-dotenv.config();
-
-// Create Express app
-const app = express();
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/token', tokenRoutes);
-app.use('/api/business', businessRoutes);
-app.use('/api/mpesa', mpesaRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/usdc', usdcRoutes);
-
-// ... existing code ...
-
-// 404 Error Handling Middleware
-app.use((req, res) => {
-  res.status(404).json(standardResponse(
-    false,
-    `Route ${req.url} not found`,
-    null,
-    { code: 'ROUTE_NOT_FOUND', message: `The requested endpoint ${req.method} ${req.url} does not exist` }
-  ));
-});
-
-export default app; 
+import liquidityRoutes from './routes/liquidityRoutes';
+import rampRoutes from './routes/rampRoutes';
+import platformWalletRoutes from './routes/platformWalletRoutes';
+import botchainRoutes from './routes/botchainRoutes';
+import verificationRoutes from './routes/verificationRoutes';
+import { authenticate } from './middleware/auth';
+export function createApp() {
+  const app = express();
+  app.disable('x-powered-by');
+  if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS));
+  const origins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',').map(x => x.trim());
+  app.use(helmet());
+  app.use(cors({ origin: (origin, done) => done(origin && !origins.includes(origin) ? new Error('Origin not allowed') : null, true), credentials: true }));
+  app.use(express.json({ limit: '256kb' }), express.urlencoded({ extended: false, limit: '64kb' }), compression());
+  app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-8', legacyHeaders: false }));
+  app.get('/api/health', (_req, res) => res.json({ success: true, data: { status: 'healthy', timestamp: new Date().toISOString() } }));
+  app.use('/api/auth', authRoutes);
+  app.use('/api/token', tokenRoutes);
+  app.use('/api/business', businessRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/transactions', transactionRoutes);
+  app.use('/api/usdc', usdcRoutes);
+  app.use('/api/botchain', botchainRoutes);
+  app.use('/api/verifications', verificationRoutes);
+  // Fiat routes need explicit enablement and their own configured treasury.
+  const fiatGate: express.RequestHandler = (req, res, next) => {
+    if (process.env.ENABLE_MPESA !== 'true') return void res.status(503).json({ success: false, message: 'M-Pesa is not enabled for this environment' });
+    if ([req.body?.chain, req.body?.chainName, req.query.chain].some(x => typeof x === 'string' && x.startsWith('botchain'))) return void res.status(503).json({ success: false, message: 'BOT Chain M-Pesa settlement is not enabled' });
+    next();
+  };
+  app.use('/api/mpesa', fiatGate, mpesaRoutes);
+  app.use('/api/ramp', fiatGate, rampRoutes);
+  app.use('/api/liquidity', liquidityRoutes);
+  app.use('/api/platform-wallet', platformWalletRoutes);
+  // Stellar is not provisioned on this backend. Return a stable envelope so the
+  // shared wallet context does not spam AxiosError 404s on every auth load.
+  app.get('/api/stellar/wallet', authenticate, (_req, res) => res.json({ success: false, message: 'Stellar is not enabled on this deployment' }));
+  app.get('/api/stellar/secret-key', authenticate, (_req, res) => res.status(403).json({ success: false, message: 'Stellar is not enabled on this deployment' }));
+  app.use((_req, res) => res.status(404).json({ success: false, error: { code: 'ROUTE_NOT_FOUND', message: 'Endpoint not found' } }));
+  const errors: ErrorRequestHandler = (error, _req, res, next) => {
+    if (res.headersSent) return next(error);
+    const status = error.message === 'Origin not allowed' ? 403 : error.type === 'entity.parse.failed' ? 400 : 500;
+    res.status(status).json({ success: false, error: { code: 'REQUEST_FAILED', message: status === 500 ? 'Request could not be completed' : error.message } });
+  };
+  app.use(errors);
+  return app;
+}
+export default createApp();

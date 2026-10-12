@@ -47,7 +47,7 @@ export const getMpesaAccessToken = async (): Promise<string> => {
         
         return response.data.access_token;
     } catch (error: any) {
-        console.error('❌ [MPESA-AUTH] Failed to get access token:', error.response?.data || error.message);
+        console.error("❌ [MPESA-AUTH] Failed to get access token:");
         throw new Error(`M-Pesa authentication failed: ${error.message}`);
     }
 }; 

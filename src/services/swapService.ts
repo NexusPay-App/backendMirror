@@ -106,6 +106,7 @@ export class SwapService {
                 provider.getTransactionReceipt(platformTransferResult.transactionHash)
             ]);
 
+            if (!fromTx || !toTx || fromTx.status !== 1 || toTx.status !== 1) throw new Error('Swap transfers have not both confirmed');
             return {
                 success: true,
                 fromAmount: amount,
@@ -124,7 +125,7 @@ export class SwapService {
                 }
             };
         } catch (error) {
-            logger.error('Error executing swap:', error);
+            logger.error({ err: error }, 'Error executing swap:');
             throw error;
         }
     }

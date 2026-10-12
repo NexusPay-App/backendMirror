@@ -24,7 +24,7 @@ export const getSystemHealth = async (req: Request, res: Response) => {
       health
     ));
   } catch (error: any) {
-    logger.error('Error getting system health:', error);
+    logger.error({ err: error }, 'Error getting system health:');
     return res.status(500).json(standardResponse(
       false,
       "Failed to retrieve system health",
@@ -54,7 +54,7 @@ export const getTransactionMetrics = async (req: Request, res: Response) => {
       }
     ));
   } catch (error: any) {
-    logger.error('Error getting transaction metrics:', error);
+    logger.error({ err: error }, 'Error getting transaction metrics:');
     return res.status(500).json(standardResponse(
       false,
       "Failed to retrieve transaction metrics",
@@ -85,7 +85,7 @@ export const getRecentAlerts = async (req: Request, res: Response) => {
       }
     ));
   } catch (error: any) {
-    logger.error('Error getting recent alerts:', error);
+    logger.error({ err: error }, 'Error getting recent alerts:');
     return res.status(500).json(standardResponse(
       false,
       "Failed to retrieve recent alerts",
@@ -115,7 +115,7 @@ export const clearOldAlerts = async (req: Request, res: Response) => {
       }
     ));
   } catch (error: any) {
-    logger.error('Error clearing old alerts:', error);
+    logger.error({ err: error }, 'Error clearing old alerts:');
     return res.status(500).json(standardResponse(
       false,
       "Failed to clear old alerts",
@@ -173,7 +173,7 @@ export const getSystemDashboard = async (req: Request, res: Response) => {
       dashboard
     ));
   } catch (error: any) {
-    logger.error('Error getting system dashboard:', error);
+    logger.error({ err: error }, 'Error getting system dashboard:');
     return res.status(500).json(standardResponse(
       false,
       "Failed to retrieve system dashboard",

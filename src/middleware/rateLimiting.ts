@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Request, Response, NextFunction } from 'express';
 
 /**
@@ -12,7 +12,7 @@ export const cryptoSpendingLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req: Request) => {
         // Rate limit per user
-        return req.user?.id || req.ip;
+        return req.user?.id || ipKeyGenerator(req.ip || 'unknown');
     },
     message: {
         success: false,
@@ -37,7 +37,7 @@ export const conversionRateLimiter = rateLimit({
     max: 60, // 60 requests per minute per IP (1 per second)
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: Request) => req.ip || 'unknown',
+    keyGenerator: (req: Request) => ipKeyGenerator(req.ip || 'unknown'),
     message: {
         success: false,
         message: "Too many conversion rate requests, please wait a moment",
@@ -57,7 +57,7 @@ export const cryptoSpendingBurstProtection = rateLimit({
     max: 3, // Max 3 requests per 10 seconds
     standardHeaders: false,
     legacyHeaders: false,
-    keyGenerator: (req: Request) => req.user?.id || req.ip,
+    keyGenerator: (req: Request) => req.user?.id || ipKeyGenerator(req.ip || 'unknown'),
     message: {
         success: false,
         message: "Slow down! Maximum 3 crypto payments per 10 seconds",
@@ -101,7 +101,7 @@ export const amountBasedLimiting = async (req: Request, res: Response, next: Nex
         
         if (amount >= LARGE_AMOUNT_THRESHOLD) {
             // For now, just log large amounts - can implement Redis-based limiting later
-            console.log(`⚠️ Large amount transaction detected: ${amount} KES from user ${req.user?.id || req.ip}`);
+            console.log("Operation diagnostic");
         }
         
         next();
@@ -141,7 +141,7 @@ export const balanceQueryLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req: Request) => {
-        return req.user?.id || req.ip;
+        return req.user?.id || ipKeyGenerator(req.ip || 'unknown');
     },
     message: {
         success: false,
@@ -163,7 +163,7 @@ export const transactionHistoryLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req: Request) => {
-        return req.user?.id || req.ip;
+        return req.user?.id || ipKeyGenerator(req.ip || 'unknown');
     },
     message: {
         success: false,

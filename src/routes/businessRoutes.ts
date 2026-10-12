@@ -14,6 +14,7 @@ import {
   requestBusinessCreation,
   completeBusinessCreation,
   getBusinessDetails,
+  getMyBusinesses,
   verifyExternalTransfer,
   getBusinessByMerchantId,
   checkBusinessStatus,
@@ -28,9 +29,12 @@ import {
   getBusinessesByPhone
 } from '../controllers/enhancedBusinessController';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
+import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
 
+// Listing businesses is a normal authenticated read; creation/management stay strict.
+router.get('/my-businesses', authenticate, getMyBusinesses);
 // All business operations require strict authentication with OTP verification
 router.post('/request-upgrade', enforceStrictAuth, requestBusinessCreation);
 router.post('/complete-upgrade', enforceStrictAuth, completeBusinessCreation);

@@ -1,36 +1,14 @@
-// export const User = mongoose.model('User', userSchema);
-// import mongoose from 'mongoose';
-
-// const userSchema = new mongoose.Schema({
-//   phoneNumber: {
-//     type: String,
-//     required: true,
-//     unique: true
-//   },
-//   walletAddress: {
-//     type: String,
-//     required: true,
-//     unique: true
-//   },
-//   password: {
-//     type: String,
-//     required: true
-//   },
-//   privateKey: {
-//     type: String,
-//     required: true,
-//     unique: true
-//   }
-// });
-
-// export const User = mongoose.model('User', userSchema);
-
-//################ Old Code #####################
-
-// src/models/models.ts
+import { protectWalletKey, revealWalletKey, redactAccount } from '../utils/walletKeys';
 import mongoose, { Schema, Document } from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
+  name?: string;
+  status?: 'active' | 'inactive' | 'suspended';
+  isVerified?: boolean;
+  lastLogin?: Date;
+  updatedAt?: Date;
+  comparePassword(candidatePassword: string): Promise<boolean>;
   phoneNumber?: string;
   email?: string;
   isEmailVerified: boolean;
@@ -51,6 +29,11 @@ export interface IUser extends Document {
 }
 
 const userSchema: Schema = new Schema({
+  name: String,
+  status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
+  isVerified: { type: Boolean, default: false },
+  lastLogin: Date,
+  updatedAt: Date,
   phoneNumber: {
     type: String,
     required: false,
@@ -85,6 +68,8 @@ const userSchema: Schema = new Schema({
   },
   privateKey: {
     type: String,
+    set: protectWalletKey,
+    get: revealWalletKey,
     required: true,
   },
   tempOtp: {
@@ -132,24 +117,16 @@ const userSchema: Schema = new Schema({
   }
 });
 
-// Add validation for password field - only required for non-Google auth
-userSchema.pre('save', function(next) {
-  // For Google OAuth users, password is not required
-  if (this.googleId && !this.password) {
-    // Google OAuth user without password is allowed
-    return next();
+// Auth services already hash passwords. Hash only new plaintext values so existing
+// bcrypt credentials are never hashed twice when an additive wallet field is saved.
+userSchema.pre('save', async function() {
+  if (!this.googleId && !this.password) throw new Error('Password is required for non-Google authentication');
+  if (this.isModified('password') && this.password && !/^\$2[aby]\$\d{2}\$/.test(String(this.password))) {
+    this.password = await bcrypt.hash(String(this.password), 10);
   }
-  
-  // For non-Google users, password is required
-  if (!this.googleId && !this.password) {
-    return next(new Error('Password is required for non-Google authentication'));
-  }
-  
-  next();
 });
-
-// Check if model already exists to prevent OverwriteModelError
+userSchema.methods.comparePassword = async function(candidatePassword: string) {
+  return this.password ? bcrypt.compare(candidatePassword, this.password) : false;
+};
+userSchema.set('toJSON', { transform: redactAccount });
 export const User = mongoose.models.User || mongoose.model<IUser>('User', userSchema);
-
-
-//################ end new Code for Migrations #####################

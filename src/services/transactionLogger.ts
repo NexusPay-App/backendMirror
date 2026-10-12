@@ -56,10 +56,10 @@ export interface TransactionLogWithRecovery extends TransactionLogEntry {
 export async function recordTransaction(transaction: TransactionLogEntry): Promise<void> {
   try {
     // For now, just log the transaction to console
-    logger.info('[Transaction Logger] Recording transaction:', {
+    logger.info({
       ...transaction,
       createdAt: new Date()
-    });
+    }, '[Transaction Logger] Recording transaction:');
     
     // In a real implementation, this would store to a database
     // For example:
@@ -69,7 +69,7 @@ export async function recordTransaction(transaction: TransactionLogEntry): Promi
     // });
     // await log.save();
   } catch (error) {
-    logger.error('Failed to record transaction:', error);
+    logger.error({ err: error }, 'Failed to record transaction:');
   }
 }
 
@@ -170,7 +170,7 @@ export async function getTransactionMetrics(timeRangeMs: number = 24 * 60 * 60 *
     };
     */
   } catch (error) {
-    logger.error('Error getting transaction metrics:', error);
+    logger.error({ err: error }, 'Error getting transaction metrics:');
     
     // Return default values on error
     return {
@@ -209,7 +209,7 @@ export async function getFailedTransactions(limit: number = 50): Promise<Transac
     
     return [];
   } catch (error) {
-    logger.error('Error getting failed transactions:', error);
+    logger.error({ err: error }, 'Error getting failed transactions:');
     return [];
   }
 }
@@ -234,6 +234,6 @@ export async function markRecoveryAttempted(transactionId: string): Promise<void
     );
     */
   } catch (error) {
-    logger.error(`Error marking recovery attempted for transaction ${transactionId}:`, error);
+    logger.error({ err: error }, `Error marking recovery attempted for transaction ${transactionId}:`);
   }
 } 

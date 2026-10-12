@@ -2,9 +2,15 @@ import AfricasTalking from 'africastalking';
 import config from '../config/env';
 
 // Africa's Talking setup
-export const africastalking = AfricasTalking({
-    apiKey: config.AFRICAS_TALKING_API_KEY,
-    username: 'NEXUSPAY'
+let smsClient: ReturnType<typeof AfricasTalking> | undefined;
+export const africastalking = new Proxy({} as ReturnType<typeof AfricasTalking>, {
+    get(_target, property) {
+        if (!smsClient) {
+            if (!config.AFRICAS_TALKING_API_KEY) throw new Error('SMS is not configured');
+            smsClient = AfricasTalking({ apiKey: config.AFRICAS_TALKING_API_KEY, username: process.env.AFRICAS_TALKING_USERNAME || 'NEXUSPAY' });
+        }
+        return Reflect.get(smsClient, property);
+    }
 });
 
 export interface SMSNotification {
@@ -52,14 +58,13 @@ export class SMSService {
      */
     static async sendOTP(phoneNumber: string, otp: string, purpose: string = 'verification'): Promise<boolean> {
         try {
-            console.log(`📱 Attempting to send OTP to: ${phoneNumber} (type: ${typeof phoneNumber})`);
+            console.log("Operation diagnostic");
             
             // Format phone number for Africa's Talking
             const formattedPhone = this.formatPhoneNumber(phoneNumber);
             console.log(`📱 Formatted phone number: ${formattedPhone}`);
             
             const message = this.formatOTPMessage(otp, purpose);
-            console.log(`📱 SMS message: ${message}`);
             
             await africastalking.SMS.send({
                 to: [formattedPhone],
@@ -67,11 +72,11 @@ export class SMSService {
                 from: 'NEXUSPAY'
             });
             
-            console.log(`✅ OTP SMS sent to ${formattedPhone} for ${purpose}`);
+            console.log("Operation diagnostic");
             return true;
             
         } catch (error: any) {
-            console.error(`❌ Failed to send OTP SMS to ${phoneNumber}:`, error);
+            console.error("Operation diagnostic");
             console.error(`❌ Error details:`, {
                 phoneNumber,
                 phoneNumberType: typeof phoneNumber,

@@ -1,3 +1,6 @@
+import { paymentChains } from '../../config/chains';
+import { getTokenConfig } from '../../config/tokens';
+import { parseAmount } from '../../utils/amounts';
 import { body, query, param } from 'express-validator';
 import { ethers } from 'ethers';
 
@@ -11,7 +14,7 @@ export const sendTokenValidation = [
     .custom((value) => {
       // Check if it's a valid wallet address, phone number, or email
       const isPhoneNumber = /^\+[1-9]\d{1,14}$/.test(value);
-      const isAddress = ethers.utils.isAddress(value);
+      const isAddress = ethers.isAddress(value);
       const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
       
       if (!isPhoneNumber && !isAddress && !isEmail) {
@@ -21,12 +24,16 @@ export const sendTokenValidation = [
       return true;
     }),
     
+  body('tokenSymbol').optional().custom((value, { req }) => { if (!getTokenConfig(req.body.chain || req.body.chainName, value)) throw new Error('Unsupported asset on selected network'); return true; }),
   body('amount')
     .notEmpty()
     .withMessage('Amount is required')
     .isNumeric()
     .withMessage('Amount must be a valid number')
-    .custom((value) => {
+    .custom((value, { req }) => {
+      const token = getTokenConfig(req.body.chain, req.body.tokenSymbol || "USDC");
+      if (!token) throw new Error("Unsupported asset");
+      parseAmount(value, token.decimals);
       // Ensure amount is positive
       if (parseFloat(value) <= 0) {
         throw new Error('Amount must be greater than 0');
@@ -38,7 +45,7 @@ export const sendTokenValidation = [
     .notEmpty()
     .withMessage('Sender address is required')
     .custom((value) => {
-      if (!ethers.utils.isAddress(value)) {
+      if (!ethers.isAddress(value)) {
         throw new Error('Sender address must be a valid Ethereum address');
       }
       return true;
@@ -47,8 +54,8 @@ export const sendTokenValidation = [
   body('chain')
     .notEmpty()
     .withMessage('Chain is required')
-    .isIn(['arbitrum', 'celo'])
-    .withMessage('Chain must be either "arbitrum" or "celo"')
+    .isIn(paymentChains)
+    .withMessage('Unsupported payment chain')
 ];
 
 /**
@@ -59,7 +66,7 @@ export const payMerchantValidation = [
     .notEmpty()
     .withMessage('Sender address is required')
     .custom((value) => {
-      if (!ethers.utils.isAddress(value)) {
+      if (!ethers.isAddress(value)) {
         throw new Error('Sender address must be a valid Ethereum address');
       }
       return true;
@@ -68,9 +75,10 @@ export const payMerchantValidation = [
   body('merchantId')
     .notEmpty()
     .withMessage('Merchant ID is required')
-    .matches(/^NX-\d{10}$/)
+    .matches(/^NX-\d{5,10}$/)
     .withMessage('Invalid merchant ID format'),
     
+  body('tokenSymbol').optional().custom((value, { req }) => { if (!getTokenConfig(req.body.chain || req.body.chainName, value)) throw new Error('Unsupported asset on selected network'); return true; }),
   body('amount')
     .notEmpty()
     .withMessage('Amount is required')
@@ -86,8 +94,8 @@ export const payMerchantValidation = [
   body('chainName')
     .notEmpty()
     .withMessage('Chain name is required')
-    .isIn(['arbitrum', 'celo'])
-    .withMessage('Chain must be either "arbitrum" or "celo"')
+    .isIn(paymentChains)
+    .withMessage('Unsupported payment chain')
 ];
 
 /**
@@ -98,7 +106,7 @@ export const tokenTransferEventsValidation = [
     .notEmpty()
     .withMessage('Wallet address is required')
     .custom((value) => {
-      if (!ethers.utils.isAddress(value)) {
+      if (!ethers.isAddress(value)) {
         throw new Error('Address must be a valid Ethereum address');
       }
       return true;
@@ -107,8 +115,8 @@ export const tokenTransferEventsValidation = [
   query('chain')
     .notEmpty()
     .withMessage('Chain is required')
-    .isIn(['arbitrum', 'celo'])
-    .withMessage('Chain must be either "arbitrum" or "celo"'),
+    .isIn(paymentChains)
+    .withMessage('Unsupported payment chain'),
     
   query('page')
     .optional()

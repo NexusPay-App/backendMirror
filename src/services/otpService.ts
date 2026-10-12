@@ -25,7 +25,7 @@ export async function verifyOtp(phoneNumber: string, otp: string): Promise<boole
 
         return true;
     } catch (error) {
-        console.error('Error verifying OTP:', error);
+        console.error("Error verifying OTP:");
         return false;
     }
 }
@@ -40,7 +40,7 @@ export async function storeOtp(phoneNumber: string, otp: string): Promise<void> 
         const key = `${OTP_PREFIX}${phoneNumber}`;
         await redis.set(key, otp, 'EX', OTP_EXPIRY);
     } catch (error) {
-        console.error('Error storing OTP:', error);
+        console.error("Error storing OTP:");
         throw error;
     }
 } 

@@ -78,7 +78,7 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
 
         // Debug logging
         console.log("JWT Secret:", config.JWT_SECRET);
-        console.log("Token:", token);
+        console.log("Token:");
 
         // Verify and decode the token
         const decoded = jwt.verify(token, config.JWT_SECRET) as { 
@@ -90,21 +90,17 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
         };
         
         // Debug logging
-        console.log("Decoded token:", decoded);
+        console.log("Decoded token:");
 
         // Find the user in the database using ID
         const user = await User.findById(decoded.id);
         if (!user) {
-            console.log("User not found for ID:", decoded.id);
+            console.log("User not found for ID:");
             return res.status(401).json({ message: "User not found" });
         }
 
         // Debug logging
-        console.log("Found user:", {
-            id: user._id,
-            phoneNumber: user.phoneNumber,
-            walletAddress: user.walletAddress
-        });
+        console.log("Found user:");
 
         // Attach the user object to the request
         req.user = user;
@@ -112,13 +108,13 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
     } catch (error: any) {
         // Provide specific error messages based on the type of error
         if (error.name === 'JsonWebTokenError') {
-            console.error("Invalid token error:", error);
+            console.error("Invalid token error:");
             return res.status(401).json({ message: "Invalid token" });
         } else if (error.name === 'TokenExpiredError') {
-            console.error("Token expired error:", error);
+            console.error("Token expired error:");
             return res.status(401).json({ message: "Token expired" });
         } else {
-            console.error("Authentication error:", error);
+            console.error("Authentication error:");
             return res.status(403).json({ message: "Unauthorized access" });
         }
     }

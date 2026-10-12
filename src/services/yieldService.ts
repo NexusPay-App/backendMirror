@@ -97,7 +97,7 @@ export async function calculateYield(
         const hourlyYield = annualYield / (365 * 24);
         const periodYield = hourlyYield * holdingPeriod;
 
-        logger.info(`Yield calculation for ${token}:`, {
+        logger.info({
             userId,
             amount,
             holdingPeriod,
@@ -108,11 +108,11 @@ export async function calculateYield(
             mpesaBonus,
             totalRate,
             periodYield
-        });
+        }, `Yield calculation for ${token}:`);
 
         return periodYield;
     } catch (error) {
-        logger.error('Error calculating yield:', error);
+        logger.error({ err: error }, 'Error calculating yield:');
         throw error;
     }
 }
@@ -140,21 +140,21 @@ export async function updateAllYields(): Promise<void> {
                 provision.lastYieldCalculation = new Date();
                 await provision.save();
 
-                logger.info(`Updated yield for provision:`, {
+                logger.info({
                     userId: provision.userId,
                     token: provision.token,
                     amount: provision.amount,
                     newYield: yield_,
                     totalYield: provision.yieldEarned
-                });
+                }, `Updated yield for provision:`);
             } catch (error) {
-                logger.error(`Error updating yield for provision ${provision._id}:`, error);
+                logger.error({ err: error }, `Error updating yield for provision ${provision._id}:`);
                 // Continue with next provision
                 continue;
             }
         }
     } catch (error) {
-        logger.error('Error updating all yields:', error);
+        logger.error({ err: error }, 'Error updating all yields:');
         throw error;
     }
 } 

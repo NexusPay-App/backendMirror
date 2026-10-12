@@ -82,7 +82,7 @@ export class LiquidityService {
             }
             
             actualChain = foundChain;
-            console.log(`Token ${token} not found on ${chain}, using ${foundChain} instead`);
+            console.log("Operation diagnostic");
         }
 
         // Check if user exists
@@ -120,6 +120,7 @@ export class LiquidityService {
         // Get transaction details from blockchain
         const provider = getProvider(actualChain);
         const txReceipt = await provider.getTransactionReceipt(tokenTransferResult.transactionHash);
+        if (!txReceipt || txReceipt.status !== 1) throw new Error('Transfer has not been confirmed');
 
         const provisionData = {
             userId: new Types.ObjectId(userId),
@@ -351,6 +352,7 @@ export class LiquidityService {
         // Get transaction details from blockchain
         const provider = getProvider(chain as Chain);
         const txReceipt = await provider.getTransactionReceipt(tokenTransferResult.transactionHash);
+        if (!txReceipt || txReceipt.status !== 1) throw new Error('Transfer has not been confirmed');
 
         // Update provision
         provision.amount -= amount;
@@ -402,7 +404,7 @@ export class LiquidityService {
 
             return positions;
         } catch (error) {
-            console.error('Error getting user positions:', error);
+            console.error("Error getting user positions:");
             throw error;
         }
     }
@@ -433,7 +435,7 @@ export class LiquidityService {
             }
 
             await LiquidityProvider.deleteOne({ _id: positionId });
-            console.log(`✅ Deleted position ${positionId} for user ${userId}`);
+            console.log("Operation diagnostic");
         } catch (error) {
             console.error('Error deleting position:', error);
             throw error;

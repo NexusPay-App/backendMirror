@@ -41,7 +41,7 @@ export const logTransactionForReconciliation = (data: ReconciliationLogData): vo
             console.log(`- Type: ${data.type}`);
             console.log(`- Status: ${data.status}`);
             if (data.fiatAmount) console.log(`- Fiat Amount: ${data.fiatAmount} KES`);
-            if (data.cryptoAmount) console.log(`- Crypto Amount: ${data.cryptoAmount} ${data.tokenType}`);
+            if (data.cryptoAmount) console.log("Operation diagnostic");
             if (data.error) console.log(`- Error: ${data.error}`);
             if (data.errorCode) console.log(`- Error Code: ${data.errorCode}`);
             console.log('');

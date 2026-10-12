@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Escrow } from '../models/escrowModel';
+import { BotTransfer } from '../models/botTransfer';
+import { reconcileBotTransfer } from '../services/botchainTransfers';
+import { getBotConfig } from '../config/botchain';
 import { standardResponse, handleError } from '../services/utils';
 import { getConversionRateWithCaching } from '../services/rates';
 import { getWalletBalance } from '../services/platformWallet';
@@ -96,6 +99,89 @@ async function validateAndCorrectTransactionStatus(tx: any): Promise<any> {
 }
 
 /**
+ * Map a BOT transfer record into the same enhanced-history shape as legacy transactions
+ * so every chain renders through one shared list.
+ */
+async function mapBotTransaction(record: any) {
+  const network = getBotConfig(record.network);
+  const status = record.status === 'confirmed' ? 'completed' : record.status === 'failed' ? 'failed' : 'pending';
+  const type = record.merchantId ? 'crypto_to_till' : 'token_transfer';
+  const amount = Number(record.amount);
+  const symbol = record.token;
+  const decimals = network.tokens[symbol as 'BOT' | 'WBOT' | 'USDT']?.decimals ?? 18;
+  // USDT follows the same stablecoin ≈ $1 convention as legacy records. BOT/WBOT have
+  // no validated price source, so they are reported as unavailable rather than valued at $1.
+  const isStable = symbol === 'USDT';
+  let usdValue = 0;
+  let kesValue = 0;
+  let kesRate = 0;
+  if (isStable) {
+    usdValue = amount;
+    try {
+      kesRate = await getConversionRateWithCaching('USDT');
+      kesValue = amount * kesRate;
+    } catch { /* Values stay zero when no rate is available; the status remains honest. */ }
+  }
+  const createdAt = record.createdAt;
+  const completedAt = status === 'completed' ? (record.completedAt || record.updatedAt || createdAt) : null;
+  const ageMinutes = Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60));
+  const processingTimeSeconds = completedAt ? Math.floor((new Date(completedAt).getTime() - new Date(createdAt).getTime()) / 1000) : null;
+  const txHash = record.transactionHash || null;
+  const explorerUrl = txHash ? `${network.explorer}/tx/${txHash}` : null;
+  const summary = status === 'failed'
+    ? `Failed: ${amount} ${symbol} on ${network.name}`
+    : `${record.merchantId ? 'Merchant payment' : 'Sent'} ${amount} ${symbol} on ${network.name}`;
+  return {
+    id: String(record._id),
+    type,
+    status,
+    token: { symbol, name: getTokenName(symbol), amount, decimals },
+    values: {
+      fiat: { amount: 0, currency: 'KES', formatted: '—' },
+      usd: { amount: usdValue, formatted: isStable ? `$${usdValue.toFixed(2)}` : 'Price unavailable', rate: amount ? usdValue / amount : 0 },
+      kes: { amount: kesValue, formatted: isStable ? `KES ${Math.round(kesValue).toLocaleString()}` : 'Price unavailable', rate: kesRate }
+    },
+    blockchain: {
+      chain: record.network,
+      network: network.name,
+      txHash,
+      explorerUrl,
+      explorerName: 'BOT Explorer'
+    },
+    portfolio: {
+      impact: getPortfolioImpact(type, status),
+      direction: getPortfolioImpact(type, status) === 'positive' ? '+' : getPortfolioImpact(type, status) === 'negative' ? '-' : '=',
+      description: getPortfolioDescription(type, status)
+    },
+    timing: {
+      createdAt,
+      completedAt,
+      processingTimeSeconds,
+      ageMinutes,
+      formatted: {
+        created: new Date(createdAt).toLocaleString(),
+        completed: completedAt ? new Date(completedAt).toLocaleString() : null
+      }
+    },
+    references: {
+      transactionId: String(record._id),
+      recipient: record.recipient || null,
+      recipientAddress: record.recipient || null,
+      recipientPhone: null,
+      recipientEmail: null,
+      retryCount: 0
+    },
+    dashboard: {
+      priority: getTransactionPriority(status, ageMinutes),
+      category: getTransactionCategory(type),
+      statusColor: getStatusColor(status),
+      icon: getTransactionIcon(type),
+      summary
+    }
+  };
+}
+
+/**
  * Enhanced transaction history for authenticated user with comprehensive details
  */
 export const getTransactionHistory = async (req: Request, res: Response) => {
@@ -123,7 +209,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
     // Check cache first (2 minute cache for transaction history)
     const cachedHistory = await getCachedData(cacheKey);
     if (cachedHistory) {
-      console.log(`Returning cached transaction history for user: ${userId} (page ${page})`);
+      console.log("Operation diagnostic");
       return res.json(standardResponse(
         true,
         'Enhanced transaction history retrieved successfully (cached)',
@@ -135,7 +221,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
       ));
     }
 
-    console.log(`Fetching fresh transaction history for user: ${userId} (page ${page})`);
+    console.log("Operation diagnostic");
 
     // Optional filters
     const { status, type, chain, tokenType, dateFrom, dateTo } = req.query;
@@ -170,7 +256,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
       .skip(skip)
       .limit(limit);
 
-    console.log(`Found ${transactions.length} transactions for user ${userId}`);
+    console.log("Operation diagnostic");
 
     // Enhanced formatting for response with comprehensive details and status validation
     const enhancedTransactions = await Promise.all(
@@ -223,7 +309,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
 
         // Enhanced transaction logging
         if (validatedTx.cryptoTransactionHash) {
-          console.log(`Enhanced Transaction ${validatedTx.transactionId}: ${cryptoAmount} ${tokenSymbol} on ${chainName}`);
+          console.log("Operation diagnostic");
           console.log(`- USD Value: $${usdValue.toFixed(2)}`);
           console.log(`- KES Value: KES ${kesValue.toFixed(2)}`);
           console.log(`- Status: ${validatedTx.status} - Impact: ${portfolioImpact}`);
@@ -314,13 +400,47 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
       })
     );
 
+    // BOT transfers join the same history list so one screen shows every chain.
+    // Only page 1 merges (newest-first), keeping legacy skip/limit pagination gap- and
+    // duplicate-free; filters are applied to BOT records exactly like legacy ones.
+    let botTransactions: any[] = [];
+    let botCount = 0;
+    try {
+      const botRecords = await BotTransfer.find({ userId }).sort({ createdAt: -1 }).limit(200);
+      for (const record of botRecords) {
+        try { await reconcileBotTransfer(record); } catch { /* Preserve ambiguous records for the next poll. */ }
+        try {
+          const mapped = await mapBotTransaction(record);
+          if (status && mapped.status !== status) continue;
+          if (chain && mapped.blockchain.chain !== chain) continue;
+          if (type && mapped.type !== type) continue;
+          if (dateFrom && new Date(mapped.timing.createdAt) < new Date(dateFrom as string)) continue;
+          if (dateTo && new Date(mapped.timing.createdAt) > new Date(dateTo as string)) continue;
+          botTransactions.push(mapped);
+        } catch (mapError: any) {
+          // One malformed legacy row must never blank the whole history list.
+          console.error(`Failed to map BOT transfer ${record._id}:`, mapError?.message || mapError);
+        }
+      }
+      botCount = botTransactions.length;
+      if (page !== 1) botTransactions = [];
+    } catch (error: any) {
+      console.error('Failed to merge BOT payments into transaction history:', error.message);
+    }
+    const mergedTransactions = [...botTransactions, ...enhancedTransactions]
+      .sort((a, b) => new Date(b.timing.createdAt).getTime() - new Date(a.timing.createdAt).getTime());
+    const mergedTotal = totalTransactions + botCount;
+    const mergedPages = Math.max(1, Math.ceil(mergedTotal / limit));
+
     const responseData = {
-      transactions: enhancedTransactions,
+      transactions: mergedTransactions,
       summary: {
-        total: totalTransactions,
+        total: mergedTotal,
         page,
         limit,
-        pages: Math.ceil(totalTransactions / limit),
+        pages: mergedPages,
+        hasNext: page < mergedPages,
+        hasPrev: page > 1,
         filters: {
           status: status || null,
           type: type || null,
@@ -331,7 +451,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
         }
       },
       // Additional dashboard insights
-      insights: await generatePortfolioInsights(enhancedTransactions, req.user)
+      insights: await generatePortfolioInsights(mergedTransactions, req.user)
     };
 
     // Cache the result for 2 minutes
@@ -363,9 +483,9 @@ export const getTransactionById = async (req: Request, res: Response) => {
     }
 
     const userId = req.user._id;
-    const { id } = req.params;
+    const id = String(req.params.id);
 
-    console.log(`Looking up enhanced transaction ${id} for user ${userId}`);
+    console.log("Operation diagnostic");
 
     // Find transaction that belongs to the user
     const transaction = await Escrow.findOne({
@@ -420,7 +540,7 @@ export const getTransactionById = async (req: Request, res: Response) => {
     // Enhanced transaction logging for details view
     console.log(`Enhanced Transaction Details: ${id}`);
     console.log(`- Type: ${transaction.type} | Status: ${transaction.status}`);
-    console.log(`- Token: ${cryptoAmount} ${tokenSymbol} on ${chainName}`);
+    console.log("Operation diagnostic");
     console.log(`- Values: $${usdValue.toFixed(2)} USD | KES ${kesValue.toFixed(2)}`);
     if (transaction.cryptoTransactionHash) {
       console.log(`- TX Hash: ${transaction.cryptoTransactionHash}`);
@@ -582,7 +702,9 @@ function getTokenName(symbol: string): string {
     'WETH': 'Wrapped Ethereum',
     'WBTC': 'Wrapped Bitcoin',
     'DAI': 'Dai Stablecoin',
-    'CELO': 'Celo'
+    'CELO': 'Celo',
+    'BOT': 'BOT Coin',
+    'WBOT': 'Wrapped BOT'
   };
   return tokenNames[symbol] || symbol;
 }

@@ -30,7 +30,6 @@ export const tokenConfigs: TokenConfigurations = {
     },
     polygon: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', name: 'USD Coin' },
-        USDT: { symbol: 'USDT', decimals: 6, address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', name: 'Tether USD' },
         DAI: { symbol: 'DAI', decimals: 18, address: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063', name: 'Dai Stablecoin' },
         WBTC: { symbol: 'WBTC', decimals: 8, address: '0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6', name: 'Wrapped Bitcoin' },
         WETH: { symbol: 'WETH', decimals: 18, address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', name: 'Wrapped Ether' },
@@ -56,8 +55,8 @@ export const tokenConfigs: TokenConfigurations = {
         WETH: { symbol: 'WETH', decimals: 18, address: '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB', name: 'Wrapped Ether' }
     },
     celo: {
-        USDC: { symbol: 'USDC', decimals: 6, address: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e', name: 'USD Coin' },
-        USDT: { symbol: 'USDT', decimals: 6, address: '0x617f3112bf5397D0467D315cC709EF968D9ba546', name: 'Tether USD' }
+        USDC: { symbol: 'USDC', decimals: 6, address: '0xcebA9300f2b948710d2653dD7B07f33A8B32118C', name: 'USD Coin' },
+        USDT: { symbol: 'USDT', decimals: 6, address: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e', name: 'Tether USD' }
     },
     // Add minimal token support for other chains
     scroll: {
@@ -69,15 +68,11 @@ export const tokenConfigs: TokenConfigurations = {
     fantom: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0x04068DA6C83AFCFA0e13ba15A6696662335D5B75', name: 'USD Coin' }
     },
-    somnia: {
-        USDC: { symbol: 'USDC', decimals: 6, address: '0x1C7312Cb60b40cF586e796FEdD60Cf243286c9E9', name: 'USD Coin' }
-    },
+    somnia: {},
     moonbeam: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0x818ec0A7Fe18Ff94269904fCED6AE3DaE6d6dC0b', name: 'USD Coin' }
     },
-    lisk: {
-        USDC: { symbol: 'USDC', decimals: 6, address: '0x4e05F8C19EaA61520a94850dC41EAc3c39927696', name: 'USD Coin' }
-    },
+    lisk: {},
     fuse: {
         USDC: { symbol: 'USDC', decimals: 6, address: '0x620fd5fa44BE6af63715Ef4E65DDFA0387aD13F5', name: 'USD Coin' }
     },
@@ -108,4 +103,4 @@ export function getTokenDecimals(chain: Chain, symbol: TokenSymbol): number {
 
 export function getSupportedTokens(chain: Chain): TokenSymbol[] {
     return Object.keys(tokenConfigs[chain]) as TokenSymbol[];
-} 
+}

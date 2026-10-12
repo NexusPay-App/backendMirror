@@ -54,7 +54,7 @@ export class UserOptimizationService {
       };
       
     } catch (error) {
-      console.error('❌ Error in findOrCreateUserByPhone:', error);
+      console.error("❌ Error in findOrCreateUserByPhone:");
       throw error;
     }
   }
@@ -112,7 +112,7 @@ export class UserOptimizationService {
       };
       
     } catch (error) {
-      console.error('❌ Error in findOrCreateUserByGoogle:', error);
+      console.error("❌ Error in findOrCreateUserByGoogle:");
       throw error;
     }
   }
@@ -144,7 +144,7 @@ export class UserOptimizationService {
       
       await newUser.save();
       
-      console.log(`✅ Created new personal account for ${userData.phoneNumber || userData.email} with wallet: ${walletAddress}`);
+      console.log("Operation diagnostic");
       
       return newUser;
       
@@ -174,7 +174,7 @@ export class UserOptimizationService {
       
       await user.save();
       
-      console.log(`✅ Linked Google account ${googleId} to user ${userId}`);
+      console.log("Operation diagnostic");
       
       return user;
       
@@ -198,7 +198,7 @@ export class UserOptimizationService {
       };
       
     } catch (error) {
-      console.error('❌ Error getting user businesses:', error);
+      console.error("❌ Error getting user businesses:");
       throw error;
     }
   }
@@ -293,7 +293,7 @@ export class UserOptimizationService {
       };
       
     } catch (error) {
-      console.error('❌ Error getting unified user profile:', error);
+      console.error("❌ Error getting unified user profile:");
       throw error;
     }
   }

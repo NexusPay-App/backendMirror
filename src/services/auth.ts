@@ -1,83 +1,26 @@
-// import { createThirdwebClient, defineChain } from "thirdweb";
-// import config from "../config/env";
-// import AfricasTalking from 'africastalking';
-// import { Wallet } from 'ethers';
-// import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
-
-// export const africastalking = AfricasTalking({
-//     apiKey: config.AFRICAS_TALKING_API_KEY,
-//     username: 'NEXUSPAY'
-// });
-
-// export const SALT_ROUNDS = 10;
-
-// export const otpStore: Record<string, string> = {};
-
-// // Helper function to generate OTP
-// export const generateOTP = (): string => {
-//     let otp = '';
-//     for (let i = 0; i < 6; i++) {
-//         otp += Math.floor(Math.random() * 10).toString();
-//     }
-//     return otp;
-// };
-
-// export const client = createThirdwebClient({
-//     secretKey: config.THIRDWEB_SECRET_KEY as string,
-// });
-
-// export async function createAccount(chainName: string = "celo") {
-
-//     const chain = defineChain(config[chainName].chainId)
-//     const newWallet = Wallet.createRandom();
-//     const pk = newWallet.privateKey
-//     const personalAccount = privateKeyToAccount({
-//         client,
-//         privateKey: pk as string,
-//     });
-
-//     // Configure the smart wallet
-//     const wallet = smartWallet({
-//         chain: chain,
-//         sponsorGas: false,
-//     });
-
-//     // Connect the smart wallet
-//     const smartAccount = await wallet.connect({
-//         client,
-//         personalAccount,
-//     });
-//     let walletAddress = smartAccount.address
-
-//     return { pk, walletAddress };
-// }
-
+import { randomInt } from "node:crypto";
 import { ThirdwebClient, createThirdwebClient, defineChain } from "thirdweb";
 import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
 import { Wallet } from 'ethers';
 import config from "../config/env";
 import { SMSService } from './smsService';
 
-// Thirdweb client setup
-export const client: ThirdwebClient = createThirdwebClient({
-    secretKey: config.THIRDWEB_SECRET_KEY as string,
+let thirdwebClient: ThirdwebClient | undefined;
+export const client = new Proxy({} as ThirdwebClient, {
+    get(_target, property) {
+        if (!thirdwebClient) {
+            if (!config.THIRDWEB_SECRET_KEY) throw new Error('THIRDWEB_SECRET_KEY is required for wallet operations');
+            thirdwebClient = createThirdwebClient({ secretKey: config.THIRDWEB_SECRET_KEY });
+        }
+        return Reflect.get(thirdwebClient, property);
+    }
 });
-console.log("Thirdweb client initialized with secret key:", config.THIRDWEB_SECRET_KEY ? "present" : "missing");
-
-// Africa's Talking setup - now handled by SMSService
-console.log("Africa's Talking initialized with API key:", config.AFRICAS_TALKING_API_KEY ? "present" : "missing");
 
 export const SALT_ROUNDS = 10;
 
 export const otpStore: Record<string, string> = {};
 
-export const generateOTP = (): string => {
-    let otp = '';
-    for (let i = 0; i < 6; i++) {
-        otp += Math.floor(Math.random() * 10).toString();
-    }
-    return otp;
-};
+export const generateOTP = (): string => randomInt(0, 1_000_000).toString().padStart(6, '0');
 
 // Create a unified wallet that works across all chains
 export async function createAccount() {
@@ -95,7 +38,8 @@ export async function createAccount() {
     // Configure the smart wallet
     const wallet = smartWallet({
         chain: defaultChain,
-        sponsorGas: true, // Default factory address will be used
+        sponsorGas: true,
+        factoryAddress: '0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00',
     });
 
     // Connect the smart wallet

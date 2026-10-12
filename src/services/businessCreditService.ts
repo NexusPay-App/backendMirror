@@ -1,3 +1,4 @@
+import { sendToken } from './token';
 import { Business } from '../models/businessModel';
 import { User } from '../models/models';
 import { sendFromPlatformWallet } from './platformWallet';
@@ -142,7 +143,7 @@ export class BusinessCreditService {
       };
       
     } catch (error: any) {
-      console.error('❌ Error in overdraft request:', error);
+      console.error("❌ Error in overdraft request:");
       throw error;
     }
   }
@@ -168,17 +169,6 @@ export class BusinessCreditService {
       const transactionId = randomUUID();
       
       // Transfer funds from business wallet to platform wallet
-      const sdk = await import('@thirdweb-dev/sdk');
-      const { ThirdwebSDK } = sdk;
-      
-      const thirdwebSDK = ThirdwebSDK.fromPrivateKey(
-        business.privateKey,
-        config.arbitrum.chainId,
-        { secretKey: config.THIRDWEB_SECRET_KEY }
-      );
-      
-      const businessWallet = thirdwebSDK.wallet;
-      
       // Get platform wallet address
       const platformWalletAddress = process.env.PLATFORM_WALLET_ADDRESS;
       if (!platformWalletAddress) {
@@ -186,7 +176,7 @@ export class BusinessCreditService {
       }
       
       // Transfer funds back to platform
-      const tx = await businessWallet.transfer(platformWalletAddress, amount);
+      const tx = await sendToken(platformWalletAddress, String(amount), 'arbitrum', business.privateKey, 'USDC', business.walletAddress);
       
       // Update business credit information
       business.currentCredit -= amount;
@@ -199,18 +189,18 @@ export class BusinessCreditService {
         type: 'repay',
         timestamp: new Date(),
         status: 'completed',
-        transactionHash: tx.receipt.transactionHash
+        transactionHash: tx.transactionHash
       });
       
       await business.save();
       
-      const explorerUrl = generateExplorerUrl('arbitrum', tx.receipt.transactionHash);
+      const explorerUrl = generateExplorerUrl('arbitrum', tx.transactionHash);
       
       // Send overdraft repayment SMS notification
       await SMSService.sendOverdraftNotification({
         phoneNumber: business.phoneNumber,
         amount: amount.toString(),
-        transactionHash: tx.receipt.transactionHash,
+        transactionHash: tx.transactionHash,
         type: 'repay',
         newCreditBalance: business.currentCredit.toString(),
         availableCredit: business.availableCredit.toString(),
@@ -221,7 +211,7 @@ export class BusinessCreditService {
         success: true,
         transactionId,
         amount,
-        transactionHash: tx.receipt.transactionHash,
+        transactionHash: tx.transactionHash,
         explorerUrl,
         newCreditBalance: business.currentCredit,
         availableCredit: business.availableCredit,

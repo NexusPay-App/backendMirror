@@ -91,7 +91,7 @@ export class TransactionMonitor {
 
       logger.info(`📊 Transaction recorded: ${txId} (${success ? '✅' : '❌'}) - ${processingTimeMs}ms`);
     } catch (error) {
-      logger.error('Error recording transaction metrics:', error);
+      logger.error({ err: error }, 'Error recording transaction metrics:');
     }
   }
 
@@ -159,7 +159,7 @@ export class TransactionMonitor {
 
       return metrics;
     } catch (error) {
-      logger.error('Error getting metrics:', error);
+      logger.error({ err: error }, 'Error getting metrics:');
       return {
         totalTransactions: 0,
         successfulTransactions: 0,
@@ -193,7 +193,7 @@ export class TransactionMonitor {
 
       return totalSize;
     } catch (error) {
-      logger.error('Error getting queue sizes:', error);
+      logger.error({ err: error }, 'Error getting queue sizes:');
       return 0;
     }
   }
@@ -239,7 +239,7 @@ export class TransactionMonitor {
       }
 
     } catch (error) {
-      logger.error('Error checking alerts:', error);
+      logger.error({ err: error }, 'Error checking alerts:');
     }
   }
 
@@ -257,7 +257,7 @@ export class TransactionMonitor {
       await redis.ltrim('alerts:list', 0, 99); // Keep last 100 alerts
 
       // Log alert
-      logger.warn(`🚨 ALERT [${alert.severity}]: ${alert.message}`, alert.data);
+      logger.warn({ err: alert.data }, `🚨 ALERT [${alert.severity}]: ${alert.message}`);
 
       // In production, this would also:
       // - Send notifications (email, Slack, etc.)
@@ -265,7 +265,7 @@ export class TransactionMonitor {
       // - Trigger automated responses for critical alerts
 
     } catch (error) {
-      logger.error('Error generating alert:', error);
+      logger.error({ err: error }, 'Error generating alert:');
     }
   }
 
@@ -277,7 +277,7 @@ export class TransactionMonitor {
       const alertStrings = await redis.lrange('alerts:list', 0, limit - 1);
       return alertStrings.map(str => JSON.parse(str));
     } catch (error) {
-      logger.error('Error getting recent alerts:', error);
+      logger.error({ err: error }, 'Error getting recent alerts:');
       return [];
     }
   }
@@ -307,7 +307,7 @@ export class TransactionMonitor {
       logger.info(`🧹 Cleared ${cleared} old alerts`);
       return cleared;
     } catch (error) {
-      logger.error('Error clearing old alerts:', error);
+      logger.error({ err: error }, 'Error clearing old alerts:');
       return 0;
     }
   }
@@ -360,7 +360,7 @@ export class TransactionMonitor {
         recommendations
       };
     } catch (error) {
-      logger.error('Error getting health status:', error);
+      logger.error({ err: error }, 'Error getting health status:');
       return {
         status: 'CRITICAL',
         metrics: {
@@ -394,7 +394,7 @@ export const initializeMonitoring = () => {
     try {
       await transactionMonitor.clearOldAlerts();
     } catch (error) {
-      logger.error('Error in scheduled alert cleanup:', error);
+      logger.error({ err: error }, 'Error in scheduled alert cleanup:');
     }
   }, 60 * 60 * 1000); // 1 hour
 
@@ -402,13 +402,13 @@ export const initializeMonitoring = () => {
   setInterval(async () => {
     try {
       const health = await transactionMonitor.getHealthStatus();
-      logger.info(`💊 System Health: ${health.status}`, {
+      logger.info({
         metrics: health.metrics,
         alertCount: health.alerts.length,
         recommendations: health.recommendations
-      });
+      }, `💊 System Health: ${health.status}`);
     } catch (error) {
-      logger.error('Error in scheduled health check:', error);
+      logger.error({ err: error }, 'Error in scheduled health check:');
     }
   }, 10 * 60 * 1000); // 10 minutes
 

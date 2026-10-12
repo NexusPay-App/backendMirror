@@ -1,3 +1,4 @@
+import { acceptCallback } from '../services/paymentInbox';
 // import { Router } from "express"
 // import {cryptoToFiat, mpesaDeposit, mpesaWithdraw, mpesaB2CWebhook, mpesaQueueWebhook, mpesaSTKPushWebhook } from "../controllers/mpesaController"
 // import { authenticateToken } from "../middleware/authMiddleware"
@@ -62,11 +63,11 @@ import { cryptoSpendingProtection } from '../middleware/rateLimiting';
 const router = express.Router();
 
 // Public callback routes (no authentication required)
-router.post('/stk-callback', mpesaSTKPushWebhook);
-router.post('/b2c-callback', mpesaB2CWebhook);
-router.post('/b2b-callback', mpesaB2BWebhook);
-router.post('/queue-timeout', mpesaQueueWebhook);
-router.post('/callback', stkPushCallback);
+router.post('/stk-callback', acceptCallback('stk-callback'));
+router.post('/b2c-callback', acceptCallback('b2c-callback'));
+router.post('/b2b-callback', acceptCallback('b2b-callback'));
+router.post('/queue-timeout', acceptCallback('queue-timeout'));
+router.post('/callback', acceptCallback('callback'));
 
 // User routes (strict authentication required)
 router.post('/deposit', authenticateToken, validate(depositValidation), mpesaDeposit);
@@ -88,8 +89,8 @@ router.get('/platform-wallet', enforceStrictAuth, isAdmin, getPlatformWalletStat
 router.post('/withdraw-fees', enforceStrictAuth, isAdmin, withdrawFeesToMainWallet);
 
 // Test webhook logging route
-router.post('/test-webhook-logging', testWebhookLogging);
-router.post('/test-b2b-callback', testB2BCallback);
+router.post('/test-webhook-logging', authenticateToken, isAdmin, testWebhookLogging);
+router.post('/test-b2b-callback', authenticateToken, isAdmin, testB2BCallback);
 
 // 🚀 NEW: Crypto Spending - Pay Paybills/Tills with Crypto (with comprehensive protection)
 router.post('/pay-with-crypto', 

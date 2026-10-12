@@ -70,7 +70,7 @@ export const getUsers = async (req: Request, res: Response) => {
  */
 export const getUserById = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     const user = await User.findById(id).select('-password -privateKey');
     
@@ -98,7 +98,7 @@ export const getUserById = async (req: Request, res: Response) => {
  */
 export const promoteToAdmin = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     const user = await User.findById(id);
     
@@ -225,7 +225,7 @@ export const getTransactions = async (req: Request, res: Response) => {
  */
 export const getTransactionById = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     // Find transaction by ID or transactionId
     const transaction = await Escrow.findOne({
@@ -262,7 +262,7 @@ export const getTransactionById = async (req: Request, res: Response) => {
  */
 export const updateTransactionStatus = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { status, notes } = req.body;
     
     if (!['pending', 'completed', 'failed'].includes(status)) {

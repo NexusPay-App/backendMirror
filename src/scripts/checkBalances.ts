@@ -61,7 +61,7 @@ async function main() {
         logger.info(`- Chain ID: ${info.chainId}`);
         logger.info(`- RPC: ${process.env[`${chain.toUpperCase()}_RPC_URL`] || 'Using default'}\n`);
       } catch (error) {
-        logger.error(`❌ Error checking balance on ${info.name}:`, error);
+        logger.error({ err: error }, `❌ Error checking balance on ${info.name}:`);
       }
     }
 
@@ -90,7 +90,7 @@ async function main() {
     logger.info('- Review transaction history for any anomalies');
 
   } catch (error) {
-    logger.error('❌ Error checking balances:', error);
+    logger.error({ err: error }, '❌ Error checking balances:');
     process.exit(1);
   }
 }

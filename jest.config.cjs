@@ -1,0 +1,1 @@
+module.exports = { testEnvironment: 'node', testMatch: ['<rootDir>/tests/**/*.test.ts'], transform: { '^.+\\.tsx?$': ['ts-jest', { tsconfig: { target: 'ES2022', module: 'CommonJS', moduleResolution: 'node', ignoreDeprecations: '5.0', esModuleInterop: true, isolatedModules: true, types: ['node', 'jest'] } }] }, clearMocks: true };

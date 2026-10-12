@@ -80,7 +80,7 @@ export class LiquidityUsageTracker {
 
             await this.saveMetrics(token, metrics);
         } catch (error) {
-            logger.error('Error recording liquidity usage:', error);
+            logger.error({ err: error }, 'Error recording liquidity usage:');
         }
     }
 
@@ -133,7 +133,7 @@ export class LiquidityUsageTracker {
                 }
             }
         } catch (error) {
-            logger.error('Error cleaning up liquidity usage metrics:', error);
+            logger.error({ err: error }, 'Error cleaning up liquidity usage metrics:');
         }
     }
 } 

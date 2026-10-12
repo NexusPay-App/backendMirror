@@ -1,6 +1,6 @@
-export type Chain = 'arbitrum' | 'polygon' | 'base' | 'optimism' | 'celo' | 'scroll' | 'fuse' | 'gnosis' | 'aurora';
+export type { Chain, TokenSymbol } from './token';
+import type { Chain, TokenSymbol } from './token';
 
-export type TokenSymbol = 'USDC' | 'cUSD';
 
 export interface TokenConfig {
   address: `0x${string}`;

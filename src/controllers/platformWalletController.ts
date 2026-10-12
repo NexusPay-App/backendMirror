@@ -14,7 +14,7 @@ import mongoose from 'mongoose';
 // Get platform wallet balance for a specific token and chain
 export const getWalletBalance = async (req: Request, res: Response): Promise<Response> => {
     try {
-        const { token } = req.params;
+        const token = String(req.params.token);
         const { chain = 'arbitrum' } = req.query;
 
         if (!token) {
@@ -73,7 +73,7 @@ export const getAllBalances = async (req: Request, res: Response): Promise<Respo
                 try {
                     balances[chain][token] = await getPlatformWalletBalance(chain, token as any);
                 } catch (error) {
-                    console.error(`Error getting balance for ${token} on ${chain}:`, error);
+                    console.error("Operation diagnostic");
                     balances[chain][token] = 0;
                 }
             }

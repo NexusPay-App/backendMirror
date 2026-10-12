@@ -144,11 +144,11 @@ const getAccessToken = async () => {
     try {
         // Only use cached token if it still has at least 5 minutes of validity
         if (cachedAccessToken.accessToken && cachedAccessToken.expiry > Date.now() + 300000) {
-            console.log(`Using cached M-Pesa access token, valid until: ${new Date(cachedAccessToken.expiry).toISOString()}`);
+            console.log("Operation diagnostic");
             return cachedAccessToken.accessToken;
         }
 
-        console.log(`Requesting new M-Pesa access token from: ${config.MPESA_BASEURL}`);
+        console.log("Operation diagnostic");
         
         // Create basic auth
         const auth = 'Basic ' + Buffer.from(config.MPESA_CONSUMER_KEY + ':' + config.MPESA_CONSUMER_SECRET).toString('base64');
@@ -171,38 +171,38 @@ const getAccessToken = async () => {
             );
             
             if (response.data && response.data.access_token && response.data.expires_in) {
-                console.log('✅ Successfully obtained new M-Pesa access token');
+                console.log("✅ Successfully obtained new M-Pesa access token");
                 cachedAccessToken = { 
                     accessToken: response.data.access_token, 
                     expiry: Date.now() + (response.data.expires_in * 1000) - 300000 // 5 minute buffer
                 };
                 return cachedAccessToken.accessToken;
             } else {
-                console.error('❌ Invalid M-Pesa token response format:', response.data);
+                console.error("❌ Invalid M-Pesa token response format:");
                 throw new Error("Invalid token response format");
             }
         } catch (requestError: any) {
             // Log detailed error information
-            console.error('🚨 M-Pesa token request failed');
+            console.error("🚨 M-Pesa token request failed");
             if (requestError.response) {
-                console.error(`Status: ${requestError.response.status}`);
-                console.error(`Data:`, requestError.response.data);
+                console.error("Operation diagnostic");
+                console.error("Operation diagnostic");
             } else if (requestError.request) {
-                console.error('No response received from M-Pesa API');
+                console.error("No response received from M-Pesa API");
             } else {
-                console.error(`Error: ${requestError.message}`);
+                console.error("Operation diagnostic");
             }
             
             // If the error is related to credentials
             if (requestError.response?.data?.errorCode === '404.001.03') {
-                console.error('❌ CRITICAL: Invalid M-Pesa credentials');
+                console.error("❌ CRITICAL: Invalid M-Pesa credentials");
                 console.error('Please check that your MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET are correct');
             }
             
             throw requestError;
         }
     } catch (error: any) {
-        console.error('Failed to get M-Pesa access token:', error.message);
+        console.error("Failed to get M-Pesa access token:");
         throw new Error(`M-Pesa authentication failed: ${error.message}`);
     }
 };
@@ -272,9 +272,9 @@ export const initiateB2C = async (amount: number, receiver: number, remarks: str
         
         // Check if security credential is available
         if (!config.MPESA_SECURITY_CREDENTIAL) {
-            console.error('❌ [B2C] MPESA_SECURITY_CREDENTIAL is not configured');
+            console.error("❌ [B2C] MPESA_SECURITY_CREDENTIAL is not configured");
             console.error('❌ [B2C] This is required for B2C transactions');
-            console.error('❌ [B2C] Please add MPESA_DEV_SECURITY_CREDENTIAL to your environment variables');
+            console.error("❌ [B2C] Please add MPESA_DEV_SECURITY_CREDENTIAL to your environment variables");
             throw new Error('Security credential not configured for B2C transactions');
         }
         
@@ -294,7 +294,7 @@ export const initiateB2C = async (amount: number, receiver: number, remarks: str
         console.log(`- Using shortcode: ${shortcode}`);
         console.log(`- Receiver: ${receiver}`);
         console.log(`- Amount: ${amount}`);
-        console.log(`- Security Credential available: ${config.MPESA_SECURITY_CREDENTIAL ? 'Yes' : 'No'}`);
+        console.log("Operation diagnostic");
         console.log(`- Initiator Name: ${config.MPESA_INITIATOR_NAME || 'testapi'}`);
 
         const b2cData = {
@@ -311,11 +311,7 @@ export const initiateB2C = async (amount: number, receiver: number, remarks: str
             "Occasion": "Payment",
         };
 
-        console.log(`📤 B2C request payload:`, { 
-            ...b2cData, 
-            SecurityCredential: config.MPESA_SECURITY_CREDENTIAL ? 'PROVIDED' : 'MISSING',
-            PartyB: receiver.toString().substring(0, 6) + '****' // Mask part of the phone number
-        });
+        console.log("Operation diagnostic");
 
         // Use direct axios call to the correct B2C endpoint
         const response = await axios({
@@ -329,18 +325,14 @@ export const initiateB2C = async (amount: number, receiver: number, remarks: str
             timeout: config.MPESA_REQUEST_TIMEOUT
         });
 
-        console.log(`✅ [B2C] Payment initiated successfully:`, response.data);
+        console.log("Operation diagnostic");
         return response.data;
 
     } catch (error: any) {
         console.error(`❌ Error in B2C transaction:`, error);
         
         if (error.response?.data) {
-            console.error(`❌ B2C Error details:`, {
-                message: error.message,
-                response: error.response.data,
-                status: error.response.status
-            });
+            console.error("Operation diagnostic");
         }
         
         throw error;
@@ -384,13 +376,7 @@ export const initiateB2BPaybill = async (
       throw new Error("Missing MPESA_SECURITY_CREDENTIAL for B2B transactions");
     }
 
-    console.log(`📤 [B2B-PAYBILL] Sending request to M-Pesa:`, {
-      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
-      payload: {
-        ...payload,
-        SecurityCredential: '[REDACTED]' // Hide sensitive data
-      }
-    });
+    console.log("Operation diagnostic");
 
     const response = await axios({
       method: 'post',
@@ -403,18 +389,11 @@ export const initiateB2BPaybill = async (
       timeout: config.MPESA_REQUEST_TIMEOUT
     });
 
-    console.log(`📥 [B2B-PAYBILL] M-Pesa response:`, {
-      status: response.status,
-      data: response.data
-    });
+    console.log("Operation diagnostic");
 
     return response.data;
   } catch (error: any) {
-    console.error('❌ Error in B2B Paybill transaction:', {
-      error: error.response?.data || error.message,
-      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
-      statusCode: error.response?.status
-    });
+    console.error("❌ Error in B2B Paybill transaction:");
     throw error;
   }
 };
@@ -462,11 +441,7 @@ export const initiateB2BBuyGoods = async (
 
     return response.data;
   } catch (error: any) {
-    console.error('❌ Error in B2B Till transaction:', {
-      error: error.response?.data || error.message,
-      url: `${config.MPESA_BASEURL}/mpesa/b2b/v1/paymentrequest`,
-      statusCode: error.response?.status
-    });
+    console.error("❌ Error in B2B Till transaction:");
     throw error;
   }
 };
@@ -613,7 +588,7 @@ export const initiateSTKPush = async (
             // Get fresh token for each attempt
             const freshToken = await getAccessToken();
             
-            console.log(`🔑 Using token: ${freshToken ? (freshToken.substring(0, 10) + '...') : 'null'}`);
+            console.log("Operation diagnostic");
             
             // Use direct axios call for better control and debugging
             const response = await axios({
@@ -628,10 +603,10 @@ export const initiateSTKPush = async (
             });
 
             const data = response.data;
-            console.log("✅ STK Push response:", data);
+            console.log("✅ STK Push response:");
 
             if (!data || data.ResponseCode !== "0") {
-                console.error("❌ STK Push failed with response:", data);
+                console.error("❌ STK Push failed with response:");
                 throw new Error(data?.errorMessage || "Could not initiate STK push");
             }
 
@@ -646,7 +621,7 @@ export const initiateSTKPush = async (
             // Query the transaction status
             let queryData;
             try {
-                console.log(`🔍 Querying transaction status for CheckoutRequestID: ${data.CheckoutRequestID}`);
+                console.log("Operation diagnostic");
                 queryData = await mpesaExpressQuery(
                     client, 
                     stkData.BusinessShortCode, 
@@ -654,7 +629,7 @@ export const initiateSTKPush = async (
                     timeStamp, 
                     data.CheckoutRequestID
                 );
-                console.log("📋 Query response:", queryData);
+                console.log("📋 Query response:");
             } catch (queryError: any) {
                 // If query fails but STK push succeeded, we can still return success
                 // The callback will handle the completion
@@ -683,13 +658,13 @@ export const initiateSTKPush = async (
             
             // Log detailed response information if available
             if (error.response) {
-                console.error(`Status: ${error.response.status}`);
-                console.error(`Error data:`, error.response.data);
+                console.error("Operation diagnostic");
+                console.error("Operation diagnostic");
                 
                 // Handle auth errors specifically
                 if (error.response.status === 404 && 
                     error.response.data?.errorCode === '404.001.03') {
-                    console.error('❌ Authentication error: Invalid access token');
+                    console.error("❌ Authentication error: Invalid access token");
                     // Force token refresh on next attempt
                     cachedAccessToken = { accessToken: '', expiry: 0 };
                 }
@@ -737,11 +712,11 @@ export const queryMpesaTransactionStatus = async (checkoutRequestId: string) => 
       CheckoutRequestID: checkoutRequestId,
     };
 
-    logger.info(`📤 Sending M-Pesa query request:`, {
+    logger.info({
       businessShortCode: config.MPESA_SHORTCODE,
       timestamp: timeStamp,
       checkoutRequestId
-    });
+    }, `📤 Sending M-Pesa query request:`);
 
     // Make the query request
     const response = await axios.post(
@@ -756,7 +731,7 @@ export const queryMpesaTransactionStatus = async (checkoutRequestId: string) => 
       }
     );
 
-    logger.info(`📱 M-Pesa query response:`, response.data);
+    logger.info({ err: response.data }, `📱 M-Pesa query response:`);
 
     // Check if the query was successful
     if (response.data.ResponseCode === '0') {
@@ -788,10 +763,10 @@ export const queryMpesaTransactionStatus = async (checkoutRequestId: string) => 
     logger.error(`❌ Error querying M-Pesa transaction status: ${error.message}`);
     
     if (error.response) {
-      logger.error(`M-Pesa API Error:`, {
+      logger.error({
         status: error.response.status,
         data: error.response.data
-      });
+      }, `M-Pesa API Error:`);
     }
     
     throw new Error(`Failed to query M-Pesa transaction status: ${error.message}`);
@@ -872,6 +847,7 @@ export async function processMpesaPayment(
         // Get transaction details
         const provider = getProvider(chain);
         const txReceipt = await provider.getTransactionReceipt(transferResult.transactionHash);
+        if (!txReceipt || txReceipt.status !== 1) throw new Error('Transfer has not been confirmed');
 
         return {
             success: true,
@@ -885,7 +861,7 @@ export async function processMpesaPayment(
             blockNumber: txReceipt.blockNumber
         };
     } catch (error) {
-        logger.error('Error processing M-Pesa payment:', error);
+        logger.error({ err: error }, 'Error processing M-Pesa payment:');
         throw error;
     }
 }
@@ -1013,7 +989,7 @@ export async function processCryptoWithdrawal(
             chain
         };
     } catch (error) {
-        logger.error('Error processing crypto withdrawal:', error);
+        logger.error({ err: error }, 'Error processing crypto withdrawal:');
         throw error;
     }
 }

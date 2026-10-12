@@ -24,7 +24,7 @@ export const queueTransaction = async (
     
     try {
         // Log the transaction details
-        logger.info(`Queueing transaction ${txId} (${priority} priority)`, {
+        logger.info({
             txId,
             recipientAddress,
             amount,
@@ -32,7 +32,7 @@ export const queueTransaction = async (
             tokenType,
             priority,
             timestamp: new Date().toISOString()
-        });
+        }, `Queueing transaction ${txId} (${priority} priority)`);
         
         // Store transaction data in database
         // This part depends on your database structure, but typically you'd

@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import nodemailer from 'nodemailer';
 import config from '../config/env';
 import Redis from 'ioredis';
@@ -140,7 +141,7 @@ export async function sendEmail(
         } catch (emailError) {
             // If email fails, just log the error and continue
             console.error('❌ Error sending email:', emailError);
-            console.log(`⚠️ Email not sent but continuing with OTP: ${otp}`);
+            console.log("Operation diagnostic");
         }
 
         // Store OTP with purpose and expiry
@@ -156,7 +157,7 @@ export async function sendEmail(
 
 // Generate 6-digit OTP
 function generateOTP(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return randomInt(100000, 1000000).toString();
 }
 
 // Store OTP with expiry in Redis or in-memory
@@ -168,12 +169,12 @@ async function storeOTP(email: string, otp: string, purpose: string): Promise<vo
         if (isRedisConnected()) {
             // Store in Redis with expiry
             await redis.set(key, otp, 'EX', expirySeconds);
-            console.log(`✅ OTP stored in Redis for ${email} (${purpose}): ${otp}`);
+            console.log("Operation diagnostic");
         } else {
             // Store in memory with expiry
             const expiryTime = Date.now() + (expirySeconds * 1000);
             inMemoryOtpStore[key] = { otp, expiry: expiryTime };
-            console.log(`✅ OTP stored in memory for ${email} (${purpose}): ${otp}`);
+            console.log("Operation diagnostic");
             
             // Set up cleanup of expired OTPs in memory
             setTimeout(() => {
@@ -183,7 +184,7 @@ async function storeOTP(email: string, otp: string, purpose: string): Promise<vo
             }, expirySeconds * 1000);
         }
     } catch (error: any) {
-        console.error(`❌ Error storing OTP:`, error);
+        console.error("Operation diagnostic");
         throw new Error(`Failed to store OTP: ${error.message || String(error)}`);
     }
 }
@@ -232,7 +233,7 @@ export async function verifyOTP(email: string, otp: string, purpose: keyof typeo
         }
         return false;
     } catch (error: any) {
-        console.error(`❌ Error verifying OTP:`, error);
+        console.error("Operation diagnostic");
         return false;
     }
 } 

@@ -104,7 +104,7 @@ export class RampService {
             }
             
             // Use the found chain instead
-            console.log(`Token ${input.cryptoToken} not found on ${chain}, using ${foundChain} instead`);
+            console.log("Operation diagnostic");
         }
 
         // Calculate fees

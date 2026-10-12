@@ -146,7 +146,7 @@ export const enforceStrictAuth = async (req: Request, res: Response, next: NextF
     
     next();
   } catch (error: any) {
-    console.error("Authentication error:", error);
+    console.error("Authentication error:");
     return res.status(500).json(standardResponse(
       false,
       "Authentication error",
@@ -173,7 +173,7 @@ export const registerVerifiedSession = (token: string, userId: string, expiryHou
   };
   
   // Log for debugging
-  console.log(`✅ Registered verified session for user ${userId}`);
+  console.log("Operation diagnostic");
   
   // Clean up expired sessions periodically
   cleanupExpiredSessions();
@@ -185,7 +185,7 @@ export const registerVerifiedSession = (token: string, userId: string, expiryHou
 export const invalidateSession = (token: string): void => {
   if (verifiedSessions[token]) {
     delete verifiedSessions[token];
-    console.log(`🚫 Invalidated session for token ${token.substring(0, 10)}...`);
+    console.log("Operation diagnostic");
   }
 };
 
@@ -209,4 +209,4 @@ const cleanupExpiredSessions = (): void => {
 };
 
 // Schedule regular cleanup (every hour)
-setInterval(cleanupExpiredSessions, 60 * 60 * 1000); 
+export const startSessionCleanup = () => setInterval(cleanupExpiredSessions, 60 * 60 * 1000).unref();

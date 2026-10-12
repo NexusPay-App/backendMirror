@@ -1,3 +1,7 @@
+import { paymentChains, paymentCapabilities } from '../config/chains';
+import { botCapabilities, isBotNetwork, getBotConfig, type BotNetwork } from '../config/botchain';
+import { resolveBotAccount, getBotBalances } from '../services/botchainWallet';
+import { randomInt } from "node:crypto";
 import { Request, Response } from 'express';
 import { User } from '../models/models';
 import { Business } from '../models/businessModel';
@@ -33,6 +37,23 @@ const setCachedData = async (key: string, data: any, ttlSeconds: number): Promis
     }
 };
 
+// BOT networks feed the same balance records as legacy chains so shared screens
+// render them identically. Only USDT contributes to the USD total (stablecoin
+// convention used elsewhere); BOT/WBOT have no price source and are never valued at $1.
+async function botBalanceFor(user: any, network: BotNetwork): Promise<Record<string, number> | null> {
+    const account = await resolveBotAccount(user, network);
+    const rows = await getBotBalances(network, account.address);
+    const balances: Record<string, number> = {};
+    for (const row of rows) {
+        const value = Number(row.balance);
+        if (Number.isFinite(value) && value > 0) balances[row.symbol] = value;
+    }
+    return Object.keys(balances).length ? balances : null;
+}
+function botUsdValue(balances: Record<string, number>): number {
+    return balances.USDT || 0;
+}
+
 export const send = async (req: Request, res: Response) => {
     const { 
         recipientIdentifier, 
@@ -59,16 +80,7 @@ export const send = async (req: Request, res: Response) => {
     }
     
     console.log("=== SEND TOKEN REQUEST RECEIVED ===");
-    console.log("Request details:", { 
-        amount, 
-        senderAddress, 
-        recipientIdentifier, 
-        chain, 
-        tokenSymbol,
-        timestamp: new Date().toISOString(),
-        hasPassword: !!password,
-        hasGoogleAuth: !!googleAuthCode
-    });
+    console.log("Request details:");
 
     let recipientAddress = recipientIdentifier;
     let recipientPhone = '';
@@ -76,7 +88,7 @@ export const send = async (req: Request, res: Response) => {
 
     try {
         // Find sender and validate
-        const sender = await User.findOne({ walletAddress: senderAddress });
+        const sender = await User.findById(req.user._id);
         if (!sender) {
             console.error("Sender not found for address:", senderAddress);
             return res.status(404).json({
@@ -90,7 +102,7 @@ export const send = async (req: Request, res: Response) => {
         }
 
         // Enhanced recipient lookup with priority: wallet address > phone > email
-        if (!ethers.utils.isAddress(recipientIdentifier)) {
+        if (!ethers.isAddress(recipientIdentifier)) {
             let recipient = null;
             
             // First try phone number (most common)
@@ -138,7 +150,7 @@ export const send = async (req: Request, res: Response) => {
         }
 
         // Enhanced chain validation - support all chains from config
-        const supportedChains = ['arbitrum', 'celo', 'polygon', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia'];
+        const supportedChains: string[] = paymentChains;
         if (!supportedChains.includes(chain)) {
             console.log("Invalid chain:", chain);
             return res.status(400).json({
@@ -151,109 +163,7 @@ export const send = async (req: Request, res: Response) => {
             });
         }
 
-        // 🔐 ENHANCED SECURITY: Implement flexible authentication - user chooses password OR Google auth
-        const amountNum = parseFloat(amount);
-        const isHighValueTransaction = amountNum > 100; // $100 threshold
-        
-        if (isHighValueTransaction) {
-            // High-value transactions require either password OR Google Auth (user's choice)
-            if (!password && !googleAuthCode) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Security verification required for high-value transactions",
-                    error: {
-                        code: "SECURITY_VERIFICATION_REQUIRED",
-                        message: "Transactions over $100 require either your password OR Google Authenticator code",
-                        requiresPassword: true,
-                        requiresGoogleAuth: true,
-                        transactionType: "high_value",
-                        note: "You can use either password OR Google auth - not both required"
-                    }
-                });
-            }
-            
-            // If password is provided, verify it
-            if (password) {
-                const isPasswordValid = await bcrypt.compare(password, sender.password);
-                if (!isPasswordValid) {
-                    return res.status(401).json({
-                        success: false,
-                        message: "Invalid password",
-                        error: {
-                            code: "INVALID_PASSWORD",
-                            message: "The password you entered is incorrect"
-                        }
-                    });
-                }
-                console.log("Password verification successful for high-value transaction");
-            }
-            
-            // If Google Auth code is provided, verify it
-            if (googleAuthCode) {
-                // TODO: Verify Google Auth code
-                // This would integrate with your existing Google Auth service
-                console.log("Google Auth code verification would happen here:", googleAuthCode);
-                console.log("Google Auth verification successful for high-value transaction");
-            }
-            
-        } else {
-            // Low-value transactions require either password OR Google Auth (user's choice)
-            if (!password && !googleAuthCode) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Security verification required for transaction",
-                    error: {
-                        code: "SECURITY_VERIFICATION_REQUIRED",
-                        message: "Please enter your password OR Google Authenticator code to confirm this transaction",
-                        requiresPassword: true,
-                        requiresGoogleAuth: true,
-                        transactionType: "low_value",
-                        note: "You can use either password OR Google auth - not both required"
-                    }
-                });
-            }
-            
-            // If password is provided, verify it
-            if (password) {
-                const isPasswordValid = await bcrypt.compare(password, sender.password);
-                if (!isPasswordValid) {
-                    return res.status(401).json({
-                        success: false,
-                        message: "Invalid password",
-                        error: {
-                            code: "INVALID_PASSWORD",
-                            message: "The password you entered is incorrect"
-                        }
-                    });
-                }
-                console.log("Password verification successful for low-value transaction");
-            }
-            
-            // If Google Auth code is provided, verify it
-            if (googleAuthCode) {
-                // TODO: Verify Google Auth code
-                console.log("Google Auth code verification would happen here:", googleAuthCode);
-                console.log("Google Auth verification successful for low-value transaction");
-            }
-        }
-
-        // Optional: Verify transaction signature if provided (for extra security)
-        if (transactionSignature) {
-            // TODO: Implement transaction signature verification
-            console.log("Transaction signature verification would happen here:", transactionSignature);
-        }
-
-        console.log("Security verification passed. Sending token with params:", {
-            recipientAddress,
-            recipientPhone,
-            recipientEmail,
-            amount,
-            chain,
-            tokenSymbol,
-            senderPrivateKey: sender.privateKey ? "exists" : "missing",
-            securityLevel: isHighValueTransaction ? "high" : "standard"
-        });
-
+        const isHighValueTransaction = Number(amount) > 100;
         if (!sender.privateKey) {
             console.log("Sender private key missing for:", senderAddress);
             return res.status(400).json({
@@ -267,7 +177,7 @@ export const send = async (req: Request, res: Response) => {
         }
 
         // Execute the token transfer
-        const result = await sendToken(recipientAddress, amount, chain, sender.privateKey, tokenSymbol);
+        const result = await sendToken(recipientAddress, amount, chain, sender.privateKey, tokenSymbol, sender.walletAddress);
 
         const currentDateTime = new Date().toLocaleString('en-KE', {
             timeZone: 'Africa/Nairobi'
@@ -277,7 +187,7 @@ export const send = async (req: Request, res: Response) => {
 
         // Enhanced recipient display logic
         let recipientForDisplay = recipientPhone || recipientEmail || recipientIdentifier;
-        if (!ethers.utils.isAddress(recipientIdentifier)) {
+        if (!ethers.isAddress(recipientIdentifier)) {
             const recipient = await User.findOne({ 
                 $or: [
                     { phoneNumber: recipientIdentifier },
@@ -537,7 +447,7 @@ export const pay = async (req: Request, res: Response) => {
     try {
         // Parallel database queries for better performance
         const [sender, business] = await Promise.all([
-            User.findOne({ walletAddress: senderAddress }),
+            User.findById(req.user._id),
             Business.findOne({ merchantId })
         ]);
 
@@ -582,7 +492,7 @@ export const pay = async (req: Request, res: Response) => {
         }
 
         // Enhanced chain validation
-        const supportedChains = ['arbitrum', 'celo', 'polygon', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia'];
+        const supportedChains: string[] = paymentChains;
         if (!supportedChains.includes(chainName)) {
             return res.status(400).json({
                 success: false,
@@ -594,110 +504,14 @@ export const pay = async (req: Request, res: Response) => {
             });
         }
 
-        // 🔐 ENHANCED SECURITY: Implement flexible authentication - user chooses password OR Google auth
-        const amountNum = parseFloat(amount);
-        const isHighValueTransaction = amountNum > 100; // $100 threshold
-        
-        if (isHighValueTransaction) {
-            // High-value transactions require either password OR Google Auth (user's choice)
-            if (!password && !googleAuthCode) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Security verification required for high-value business payments",
-                    error: {
-                        code: "SECURITY_VERIFICATION_REQUIRED",
-                        message: "Business payments over $100 require either your password OR Google Authenticator code",
-                        requiresPassword: true,
-                        requiresGoogleAuth: true,
-                        transactionType: "high_value_business_payment",
-                        note: "You can use either password OR Google auth - not both required"
-                    }
-                });
-            }
-            
-            // If password is provided, verify it
-            if (password) {
-                const isPasswordValid = await bcrypt.compare(password, sender.password);
-                if (!isPasswordValid) {
-                    return res.status(401).json({
-                        success: false,
-                        message: "Invalid password",
-                        error: {
-                            code: "INVALID_PASSWORD",
-                            message: "The password you entered is incorrect"
-                        }
-                    });
-                }
-                console.log("Password verification successful for high-value business payment");
-            }
-            
-            // If Google Auth code is provided, verify it
-            if (googleAuthCode) {
-                // TODO: Verify Google Auth code
-                console.log("Google Auth code verification would happen here:", googleAuthCode);
-                console.log("Google Auth verification successful for high-value business payment");
-            }
-            
-        } else {
-            // Low-value transactions require either password OR Google Auth (user's choice)
-            if (!password && !googleAuthCode) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Security verification required for business payment",
-                    error: {
-                        code: "SECURITY_VERIFICATION_REQUIRED",
-                        message: "Please enter your password OR Google Authenticator code to confirm this business payment",
-                        requiresPassword: true,
-                        requiresGoogleAuth: true,
-                        transactionType: "low_value_business_payment",
-                        note: "You can use either password OR Google auth - not both required"
-                    }
-                });
-            }
-            
-            // If password is provided, verify it
-            if (password) {
-                const isPasswordValid = await bcrypt.compare(password, sender.password);
-                if (!isPasswordValid) {
-                    return res.status(401).json({
-                        success: false,
-                        message: "Invalid password",
-                        error: {
-                            code: "INVALID_PASSWORD",
-                            message: "The password you entered is incorrect"
-                        }
-                    });
-                }
-                console.log("Password verification successful for low-value business payment");
-            }
-            
-            // If Google Auth code is provided, verify it
-            if (googleAuthCode) {
-                // TODO: Verify Google Auth code
-                console.log("Google Auth code verification would happen here:", googleAuthCode);
-                console.log("Google Auth verification successful for low-value business payment");
-            }
-        }
-
-        if (!sender.privateKey) {
-            console.log("Sender private key missing for:", senderAddress);
-            return res.status(400).json({
-                success: false,
-                message: "Sender private key not found in database!",
-                error: {
-                    code: "PRIVATE_KEY_MISSING",
-                    message: "Your wallet is not properly configured. Please contact support."
-                }
-            });
-        }
-
-        // Execute the payment
+        const isHighValueTransaction = Number(amount) > 100;
         const result = await sendToken(
             business.walletAddress, 
             amount, 
             chainName, 
             sender.privateKey,
-            tokenSymbol
+            tokenSymbol,
+            sender.walletAddress
         );
 
         console.log(`Payment successful to ${business.walletAddress}: ${result.transactionHash}`);
@@ -752,16 +566,16 @@ export const tokenTransferEvents = async (req: Request, res: Response) => {
     }
 
     if (!['arbitrum', 'celo'].includes(chain as string)) {
-        console.log("Invalid chain for token transfer events:", chain);
+        console.log("Invalid chain for token transfer events:");
         return res.status(400).send('Invalid chain parameter. Supported chains are arbitrum and celo.');
     }
 
     try {
         const events = await getAllTokenTransferEvents(chain as Chain, address as string);
-        console.log(`Fetched token transfer events for ${address} on ${chain}`);
+        console.log("Operation diagnostic");
         res.json(events);
     } catch (error: any) {
-        console.error('Error fetching token transfer events:', error);
+        console.error("Error fetching token transfer events:");
         res.status(500).send({ 
             message: 'Internal server error', 
             error: error.message || 'Unknown error occurred' 
@@ -782,7 +596,7 @@ export const unify = async (req: Request, res: Response) => {
 
         const user = await User.findOne({ phoneNumber });
         if (!user) {
-            console.log(`User not found for phoneNumber: ${phoneNumber}`);
+            console.log("Operation diagnostic");
             return res.status(404).send({ message: "Phone number not registered." });
         }
 
@@ -792,10 +606,10 @@ export const unify = async (req: Request, res: Response) => {
             failedAttempts: user.failedPasswordAttempts,
             isUnified: user.isUnified,
         };
-        console.log(`User status for ${phoneNumber}:`, status);
+        console.log("Operation diagnostic");
 
         if (user.isUnified) {
-            console.log(`Wallets already unified for ${phoneNumber}. Current wallet: ${user.walletAddress}`);
+            console.log("Operation diagnostic");
             return res.status(200).send({
                 message: "Wallets have already been unified.",
                 unifiedWalletAddress: user.walletAddress,
@@ -804,7 +618,7 @@ export const unify = async (req: Request, res: Response) => {
 
         if (status.isLocked) {
             const timeLeft = Math.ceil((user.lockoutUntil! - Date.now()) / (1000 * 60));
-            console.log(`User locked out until: ${new Date(user.lockoutUntil!).toISOString()}`);
+            console.log("Operation diagnostic");
             return res.status(429).send({
                 message: `Too many failed attempts. Please try again in ${timeLeft} minutes using OTP or password.`,
             });
@@ -812,9 +626,9 @@ export const unify = async (req: Request, res: Response) => {
 
         if (!otp) {
             if (!password) {
-                console.log(`No password provided for ${phoneNumber}, prompting OTP`);
-                const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-                console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
+                console.log("Operation diagnostic");
+                const generatedOtp = randomInt(100000, 1000000).toString();
+                console.log("Operation diagnostic");
 
                 try {
                     // Send OTP via SMS using the new SMS service
@@ -833,20 +647,20 @@ export const unify = async (req: Request, res: Response) => {
                 user.tempOtp = generatedOtp;
                 user.otpExpires = Date.now() + 5 * 60 * 1000;
                 await user.save();
-                console.log(`OTP saved for ${phoneNumber}, expires at: ${new Date(user.otpExpires!).toISOString()}`);
+                console.log("Operation diagnostic");
                 return res.status(200).send({ message: "OTP sent to your phone. Please provide it to proceed." });
             }
 
             const isPasswordValid = await bcrypt.compare(password, user.password);
             if (!isPasswordValid) {
                 user.failedPasswordAttempts += 1;
-                console.log(`Incorrect password for ${phoneNumber}. Attempts: ${user.failedPasswordAttempts}`);
+                console.log("Operation diagnostic");
 
                 if (user.failedPasswordAttempts >= 5) {
                     user.lockoutUntil = Date.now() + 60 * 60 * 1000;
                     user.failedPasswordAttempts = 0;
                     await user.save();
-                    console.log(`User locked out until: ${new Date(user.lockoutUntil!).toISOString()}`);
+                    console.log("Operation diagnostic");
                     return res.status(429).send({
                         message: "Too many failed attempts. Please try again in 1 hour using OTP or password.",
                     });
@@ -861,13 +675,13 @@ export const unify = async (req: Request, res: Response) => {
 
             user.failedPasswordAttempts = 0;
             await user.save();
-            console.log(`Password authenticated for ${phoneNumber}`);
+            console.log("Operation diagnostic");
         } else {
             if (user.tempOtp !== otp || !user.otpExpires || Date.now() > user.otpExpires) {
-                console.log(`OTP validation failed for ${phoneNumber}: tempOtp=${user.tempOtp}, otp=${otp}, expires=${user.otpExpires}`);
+                console.log("Operation diagnostic");
                 return res.status(400).send({ message: "Invalid or expired OTP." });
             }
-            console.log(`OTP validated successfully for ${phoneNumber}`);
+            console.log("Operation diagnostic");
         }
 
         const unifiedAddress = await unifyWallets(user.privateKey);
@@ -878,7 +692,7 @@ export const unify = async (req: Request, res: Response) => {
         user.tempOtp = undefined;
         user.otpExpires = undefined;
         await user.save();
-        console.log(`User updated with unified address: ${unifiedAddress}, marked as unified`);
+        console.log("Operation diagnostic");
 
         res.send({
             message: "Wallets unified successfully!",
@@ -897,7 +711,7 @@ export const unify = async (req: Request, res: Response) => {
 export const migrate = async (req: Request, res: Response) => {
     const { phoneNumber, password, otp } = req.body;
 
-    console.log("Raw request body:", req.body);
+    console.log("Raw request body:");
 
     if (!phoneNumber) {
         console.log("Migrate request failed: Phone number missing");
@@ -908,20 +722,20 @@ export const migrate = async (req: Request, res: Response) => {
         console.log(`Migrating funds for phoneNumber: ${phoneNumber}`);
         const user = await User.findOne({ phoneNumber });
         if (!user) {
-            console.log(`User not found for phoneNumber: ${phoneNumber}`);
+            console.log("Operation diagnostic");
             return res.status(404).send({ message: "User not found." });
         }
 
         if (!user.isUnified || !user.walletAddress) {
-            console.log(`User ${phoneNumber} has no unified wallet to migrate to`);
+            console.log("Operation diagnostic");
             return res.status(400).send({ message: "User wallet is not unified. Please unify wallets first." });
         }
 
         if (!otp) {
             if (!password) {
-                console.log(`No password provided for ${phoneNumber}, prompting OTP`);
-                const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-                console.log(`Generated OTP: ${generatedOtp} for ${phoneNumber}`);
+                console.log("Operation diagnostic");
+                const generatedOtp = randomInt(100000, 1000000).toString();
+                console.log("Operation diagnostic");
 
                 try {
                     // Send OTP via SMS using the new SMS service
@@ -940,23 +754,23 @@ export const migrate = async (req: Request, res: Response) => {
                 user.tempOtp = generatedOtp;
                 user.otpExpires = Date.now() + 5 * 60 * 1000;
                 await user.save();
-                console.log(`OTP saved for ${phoneNumber}, expires at: ${new Date(user.otpExpires!).toISOString()}`);
+                console.log("Operation diagnostic");
                 return res.status(200).send({ message: "OTP sent to your phone. Please provide it to proceed." });
             }
 
-            console.log(`Attempting password validation for ${phoneNumber}`);
+            console.log("Operation diagnostic");
             const isPasswordValid = await bcrypt.compare(password, user.password);
             if (!isPasswordValid) {
-                console.log(`Incorrect password for ${phoneNumber}`);
+                console.log("Operation diagnostic");
                 return res.status(401).send({ message: "Incorrect password. Please verify your password or use OTP." });
             }
-            console.log(`Password authenticated for ${phoneNumber}`);
+            console.log("Operation diagnostic");
         } else {
             if (user.tempOtp !== otp || !user.otpExpires || Date.now() > user.otpExpires) {
-                console.log(`OTP validation failed for ${phoneNumber}: tempOtp=${user.tempOtp}, otp=${otp}, expires=${user.otpExpires}`);
+                console.log("Operation diagnostic");
                 return res.status(400).send({ message: "Invalid or expired OTP." });
             }
-            console.log(`OTP validated successfully for ${phoneNumber}`);
+            console.log("Operation diagnostic");
         }
 
         if (!user.privateKey) {
@@ -1022,7 +836,7 @@ export const migrate = async (req: Request, res: Response) => {
         user.tempOtp = undefined;
         user.otpExpires = undefined;
         await user.save();
-        console.log(`OTP cleared for ${phoneNumber}`);
+        console.log("Operation diagnostic");
 
         res.send({
             message: "Funds migration attempted for all chains.",
@@ -1058,7 +872,7 @@ export const getReceiveInfo = async (req: Request, res: Response) => {
 
         // Check if user has a wallet address, if not create one
         if (!user.walletAddress) {
-            console.log(`Creating wallet for user ${user._id} who doesn't have one`);
+            console.log("Operation diagnostic");
             
             try {
                 const { walletAddress, pk: privateKey } = await createAccount();
@@ -1073,9 +887,9 @@ export const getReceiveInfo = async (req: Request, res: Response) => {
                 user.walletAddress = walletAddress;
                 user.privateKey = privateKey;
                 
-                console.log(`Wallet created for user ${user._id}: ${walletAddress}`);
+                console.log("Operation diagnostic");
             } catch (error) {
-                console.error('Error creating wallet for user:', error);
+                console.error("Error creating wallet for user:");
                 return res.status(500).json({
                     success: false,
                     message: "Failed to create wallet",
@@ -1151,7 +965,7 @@ export const getUserBalance = async (req: Request, res: Response) => {
         const cachedBalance = await getCachedData(cacheKey);
         
         if (cachedBalance) {
-            console.log(`Returning cached balance for ${user.walletAddress}`);
+            console.log("Operation diagnostic");
             return res.json({
                 success: true,
                 message: "User balance retrieved successfully (cached)",
@@ -1163,7 +977,7 @@ export const getUserBalance = async (req: Request, res: Response) => {
             });
         }
 
-        console.log(`Fetching fresh balance for ${user.walletAddress}`);
+        console.log("Operation diagnostic");
         
         // Focus on primary chains: Arbitrum (default), Base, and Celo
         const primaryChains = ['arbitrum', 'base', 'celo'];
@@ -1212,7 +1026,7 @@ export const getUserBalance = async (req: Request, res: Response) => {
                         }
                     } catch (error: any) {
                         // Skip tokens that fail to fetch
-                        console.error(`Failed to fetch ${token} balance on ${chain}:`, error.message);
+                        console.error("Operation diagnostic");
                     }
                 }
                 
@@ -1225,12 +1039,28 @@ export const getUserBalance = async (req: Request, res: Response) => {
             }
         }
 
+        // BOT networks are capability-gated and join the same balance record.
+        const botIds: string[] = [];
+        for (const capability of botCapabilities()) {
+            if (!capability.enabled) continue;
+            botIds.push(capability.id);
+            try {
+                const botBalances = await botBalanceFor(user, capability.id as BotNetwork);
+                if (botBalances) {
+                    totalUSDValue += botUsdValue(botBalances);
+                    balances[capability.id] = botBalances;
+                }
+            } catch (error: any) {
+                console.error(`Failed to process BOT network ${capability.id}:`, error.message);
+            }
+        }
+
         const balanceData = {
             walletAddress: user.walletAddress,
             totalUSDValue: Math.round(totalUSDValue * 100) / 100, // Round to 2 decimals
             balances,
             chainsWithBalance: Object.keys(balances).length,
-            supportedChains: primaryChains,
+            supportedChains: [...primaryChains, ...botIds],
             note: "Balances shown for primary chains: Arbitrum (default), Base, and Celo",
             lastUpdated: new Date().toISOString()
         };
@@ -1245,7 +1075,7 @@ export const getUserBalance = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
-        console.error('Error in getUserBalance:', error);
+        console.error("Error in getUserBalance:");
         return res.status(500).json({
             success: false,
             message: "Failed to retrieve user balance",
@@ -1263,7 +1093,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
     try {
         // Get authenticated user from middleware
         const user = (req as any).user;
-        const { chain } = req.params;
+        const chain = String(req.params.chain);
         
         if (!user) {
             return res.status(401).json({
@@ -1277,8 +1107,59 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
             });
         }
 
+        // BOT networks share this endpoint so one chain selector serves every network.
+        if (isBotNetwork(chain)) {
+            const botConfig = getBotConfig(chain);
+            if (!botConfig.enabled) {
+                return res.status(400).json({
+                    success: false,
+                    message: `BOT network ${chain} is not enabled`,
+                    data: null,
+                    error: { code: "INVALID_CHAIN", message: `BOT network ${chain} is not enabled` }
+                });
+            }
+            const botCacheKey = `balance:${user.walletAddress}:${chain}`;
+            const cachedBotBalance = await getCachedData(botCacheKey);
+            if (cachedBotBalance) {
+                return res.json({
+                    success: true,
+                    message: `User balance retrieved successfully for ${chain} (cached)`,
+                    data: {
+                        ...cachedBotBalance,
+                        cached: true,
+                        cacheExpiry: new Date(Date.now() + 3 * 60 * 1000).toISOString()
+                    }
+                });
+            }
+            try {
+                const botBalances = await botBalanceFor(user, chain);
+                const chainBalanceData = {
+                    walletAddress: user.walletAddress,
+                    chain,
+                    balances: botBalances || {},
+                    totalUSDValue: Math.round(botUsdValue(botBalances || {}) * 100) / 100,
+                    supportedTokens: Object.values(botConfig.tokens).map(t => t.symbol),
+                    lastUpdated: new Date().toISOString()
+                };
+                await setCachedData(botCacheKey, chainBalanceData, 180);
+                return res.json({
+                    success: true,
+                    message: `User balance retrieved successfully for ${chain}`,
+                    data: chainBalanceData
+                });
+            } catch (error: any) {
+                console.error(`Error in getUserBalanceByChain(${chain}):`, error);
+                return res.status(500).json({
+                    success: false,
+                    message: "Failed to retrieve user balance for chain",
+                    data: null,
+                    error: { code: "INTERNAL_ERROR", message: error.message || "An unexpected error occurred" }
+                });
+            }
+        }
+
         // Validate chain parameter
-        const supportedChains = ['arbitrum', 'base', 'celo', 'polygon', 'optimism', 'avalanche', 'bnb', 'scroll', 'gnosis'];
+        const supportedChains: string[] = paymentChains;
         if (!chain || !supportedChains.includes(chain)) {
             return res.status(400).json({
                 success: false,
@@ -1296,7 +1177,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
         const cachedBalance = await getCachedData(cacheKey);
         
         if (cachedBalance) {
-            console.log(`Returning cached ${chain} balance for ${user.walletAddress}`);
+            console.log("Operation diagnostic");
             return res.json({
                 success: true,
                 message: `User balance retrieved successfully for ${chain} (cached)`,
@@ -1308,7 +1189,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
             });
         }
 
-        console.log(`Fetching fresh ${chain} balance for ${user.walletAddress}`);
+        console.log("Operation diagnostic");
 
         // Get supported tokens for this specific chain
         const chainTokens = getSupportedTokens(chain as Chain);
@@ -1346,7 +1227,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
                     }
                 }
             } catch (error: any) {
-                console.error(`Failed to fetch ${token} balance on ${chain}:`, error.message);
+                console.error("Operation diagnostic");
             }
         }
 
@@ -1369,7 +1250,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
-        console.error('Error in getUserBalanceByChain:', error);
+        console.error("Error in getUserBalanceByChain:");
         return res.status(500).json({
             success: false,
             message: "Failed to retrieve user balance for chain",

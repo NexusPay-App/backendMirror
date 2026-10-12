@@ -35,7 +35,7 @@ export async function getTokenBalanceOnChain(
         }
         
     // Create provider
-    const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrls.default.http[0]);
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls.default.http[0]);
         
     // Create contract instance
     const tokenContract = new ethers.Contract(tokenConfig.address, ERC20_ABI, provider);
@@ -47,7 +47,7 @@ export async function getTokenBalanceOnChain(
     ]);
         
     // Convert to human-readable format
-    return Number(ethers.utils.formatUnits(balance, decimals));
+    return Number(ethers.formatUnits(balance, decimals));
     } catch (error) {
     console.error(`Error getting ${tokenType} balance on ${chain}:`, error);
     throw error;

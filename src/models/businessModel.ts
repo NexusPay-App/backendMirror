@@ -1,3 +1,4 @@
+import { protectWalletKey, revealWalletKey, redactAccount } from '../utils/walletKeys';
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IBusiness extends Document {
@@ -98,6 +99,8 @@ const businessSchema: Schema = new Schema({
   },
   privateKey: {
     type: String,
+    set: protectWalletKey,
+    get: revealWalletKey,
     required: true,
     unique: true,
   },
@@ -268,13 +271,13 @@ businessSchema.index({ riskLevel: 1 });
 
 // Virtual for available credit calculation
 businessSchema.virtual('calculatedAvailableCredit').get(function() {
-  return Math.max(0, this.creditLimit - this.currentCredit);
+  return Math.max(0, Number(this.creditLimit) - Number(this.currentCredit));
 });
 
 // Pre-save middleware to update available credit
-businessSchema.pre('save', function(next) {
+businessSchema.pre('save', function() {
   this.availableCredit = this.calculatedAvailableCredit;
-  next();
+
 });
 
 // Method to calculate credit score based on payment history
@@ -313,5 +316,6 @@ businessSchema.methods.calculateCreditLimit = function() {
   return Math.min(calculatedLimit, 10000); // Cap at $10,000
 };
 
+businessSchema.set('toJSON', { transform: redactAccount });
 // Export the model
 export const Business = mongoose.models.Business || mongoose.model<IBusiness>('Business', businessSchema);

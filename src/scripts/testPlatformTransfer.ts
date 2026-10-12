@@ -56,7 +56,7 @@ async function main() {
     logger.info(`${generateExplorerUrl(result.transactionHash)}\n`);
 
   } catch (error: any) {
-    logger.error('\n❌ Error:', error.message);
+    logger.error({ err: error.message }, '\n❌ Error:');
     process.exit(1);
   }
 }

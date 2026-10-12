@@ -1,28 +1,28 @@
-import { ethers, providers } from "ethers";
+import { ethers, JsonRpcProvider } from "ethers";
 import { ERC20ABI } from "./abi";
 import { defineChain } from "thirdweb"
 import config from "./env";
 
 export const celo = defineChain(config["celo"].chainId)
 
-// export const provider = new providers.JsonRpcProvider("https://rpc.ankr.com/polygon_mumbai")
-export const provider = new providers.JsonRpcProvider(`https://arb-mainnet.g.alchemy.com/v2/${config.ALCHEMY_API_KEY || 'demo-key'}`)
+// export const provider = new JsonRpcProvider("https://rpc.ankr.com/polygon_mumbai")
+export const provider = new JsonRpcProvider(`https://arb-mainnet.g.alchemy.com/v2/${config.ALCHEMY_API_KEY || 'demo-key'}`)
 
 export const tokenAddress = '0xaf88d065e77c8cc2239327c5edb3a432268e5831'
 export const tokenContract = new ethers.Contract(tokenAddress, ERC20ABI, provider);
 
-export function getProvider(chain: string): ethers.providers.Provider {
+export function getProvider(chain: string): ethers.Provider {
   switch (chain) {
     case 'arbitrum':
-      return new ethers.providers.JsonRpcProvider('https://arb1.arbitrum.io/rpc');
+      return new ethers.JsonRpcProvider('https://arb1.arbitrum.io/rpc');
     case 'celo':
-      return new ethers.providers.JsonRpcProvider('https://forno.celo.org');
+      return new ethers.JsonRpcProvider('https://forno.celo.org');
     case 'polygon':
-      return new ethers.providers.JsonRpcProvider('https://polygon-rpc.com');
+      return new ethers.JsonRpcProvider('https://polygon-rpc.com');
     case 'optimism':
-      return new ethers.providers.JsonRpcProvider('https://mainnet.optimism.io');
+      return new ethers.JsonRpcProvider('https://mainnet.optimism.io');
     case 'base':
-      return new ethers.providers.JsonRpcProvider('https://mainnet.base.org');
+      return new ethers.JsonRpcProvider('https://mainnet.base.org');
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }

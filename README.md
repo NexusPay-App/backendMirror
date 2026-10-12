@@ -1,3 +1,15 @@
+# NexusPay backend — current execution branch
+
+Requires Node 24.21.0 and npm 12.2.0. Run `npm ci`, copy `.env.example` to `.env`, configure a development database and credentials, then `npm run dev`. Tests and app imports do not require production secrets: `npm run build`, `npm run lint`, `npm test`.
+
+BOT Chain uses Thirdweb 5 with BOT's bundler and a SimpleAccount adapter. Mainnet/testnet flags default off. Read the [BOT staging and operations runbook](docs/BOTCHAIN_RUNBOOK.md) and [dependency security review](docs/DEPENDENCY_SECURITY_REVIEW.md) before enabling financial features. No deployment, database migration or real payment was performed during local validation.
+
+Persistent execution uses `npm start`; serverless execution uses `src/serverless.ts` and does not start timers. Set `RUN_PAYMENT_WORKERS=true` only on a persistent worker. M-Pesa and Reclaim require explicit enable flags and verified provider setup. The original operational scripts are not unit tests.
+
+The historical implementation notes below have not been revalidated as an end-to-end release checklist. The runbook above is the current configuration/status reference.
+
+---
+
 # NexusPay Backend
 
 NexusPay is a crypto payment platform with MPESA integration, providing secure transactions and wallet management.

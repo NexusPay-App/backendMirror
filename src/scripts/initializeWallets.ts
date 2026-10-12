@@ -131,7 +131,7 @@ async function main() {
     logger.info('5. Document recovery procedures');
 
   } catch (error) {
-    logger.error('❌ Error initializing wallets:', error);
+    logger.error({ err: error }, '❌ Error initializing wallets:');
     process.exit(1);
   }
 }

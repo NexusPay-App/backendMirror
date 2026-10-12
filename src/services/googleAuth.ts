@@ -44,7 +44,7 @@ export async function verifyGoogleToken(idToken: string): Promise<GoogleUserInfo
             verified_email: payload.email_verified || false
         };
     } catch (error) {
-        console.error('Google token verification failed:', error);
+        console.error("Google token verification failed:");
         throw new Error('Invalid Google token');
     }
 }
@@ -73,7 +73,7 @@ export async function exchangeCodeForTokens(code: string) {
         const { tokens } = await client.getToken(code);
         return tokens;
     } catch (error) {
-        console.error('Failed to exchange code for tokens:', error);
+        console.error("Failed to exchange code for tokens:");
         throw new Error('Failed to exchange authorization code');
     }
 }

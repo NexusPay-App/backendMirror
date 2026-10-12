@@ -73,7 +73,7 @@ async function getTokenBalanceOnChain(
         
         return parseFloat(balance.toString());
     } catch (error) {
-        console.error(`Error getting ${tokenSymbol} balance on ${chain}:`, error);
+        console.error("Operation diagnostic");
         return 0; // Return 0 on error to avoid breaking the flow
     }
 }
@@ -86,7 +86,7 @@ export const mpesaDeposit = async (req: Request, res: Response, next: NextFuncti
         const { amount, phone } = req.body;
         
         // Debug logging
-        console.log("✅ Deposit request body:", req.body);
+        console.log("✅ Deposit request body:");
         
         // Validate user authentication
         if (!req.user) {
@@ -369,9 +369,9 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
         
         // Check if user has sufficient balance
         try {
-            console.log(`🔍 Checking balance for user ${authenticatedUser.walletAddress} on chain ${chain}`);
+            console.log("Operation diagnostic");
             const userBalance = await getWalletBalance(authenticatedUser.walletAddress, chain);
-            console.log(`💰 User balance on ${chain}: ${userBalance} ${tokenType}`);
+            console.log("Operation diagnostic");
             
             if (userBalance < cryptoAmount) {
                 return res.status(400).json(standardResponse(
@@ -385,7 +385,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                 ));
             }
         } catch (balanceError) {
-            console.error("❌ Error checking user balance:", balanceError);
+            console.error("❌ Error checking user balance:");
             // Continue with the transaction, we'll catch errors in the token transfer step
         }
         
@@ -415,7 +415,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
             const platformWallets = await initializePlatformWallets();
             
             // Transfer tokens from user to platform wallet
-            console.log(`🚀 Initiating token transfer: ${cryptoAmount} ${tokenType} from ${authenticatedUser.walletAddress} to platform wallet on ${chain}`);
+            console.log("Operation diagnostic");
             const tokenTransferResult = await sendTokenFromUser(
                 platformWallets.main.address, 
                 cryptoAmount,
@@ -488,7 +488,7 @@ export const withdrawToMpesa = async (req: Request, res: Response, next: NextFun
                     recipientAddress: phone,
                     explorerUrl: `https://arbiscan.io/tx/${escrow.transactionId}`
                 });
-                console.log(`📱 SMS notification sent to user for transaction: ${escrow.transactionId}`);
+                console.log("Operation diagnostic");
             } catch (smsError) {
                 console.error("❌ Failed to send SMS notification:", smsError);
                 // Don't fail the transaction if SMS fails
@@ -712,7 +712,8 @@ export const payToTill = async (req: Request, res: Response, next: NextFunction)
  */
 export const getLiquidityCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { tokenType, chain } = req.params;
+        const tokenType = String(req.params.tokenType);
+const chain = String(req.params.chain);
         
         // Validate input
         if (!tokenType || !chain) {
@@ -761,7 +762,7 @@ export const getLiquidityCheck = async (req: Request, res: Response, next: NextF
                 tokenType as TokenSymbol
             );
         } catch (error) {
-            console.error(`Error checking platform balance for ${tokenType} on ${chain}:`, error);
+            console.error("Operation diagnostic");
             platformBalance = 0;
         }
 
@@ -792,7 +793,7 @@ export const getLiquidityCheck = async (req: Request, res: Response, next: NextF
                         });
                     }
                 } catch (err) {
-                    console.error(`Error checking balance for ${token}:`, err);
+                    console.error("Operation diagnostic");
                 }
             }
         }
@@ -877,7 +878,7 @@ export const getMultiChainLiquidityOverview = async (req: Request, res: Response
                 });
 
             } catch (error) {
-                console.error(`Error checking ${tokenType} on ${chain}:`, error);
+                console.error("Operation diagnostic");
                 liquidityOverview.push({
                     chain,
                     chainId: config[chain]?.chainId || 0,
@@ -919,12 +920,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
         const { amount, phone, chain, tokenType } = req.body;
         
         // Enhanced debug logging with more transaction details
-        console.log("✅ Buy Crypto Request:", {
-            amount,
-            tokenType,
-            chain,
-            phone: phone.replace(/\d(?=\d{4})/g, "*"), // Mask most of the phone number for privacy
-        });
+        console.log("✅ Buy Crypto Request:");
         
         // Validate user authentication
         if (!req.user) {
@@ -989,7 +985,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
         const conversionRate = await getConversionRateWithCaching(tokenType);
         const cryptoAmountNum = mpesaAmount / conversionRate;
         
-        console.log(`✅ Transaction Details: ${mpesaAmount} KES = ${cryptoAmountNum.toFixed(6)} ${tokenType} on ${chain} (Rate: ${conversionRate} KES/${tokenType})`);
+        console.log("Operation diagnostic");
         
         // Step 3: Pre-check platform balance before proceeding
         const platformWallets = await initializePlatformWallets();
@@ -1002,7 +998,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
                 tokenType as TokenSymbol
             );
             
-            console.log(`Platform wallet balance check: ${platformBalance} ${tokenType} available on ${chain}`);
+            console.log("Operation diagnostic");
             
             // Validate if platform has enough balance to fulfill this request
             if (platformBalance < cryptoAmountNum) {
@@ -1076,7 +1072,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
         
         // Save the escrow record to reserve the funds
         await escrow.save();
-        console.log(`💰 Reserved ${cryptoAmountNum.toFixed(6)} ${tokenType} on ${chain} for transaction ${transactionId}`);
+        console.log("Operation diagnostic");
 
         // Create a descriptive message for MPESA
         const mpesaDescription = `NexusPay: Buy ${cryptoAmountNum.toFixed(6)} ${tokenType} on ${chain}`;
@@ -1178,7 +1174,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             escrow.mpesaTransactionId = checkoutRequestId;
             await escrow.save();
             
-            console.log(`✅ STK Push initiated successfully for ${cryptoAmountNum} ${tokenType} (${mpesaAmount} KES). Transaction ID: ${transactionId}`);
+            console.log("Operation diagnostic");
             
             // If query response exists and has non-zero result code, handle error
             if (queryResponse && typeof queryResponse === 'object' && 'ResultCode' in queryResponse && queryResponse.ResultCode !== "0") {
@@ -1337,7 +1333,7 @@ export const buyCrypto = async (req: Request, res: Response, next: NextFunction)
             ));
         } catch (mpesaError: any) {
             // Handle MPESA API errors
-            console.error(`❌ MPESA STK Push API Error for ${cryptoAmountNum} ${tokenType} (${mpesaAmount} KES):`, mpesaError);
+            console.error("Operation diagnostic");
             
             // Check if it's a special case where the error might be temporary or the transaction is still processing
             if (mpesaError.response?.data?.errorCode === "500.001.1001" && 
@@ -1436,7 +1432,7 @@ function logProminentWebhookReceived(req: Request) {
     console.log("REQUEST HEADERS:");
     console.log(JSON.stringify(req.headers, null, 2));
     console.log("\nREQUEST BODY:");
-    console.log(JSON.stringify(req.body, null, 2));
+    console.log("Operation diagnostic");
     console.log(separator);
 }
 
@@ -1509,14 +1505,14 @@ async function processSTKCallback(callbackData: any) {
         const callbackId = randomUUID().slice(0, 8); // For tracking this specific callback processing
         
         if (!stkCallback) {
-            console.error(`❌ [CB:${callbackId}] Invalid STK callback format - missing Body.stkCallback`);
+            console.error("Operation diagnostic");
             return;
         }
         
         const checkoutRequestID = stkCallback.CheckoutRequestID;
         const resultCode = parseInt(stkCallback.ResultCode, 10);
         
-        console.log(`🔍 [CB:${callbackId}] Processing callback for CheckoutRequestID: ${checkoutRequestID}, ResultCode: ${resultCode}`);
+        console.log("Operation diagnostic");
         
         // Find the corresponding escrow transaction with more robust lookup
         // First try direct match on mpesaTransactionId
@@ -1566,7 +1562,7 @@ async function processSTKCallback(callbackData: any) {
         }
         
         if (!escrow) {
-            console.error(`❌ [CB:${callbackId}] No escrow found for CheckoutRequestID: ${checkoutRequestID}`);
+            console.error("Operation diagnostic");
             return;
         }
         
@@ -1579,7 +1575,7 @@ async function processSTKCallback(callbackData: any) {
         
         // Detailed logging for traceability
         console.log(`\n🔄 [CB:${callbackId}] Processing M-Pesa callback for transaction: ${escrow.transactionId}`);
-        console.log(`- M-Pesa CheckoutRequestID: ${checkoutRequestID}`);
+        console.log("Operation diagnostic");
         console.log(`- Result Code: ${resultCode}`);
         console.log(`- Current Status: ${escrow.status}`);
         console.log(`- Is Direct Buy: ${isDirectBuy}`);
@@ -1693,8 +1689,8 @@ async function processSTKCallback(callbackData: any) {
                     
                     console.log(`✅ [CB:${callbackId}] Crypto transfer completed successfully:`);
                     console.log(`- Transaction Hash: ${transferResult.transactionHash}`);
-                    console.log(`- Amount: ${cryptoAmount} ${tokenType}`);
-                    console.log(`- Recipient: ${user.walletAddress}`);
+                    console.log("Operation diagnostic");
+                    console.log("Operation diagnostic");
                     console.log(`- Explorer: ${explorerUrl}`);
                     
                 } catch (error: any) {
@@ -1801,7 +1797,7 @@ async function processSTKCallback(callbackData: any) {
 
 export const mpesaB2CWebhook = async (req: Request, res: Response) => {
     try {
-        console.log("📲 Received MPESA B2C callback:", JSON.stringify(req.body, null, 2));
+        console.log("📲 Received MPESA B2C callback:");
         
         // Acknowledge the webhook immediately to avoid timeout
         const acknowledgement = { "Result": "Success" };
@@ -1880,7 +1876,7 @@ async function processB2CCallback(callbackData: any) {
                                 ? `https://explorer.celo.org/tx/${escrow.cryptoTransactionHash}`
                                 : `https://polygonscan.com/tx/${escrow.cryptoTransactionHash}`
                     });
-                    console.log(`📱 Completion SMS sent to user for successful transaction: ${escrow.transactionId}`);
+                    console.log("Operation diagnostic");
                 }
             } catch (smsError) {
                 console.error("❌ Failed to send completion SMS:", smsError);
@@ -1897,7 +1893,7 @@ async function processB2CCallback(callbackData: any) {
             // Get the user
             const user = await User.findById(escrow.userId);
             if (!user) {
-                console.error(`❌ User not found for escrow: ${escrow.transactionId}`);
+                console.error("Operation diagnostic");
                 return;
             }
             
@@ -1952,7 +1948,7 @@ async function processB2CCallback(callbackData: any) {
  */
 export const mpesaB2BWebhook = async (req: Request, res: Response) => {
     try {
-        console.log("📲 Received MPESA B2B callback:", JSON.stringify(req.body, null, 2));
+        console.log("📲 Received MPESA B2B callback:");
         
         // Acknowledge the webhook immediately to avoid timeout
         const acknowledgement = { "Result": "Success" };
@@ -2053,7 +2049,7 @@ async function processB2BCallback(callbackData: any) {
                 
                 const user = await User.findById(escrow.userId);
                 if (!user) {
-                    console.error(`❌ [B2B-CB] User not found for rollback: ${escrow.userId}`);
+                    console.error("Operation diagnostic");
                     return;
                 }
                 
@@ -2067,7 +2063,7 @@ async function processB2BCallback(callbackData: any) {
                 }
                 
                 // Import the rollback function
-                const { sendFromPlatformWallet } = await import('../services/platformWallet');
+                const { sendFromPlatformWallet } = await import('../services/platformWallet.js');
                 
                 const rollbackResult = await sendFromPlatformWallet(
                     escrow.cryptoAmount,
@@ -2120,7 +2116,7 @@ async function processB2BCallback(callbackData: any) {
 }
 
 export const mpesaQueueWebhook = (req: Request, res: Response) => {
-    console.log("Queue timeout webhook received:", req.body);
+    console.log("Queue timeout webhook received:");
     res.json({ Timeout: true });
 };
 
@@ -2129,7 +2125,7 @@ export const mpesaQueueWebhook = (req: Request, res: Response) => {
  */
 export const getTransactionStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { transactionId } = req.params;
+        const transactionId = String(req.params.transactionId);
         
         if (!req.user) {
             return res.status(401).json(standardResponse(
@@ -2177,9 +2173,9 @@ export const getTransactionStatus = async (req: Request, res: Response, next: Ne
         console.log(`Transaction Status Check: ${transactionId}`);
         console.log(`- Type: ${escrow.type}`);
         console.log(`- Status: ${escrow.status}`);
-        console.log(`- Token: ${cryptoAmount} ${tokenType} on ${chain}`);
+        console.log("Operation diagnostic");
         console.log(`- Fiat: ${escrow.amount} KES (≈ $${cryptoAmount} USD)`);
-        console.log(`- User: ${authenticatedUser._id}`);
+        console.log("Operation diagnostic");
         
         // Prepare response based on transaction type and status
         const response = {
@@ -2642,7 +2638,7 @@ export const submitMpesaReceiptManually = async (req: Request, res: Response) =>
       
       try {
         // Import the function from platformWallet service
-        const { getPlatformWalletBalance } = await import('../services/platformWallet');
+        const { getPlatformWalletBalance } = await import('../services/platformWallet.js');
         platformBalance = await getPlatformWalletBalance(chain, tokenType as TokenSymbol);
         
         // Also check what other tokens are available on this wallet
@@ -2658,7 +2654,7 @@ export const submitMpesaReceiptManually = async (req: Request, res: Response) =>
           }
         }
         
-        logger.info(`Available tokens on ${chain}:`, availableTokens);
+        logger.info({ err: availableTokens }, `Available tokens on ${chain}:`);
         
       } catch (balanceError: any) {
         logger.error(`Error getting platform balance: ${balanceError.message}`);
@@ -2672,7 +2668,7 @@ export const submitMpesaReceiptManually = async (req: Request, res: Response) =>
       
       logger.info(`Platform balance check: ${platformBalance} ${tokenType} available, ${cryptoAmount} ${tokenType} required`);
       logger.info(`Platform wallet: ${platformWallets.main.address}`);
-      logger.info(`Available tokens:`, availableTokens);
+      logger.info({ err: availableTokens }, `Available tokens:`);
       
       // Validate platform has sufficient balance
       if (platformBalance < cryptoAmount) {
@@ -2888,7 +2884,7 @@ export const submitMpesaReceiptManually = async (req: Request, res: Response) =>
       ));
     }
   } catch (error: any) {
-    logger.error('Error in manual M-Pesa receipt submission:', error);
+    logger.error({ err: error }, 'Error in manual M-Pesa receipt submission:');
     
     return res.status(500).json(standardResponse(
       false,
@@ -2955,7 +2951,7 @@ export const getTransactionsRequiringIntervention = async (req: Request, res: Re
       }
     ));
   } catch (error: any) {
-    logger.error('Error getting transactions requiring intervention:', error);
+    logger.error({ err: error }, 'Error getting transactions requiring intervention:');
     
     return res.status(500).json(standardResponse(
       false,
@@ -3001,8 +2997,8 @@ export const testWebhookLogging = async (req: Request, res: Response) => {
  */
 export const testB2BCallback = async (req: Request, res: Response) => {
     console.log("🧪 [B2B-TEST] B2B callback test endpoint called");
-    console.log("📲 [B2B-TEST] Request body:", JSON.stringify(req.body, null, 2));
-    console.log("📲 [B2B-TEST] Request headers:", req.headers);
+    console.log("📲 [B2B-TEST] Request body:");
+    console.log("📲 [B2B-TEST] Request headers:");
     
     // Simulate a B2B callback response
     const testResponse = {
@@ -3084,7 +3080,7 @@ export const manualRollback = async (req: Request, res: Response) => {
             ));
         }
         
-        const { sendFromPlatformWallet } = await import('../services/platformWallet');
+        const { sendFromPlatformWallet } = await import('../services/platformWallet.js');
         
         const rollbackResult = await sendFromPlatformWallet(
             escrow.cryptoAmount,
@@ -3314,12 +3310,12 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
 
         await escrow.save();
         
-        console.log(`🚀 [CRYPTO-PAY] Starting crypto payment: ${cryptoAmountNum} ${tokenType} → ${fiatAmount} KES to ${targetType} ${targetNumber}`);
+        console.log("Operation diagnostic");
 
         // 🔄 ATOMIC TRANSACTION: Step 1 - Transfer crypto from user to platform
         let cryptoTransferResult;
         try {
-            console.log(`💰 [CRYPTO-PAY] Transferring ${cryptoAmountNum} ${tokenType} from user to platform wallet...`);
+            console.log("Operation diagnostic");
             
             cryptoTransferResult = await sendTokenFromUser(
                 platformWallets.main.address,
@@ -3435,7 +3431,7 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                                 const secondaryKey = process.env.PLATFORM_WALLET_SECONDARY_KEY;
                                 
                                 if (primaryKey && secondaryKey) {
-                                    const { sendFromPlatformWallet } = await import('../services/platformWallet');
+                                    const { sendFromPlatformWallet } = await import('../services/platformWallet.js');
                                     
                                     const rollbackResult = await sendFromPlatformWallet(
                                         cryptoAmountNum,
@@ -3476,7 +3472,7 @@ export const payWithCrypto = async (req: Request, res: Response, next: NextFunct
                 }, 5 * 60 * 1000); // 5 minutes timeout
             } else {
                 // Fallback to existing B2C for non-paybill targets
-                console.log(`📱 [CRYPTO-PAY] Platform sending ${fiatAmount} KES to user via B2C for ${targetType} ${targetNumber}...`);
+                console.log("Operation diagnostic");
                 const phoneForB2C = authenticatedUser.phoneNumber.startsWith('+') ? 
                     parseInt(authenticatedUser.phoneNumber.substring(1), 10) : 
                     parseInt(authenticatedUser.phoneNumber, 10);
@@ -3706,7 +3702,7 @@ export const initiatePaybillPayment = async (
         const password = Buffer.from(`${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY}${timestamp}`).toString('base64');
         
         console.log(`🔐 [PAYBILL] Using shortcode: ${config.MPESA_SHORTCODE}`);
-        console.log(`🔐 [PAYBILL] Password generated with: ${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY ? '***PASSKEY***' : 'UNDEFINED_PASSKEY'}${timestamp}`);
+        console.log("Operation diagnostic");
         
         const stkPushBody = {
             BusinessShortCode: config.MPESA_SHORTCODE,
@@ -3734,11 +3730,11 @@ export const initiatePaybillPayment = async (
             }
         );
 
-        console.log(`✅ [PAYBILL] STK Push initiated:`, response.data);
+        console.log("Operation diagnostic");
         return response.data;
         
     } catch (error: any) {
-        console.error(`❌ [PAYBILL] Failed to initiate payment:`, error.response?.data || error.message);
+        console.error("Operation diagnostic");
         throw error;
     }
 };
@@ -3765,7 +3761,7 @@ export const initiateTillPayment = async (
         const password = Buffer.from(`${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY}${timestamp}`).toString('base64');
         
         console.log(`🔐 [TILL] Using shortcode: ${config.MPESA_SHORTCODE}`);
-        console.log(`🔐 [TILL] Password generated with: ${config.MPESA_SHORTCODE}${config.MPESA_PASSKEY ? '***PASSKEY***' : 'UNDEFINED_PASSKEY'}${timestamp}`);
+        console.log("Operation diagnostic");
         
         const stkPushBody = {
             BusinessShortCode: config.MPESA_SHORTCODE,
@@ -3793,11 +3789,11 @@ export const initiateTillPayment = async (
             }
         );
 
-        console.log(`✅ [TILL] STK Push initiated:`, response.data);
+        console.log("Operation diagnostic");
         return response.data;
         
     } catch (error: any) {
-        console.error(`❌ [TILL] Failed to initiate payment:`, error.response?.data || error.message);
+        console.error("Operation diagnostic");
         throw error;
     }
 };

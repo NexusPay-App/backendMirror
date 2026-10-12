@@ -35,7 +35,7 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
     try {
         existingUser = await User.findOne({ phoneNumber: phoneNumberStr });
     } catch (error) {
-        console.error("❌ Error checking existing user:", error);
+        console.error("❌ Error checking existing user:");
         return res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to check existing user'));
     }
 
@@ -48,10 +48,10 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
 
     // Log OTP for testing purposes
     console.log('\n======================================');
-    console.log(`🔑 REGISTRATION OTP FOR ${phoneNumberStr}: ${otp}`);
+    console.log("Operation diagnostic");
     console.log('======================================\n');
 
-    console.log(`✅ OTP generated for ${phoneNumberStr}: ${otp}`);
+    console.log("Operation diagnostic");
 
     try {
         // Send OTP via SMS using the new SMS service
@@ -73,7 +73,7 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
         });
 
     } catch (error) {
-        console.error("❌ Error sending OTP:", error);
+        console.error("❌ Error sending OTP:");
         return res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to send OTP'));
     }
 };
@@ -123,9 +123,9 @@ export const registerUser = async (req: Request, res: Response) => {
         if (verificationMethod === 'phone' || verificationMethod === 'both') {
             // Log OTP verification attempt
             console.log('\n======================================');
-            console.log(`🔍 VERIFYING REGISTRATION OTP FOR ${phoneNumber}`);
-            console.log(`📱 Received OTP: ${otp}`);
-            console.log(`🔐 Stored OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+            console.log("Operation diagnostic");
+            console.log("Operation diagnostic");
+            console.log("Operation diagnostic");
             console.log('======================================\n');
             
             otpValid = otpStore[phoneNumber] === otp;
@@ -179,7 +179,7 @@ export const registerUser = async (req: Request, res: Response) => {
         ));
 
     } catch (error: any) {
-        console.error('Error in registerUser:', error);
+        console.error("Error in registerUser:");
         return handleError(error, res, "Error registering user");
     }
 };
@@ -246,9 +246,9 @@ export const verifyPhone = async (req: Request, res: Response) => {
     try {
         // Log OTP verification attempt
         console.log('\n======================================');
-        console.log(`🔍 VERIFYING PHONE OTP FOR ${phoneNumber}`);
-        console.log(`📱 Received OTP: ${otp}`);
-        console.log(`🔐 Stored OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
         console.log('======================================\n');
         
         if (!otpStore[phoneNumber] || otpStore[phoneNumber] !== otp) {
@@ -306,43 +306,43 @@ export const login = async (req: Request, res: Response) => {
 
     // At least one identifier (email or phone) is required
     if ((!email && !phoneNumber) || !password) {
-        console.log('❌ Missing credentials: No email/phone or password');
+        console.log("❌ Missing credentials: No email/phone or password");
         return res.status(400).json(createErrorResponse('INVALID_CREDENTIALS', 'Either email or phone number, and password are required!'));
     }
 
     try {
         // Find user by either email or phone number
         const query = email ? { email } : { phoneNumber };
-        console.log(`🔍 Looking up user with query:`, query);
+        console.log("Operation diagnostic");
         
         const user = await User.findOne(query);
         
         if (!user) {
-            console.log('❌ User not found');
+            console.log("❌ User not found");
             return res.status(404).json(createErrorResponse('USER_NOT_FOUND', 'No account found with this information'));
         }
 
         // Log found user details
         console.log('\n======================================');
-        console.log('✅ USER FOUND');
-        console.log(`📧 Email: ${user.email || 'Not set'}`);
-        console.log(`📱 Phone: ${user.phoneNumber || 'Not set'}`);
-        console.log(`📧 Email verified: ${user.isEmailVerified}`);
-        console.log(`📱 Phone verified: ${user.isPhoneVerified}`);
+        console.log("✅ USER FOUND");
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
         console.log('======================================\n');
 
         // Check if user has a password (Google OAuth users might not have one)
         if (!user.password) {
-            console.log('❌ User has no password (Google OAuth account)');
+            console.log("❌ User has no password (Google OAuth account)");
             return res.status(401).json(createErrorResponse('INVALID_CREDENTIALS', 'This account was created with Google. Please sign in with Google or add a password first.'));
         }
 
         // Verify password
         const isValidPassword = await bcrypt.compare(password, user.password);
-        console.log(`🔑 Password valid: ${isValidPassword}`);
+        console.log("Operation diagnostic");
         
         if (!isValidPassword) {
-            console.log('❌ Invalid password');
+            console.log("❌ Invalid password");
             return res.status(401).json(createErrorResponse('WRONG_PASSWORD', 'Incorrect password provided'));
         }
 
@@ -353,11 +353,11 @@ export const login = async (req: Request, res: Response) => {
         }
         
         if (phoneNumber && !user.isPhoneVerified) {
-            console.log('❌ Phone not verified - suggesting password reset');
+            console.log("❌ Phone not verified - suggesting password reset");
             return res.status(401).json(createErrorResponse('PHONE_NOT_VERIFIED', 'Phone number not verified. Please use password reset to verify your phone number and set a new password.'));
         }
 
-        console.log('✅ All validation passed, sending OTP');
+        console.log("✅ All validation passed, sending OTP");
 
         // Send OTP based on login method
         if (email) {
@@ -382,7 +382,7 @@ export const login = async (req: Request, res: Response) => {
             
             // Log OTP for testing purposes
             console.log('\n======================================');
-            console.log(`🔑 LOGIN OTP FOR ${phoneNumber}: ${otp}`);
+            console.log("Operation diagnostic");
             console.log('======================================\n');
             
             try {
@@ -390,7 +390,7 @@ export const login = async (req: Request, res: Response) => {
                 const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'login');
                 
                 if (!smsSent) {
-                    console.log(`❌ SMS sending failed but login OTP was generated: ${otp}`);
+                    console.log("Operation diagnostic");
                     return res.status(200).json(standardResponse(
                         true,
                         "OTP generated successfully. SMS failed, but check server logs for OTP code.",
@@ -404,8 +404,8 @@ export const login = async (req: Request, res: Response) => {
                     { phoneNumber }
                 ));
             } catch (error) {
-                console.error("❌ Error sending SMS OTP:", error);
-                console.log(`❌ SMS sending error but login OTP was generated: ${otp}`);
+                console.error("❌ Error sending SMS OTP:");
+                console.log("Operation diagnostic");
                 return res.status(200).json(standardResponse(
                     true,
                     "OTP generated successfully. SMS service error, but check server logs for OTP code.",
@@ -436,19 +436,19 @@ export const verifyLogin = async (req: Request, res: Response) => {
         
         // Log OTP verification attempt
         console.log('\n======================================');
-        console.log(`🔍 VERIFYING LOGIN OTP`);
+        console.log("Operation diagnostic");
         console.log(`📱 Identifier: ${email || phoneNumber}`);
-        console.log(`📱 Received OTP: ${otp}`);
+        console.log("Operation diagnostic");
 
         if (email) {
             // Log for email verification
-            console.log(`🔐 Verifying email OTP (check email service)`);
+            console.log("Operation diagnostic");
             // Verify email OTP
             isValidOtp = await verifyOTP(email, otp, 'login');
             user = await User.findOne({ email });
         } else {
             // Log for phone verification
-            console.log(`🔐 Stored Phone OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+            console.log("Operation diagnostic");
             // Verify phone OTP
             isValidOtp = otpStore[phoneNumber] === otp;
             if (isValidOtp) {
@@ -457,7 +457,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
             user = await User.findOne({ phoneNumber });
         }
         
-        console.log(`✅ OTP Valid: ${isValidOtp}`);
+        console.log("Operation diagnostic");
         console.log('======================================\n');
 
         if (!isValidOtp) {
@@ -534,7 +534,7 @@ export const requestPasswordReset = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
-        console.error('Error in requestPasswordReset:', error);
+        console.error("Error in requestPasswordReset:");
         res.status(500).send({ 
             message: "Error requesting password reset", 
             error: error.message || String(error)
@@ -566,7 +566,7 @@ export const resetPassword = async (req: Request, res: Response) => {
         res.send({ message: "Password reset successful. You can now login with your new password." });
 
     } catch (error: any) {
-        console.error('Error in resetPassword:', error);
+        console.error("Error in resetPassword:");
         res.status(500).send({ 
             message: "Error resetting password", 
             error: error.message || String(error)
@@ -611,7 +611,7 @@ export const requestPhonePasswordReset = async (req: Request, res: Response) => 
         
         // Log OTP for testing purposes
         console.log('\n======================================');
-        console.log(`🔑 PASSWORD RESET OTP FOR ${phoneNumber}: ${otp}`);
+        console.log("Operation diagnostic");
         console.log('======================================\n');
         
         const otpSent = await SMSService.sendOTP(phoneNumber, otp, 'passwordReset');
@@ -640,7 +640,7 @@ export const requestPhonePasswordReset = async (req: Request, res: Response) => 
         });
 
     } catch (error: any) {
-        console.error('Error in requestPhonePasswordReset:', error);
+        console.error("Error in requestPhonePasswordReset:");
         return res.status(500).json({
             success: false,
             message: "Error requesting password reset",
@@ -673,9 +673,9 @@ export const resetPhonePassword = async (req: Request, res: Response) => {
     try {
         // Log OTP verification attempt
         console.log('\n======================================');
-        console.log(`🔍 VERIFYING PASSWORD RESET OTP FOR ${phoneNumber}`);
-        console.log(`📱 Received OTP: ${otp}`);
-        console.log(`🔐 Stored OTP: ${otpStore[phoneNumber] || 'No OTP found'}`);
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
+        console.log("Operation diagnostic");
         console.log('======================================\n');
         
         // Verify OTP
@@ -729,7 +729,7 @@ export const resetPhonePassword = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
-        console.error('Error in resetPhonePassword:', error);
+        console.error("Error in resetPhonePassword:");
         return res.status(500).json({
             success: false,
             message: "Error resetting password",
@@ -767,7 +767,7 @@ export const requestAccountDeletion = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
-        console.error('Error in requestAccountDeletion:', error);
+        console.error("Error in requestAccountDeletion:");
         res.status(500).send({ 
             message: "Error requesting account deletion", 
             error: error.message || String(error)
@@ -819,7 +819,7 @@ export const logout = async (req: Request, res: Response) => {
             // Invalidate the session
             invalidateSession(token);
             
-            console.log(`User ${req.user?._id || 'unknown'} logged out successfully`);
+            console.log("Operation diagnostic");
         }
         
         return res.json(standardResponse(
@@ -939,7 +939,7 @@ export const googleAuth = async (req: Request, res: Response) => {
         ));
 
     } catch (error) {
-        console.error("Error in Google authentication:", error);
+        console.error("Error in Google authentication:");
         return handleError(error, res, "Google authentication failed");
     }
 };
@@ -994,7 +994,7 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
         const otp = generateOTP();
         otpStore[phoneNumber] = otp;
 
-        console.log(`🔑 PHONE VERIFICATION OTP FOR ${phoneNumber}: ${otp}`);
+        console.log("Operation diagnostic");
 
         try {
             // Send OTP via SMS using the new SMS service
@@ -1020,7 +1020,7 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
             ));
 
         } catch (error) {
-            console.error("Error sending OTP:", error);
+            console.error("Error sending OTP:");
             
             // Store temporary data for verification even if SMS completely fails
             otpStore[`${phoneNumber}_password`] = password;
@@ -1035,7 +1035,7 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
         }
 
     } catch (error) {
-        console.error("Error in addPhoneAndPassword:", error);
+        console.error("Error in addPhoneAndPassword:");
         return handleError(error, res, "Failed to add phone and password");
     }
 };
@@ -1127,7 +1127,7 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
         ));
 
     } catch (error) {
-        console.error("Error in verifyPhoneAndPassword:", error);
+        console.error("Error in verifyPhoneAndPassword:");
         return handleError(error, res, "Phone verification failed");
     }
 };

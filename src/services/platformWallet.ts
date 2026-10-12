@@ -6,7 +6,7 @@ import { client } from './auth';
 import config from "../config/env";
 import { randomUUID } from "crypto";
 import Redis from 'ioredis';
-import { Account } from '@thirdweb-dev/sdk';
+import type { Account } from 'thirdweb/wallets';
 import pino from 'pino';
 import mongoose from 'mongoose';
 import { promiseWithTimeout } from '../utils/promises';
@@ -14,11 +14,10 @@ import { ChainConfig, CacheKeys } from "../types/chain";
 import { TokenSymbol, TokenConfig, Chain } from "../types/token";
 import { getTokenConfig } from "../config/tokens";
 import { generateUUID, maskAddress } from '../utils';
-import { createClient } from 'redis';
 import { recordTransaction, TransactionType } from './transactionLogger';
 import { logTransactionForReconciliation } from './reconciliation';
 import { encodeAbiParameters } from 'viem';
-import { SmartContract } from '@thirdweb-dev/sdk';
+
 import { transactionMonitor } from './transactionMonitor';
 
 // Configure logger
@@ -894,7 +893,7 @@ export async function queueTransaction(
           });
           logger.info(`Marked escrow ${escrowId} as failed due to insufficient platform balance`);
         } catch (escrowError) {
-          logger.error(`Error updating escrow ${escrowId}:`, escrowError);
+          logger.error({ err: escrowError }, `Error updating escrow ${escrowId}:`);
         }
       }
       
@@ -962,7 +961,7 @@ async function checkIfTransactionQueued(escrowId: string): Promise<QueuedTransac
     }
     return null;
   } catch (error) {
-    logger.error(`Error checking queued transaction for escrow ${escrowId}:`, error);
+    logger.error({ err: error }, `Error checking queued transaction for escrow ${escrowId}:`);
     return null;
   }
 }
@@ -1012,7 +1011,7 @@ export async function clearDuplicateTransactions(): Promise<number> {
         logger.info(`Cleaned ${queueKey}: ${queueItems.length} -> ${uniqueItems.length} items`);
       }
     } catch (error) {
-      logger.error(`Error cleaning queue ${queueKey}:`, error);
+      logger.error({ err: error }, `Error cleaning queue ${queueKey}:`);
     }
   }
   
@@ -1108,7 +1107,7 @@ async function processBatch(transactions: QueuedTransaction[], queueKey: string)
           continue;
         }
       } catch (escrowError) {
-        logger.error(`Error checking escrow status for ${tx.id}:`, escrowError);
+        logger.error({ err: escrowError }, `Error checking escrow status for ${tx.id}:`);
       }
     }
     
@@ -1413,7 +1412,7 @@ async function processIndividualTransactions(
           }
           
           // Log the full error for debugging
-          logger.error(`❌ Full error object for transaction ${tx.id}:`, {
+          logger.error({
             message: error.message,
             stack: error.stack,
             name: error.name,
@@ -1424,7 +1423,7 @@ async function processIndividualTransactions(
             response: (error as any).response?.data,
             isRetryable,
             retryDelay
-          });
+          }, `❌ Full error object for transaction ${tx.id}:`);
           
           // Extract more specific error info
           if ((error as any).reason) {
@@ -1444,7 +1443,7 @@ async function processIndividualTransactions(
           detailedError = JSON.stringify(error);
           
           // Log the full error object
-          logger.error(`❌ Non-Error object for transaction ${tx.id}:`, error);
+          logger.error({ err: error }, `❌ Non-Error object for transaction ${tx.id}:`);
         }
         
         // Log detailed error information
@@ -1618,7 +1617,7 @@ export async function processScheduledRetries(): Promise<void> {
               continue;
             }
           } catch (escrowError) {
-            logger.error(`Error checking escrow status for ${tx.id}:`, escrowError);
+            logger.error({ err: escrowError }, `Error checking escrow status for ${tx.id}:`);
           }
         }
         
@@ -1710,7 +1709,7 @@ async function markTransactionFailed(txId: string, errorMessage: string, queueKe
         if (typeof logTransactionForReconciliation === 'function') {
           logTransactionForReconciliation(reconciliationData);
         } else {
-          logger.info('Reconciliation data for failed transaction:', reconciliationData);
+          logger.info({ err: reconciliationData }, 'Reconciliation data for failed transaction:');
         }
       } else {
         logger.warn(`No escrow found for failed transaction ${txId}`);
@@ -1756,9 +1755,9 @@ export async function sendTokenFromUser(
     }
     
     // Log the outgoing transfer attempt (without revealing private key)
-    console.log(`🔍 User-to-Platform Transfer Initiated:`);
+    console.log("Operation diagnostic");
     console.log(`- Recipient: ${toAddress.substring(0, 8)}...`);
-    console.log(`- Amount: ${amount} ${tokenType} on ${chainName}`);
+    console.log("Operation diagnostic");
     console.log(`- USD Value: ~$${amount} USD`);
     
     // Get chain configuration
@@ -1802,7 +1801,7 @@ export async function sendTokenFromUser(
     });
     
     // Transfer tokens
-    console.log(`Executing token transfer of ${amount} ${tokenType} from user to ${toAddress.substring(0, 8)}...`);
+    console.log("Operation diagnostic");
     const transaction = transfer({
       contract,
       to: toAddress,
@@ -1818,13 +1817,13 @@ export async function sendTokenFromUser(
     const txHash = tx.transactionHash;
     
     // Log transaction success with all details
-    console.log(`✅ User-to-Platform Transfer Successful:`);
+    console.log("Operation diagnostic");
     console.log(`- Transaction Hash: ${txHash}`);
-    console.log(`- User Wallet: ${smartAccount.address.substring(0, 8)}...`);
+    console.log("Operation diagnostic");
     console.log(`- To: ${toAddress.substring(0, 8)}...`);
-    console.log(`- Amount: ${amount} ${tokenType} on ${chainName}`);
+    console.log("Operation diagnostic");
     console.log(`- USD Value: ~$${amount} USD`);
-    console.log(`- Token Address: ${tokenAddress.substring(0, 10)}...`);
+    console.log("Operation diagnostic");
     console.log(`- Timestamp: ${new Date().toISOString()}`);
     
     // Invalidate balance cache
@@ -1835,11 +1834,7 @@ export async function sendTokenFromUser(
     
     return { transactionHash: txHash };
   } catch (error: any) {
-    console.error(`❌ Error sending token from user:`, {
-      error: error.message,
-      stack: error.stack,
-      details: error.details || 'No additional details'
-    });
+    console.error("Operation diagnostic");
     throw error;
   }
 }
@@ -1916,7 +1911,7 @@ export async function getPlatformWalletStatus(
  */
 async function getTokenBalanceOnChain(chain: Chain, walletAddress: string, tokenType: TokenSymbol): Promise<number> {
   try {
-    const provider = new ethers.providers.JsonRpcProvider(SUPPORTED_CHAINS[chain].rpcUrls.default.http[0]);
+    const provider = new ethers.JsonRpcProvider(SUPPORTED_CHAINS[chain].rpcUrls.default.http[0]);
     const tokenConfig = getTokenConfig(chain, tokenType);
     if (!tokenConfig) {
       throw new Error(`Token ${tokenType} not supported on chain ${chain}`);
@@ -1924,9 +1919,9 @@ async function getTokenBalanceOnChain(chain: Chain, walletAddress: string, token
     const tokenContract = new ethers.Contract(tokenConfig.address, ERC20_ABI, provider);
     const balance = await tokenContract.balanceOf(walletAddress);
     const decimals = await tokenContract.decimals();
-    return Number(ethers.utils.formatUnits(balance, decimals));
+    return Number(ethers.formatUnits(balance, decimals));
   } catch (error) {
-    logger.error(`Error getting token balance on ${chain}:`, error);
+    logger.error({ err: error }, `Error getting token balance on ${chain}:`);
     return 0;
   }
 }
@@ -1965,7 +1960,7 @@ export async function processTransactionQueue(): Promise<void> {
     
     logger.info('Transaction queue processing completed');
   } catch (error) {
-    logger.error('Error processing transaction queue:', error);
+    logger.error({ err: error }, 'Error processing transaction queue:');
     throw error;
   }
 }
@@ -1983,7 +1978,7 @@ export function scheduleQueueProcessing(intervalMs: number = 60000): NodeJS.Time
     try {
       await processTransactionQueue();
     } catch (error) {
-      logger.error('Error in scheduled transaction queue processing:', error);
+      logger.error({ err: error }, 'Error in scheduled transaction queue processing:');
     }
   }, intervalMs);
   
@@ -1995,7 +1990,7 @@ export function scheduleQueueProcessing(intervalMs: number = 60000): NodeJS.Time
     try {
       await processQueueWithPriority(HIGH_PRIORITY_QUEUE_KEY);
     } catch (error) {
-      logger.error('Error in high priority queue processing:', error);
+      logger.error({ err: error }, 'Error in high priority queue processing:');
     }
   }, Math.floor(intervalMs / 2)); // Process high priority twice as often
   
@@ -2049,7 +2044,7 @@ export async function clearFailedTransactionsAndRestart(): Promise<void> {
     
     logger.info('✅ Queue cleanup completed');
   } catch (error) {
-    logger.error('Error clearing failed transactions:', error);
+    logger.error({ err: error }, 'Error clearing failed transactions:');
     throw error;
   }
 }
@@ -2115,7 +2110,7 @@ export async function initializePlatformWallet(
 
     return { address: smartAccount.address };
   } catch (error) {
-    logger.error('Error initializing platform wallet:', error);
+    logger.error({ err: error }, 'Error initializing platform wallet:');
     throw error;
   }
 }
@@ -2216,7 +2211,7 @@ export async function sendFromPlatformWallet(
 
     return { transactionHash: result.transactionHash };
   } catch (error) {
-    logger.error('Error sending from platform wallet:', error);
+    logger.error({ err: error }, 'Error sending from platform wallet:');
     throw error;
   }
 }
@@ -2294,7 +2289,7 @@ export async function getPlatformWalletBalance(
       
       // Method 2: Fallback to ethers.js approach (like in scripts)
       try {
-        const provider = new ethers.providers.JsonRpcProvider(chainConfig.rpcUrls.default.http[0]);
+        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls.default.http[0]);
         
         const ERC20_ABI = [
           'function balanceOf(address owner) view returns (uint256)',
@@ -2312,7 +2307,7 @@ export async function getPlatformWalletBalance(
         ]);
         
         // Convert to human-readable format
-        const humanReadableBalance = Number(ethers.utils.formatUnits(balance, decimals));
+        const humanReadableBalance = Number(ethers.formatUnits(balance, decimals));
         
         logger.info(`Ethers.js method - Raw balance: ${balance.toString()}, Human readable: ${humanReadableBalance} ${tokenSymbol}`);
         
@@ -2332,7 +2327,7 @@ export async function getPlatformWalletBalance(
     }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error getting platform wallet balance:', errorMessage);
+    logger.error({ err: errorMessage }, 'Error getting platform wallet balance:');
     throw error;
   }
 }
@@ -2398,7 +2393,7 @@ export async function recoverPlatformWallet(
     logger.info(`Platform wallet recovered: ${lostAccount.address} replaced with ${newAccount.address}`);
     logger.info(`Recovery transaction hash: ${result.transactionHash}`);
   } catch (error) {
-    logger.error('Error recovering platform wallet:', error);
+    logger.error({ err: error }, 'Error recovering platform wallet:');
     throw error;
   }
 }
@@ -2478,7 +2473,7 @@ export async function initializeMultiChainWallet(
         logger.info(`- RPC URL: ${chainConfig.rpcUrls.default.http[0]}`);
         logger.info(`- Explorer: ${chainConfig.blockExplorers.default.url}`);
       } catch (error) {
-        logger.error(`Error initializing wallet on ${chainName}:`, error);
+        logger.error({ err: error }, `Error initializing wallet on ${chainName}:`);
         // Continue with other chains
         continue;
       }
@@ -2486,7 +2481,7 @@ export async function initializeMultiChainWallet(
 
     return walletAddresses;
   } catch (error) {
-    logger.error('Error initializing multi-chain wallet:', error);
+    logger.error({ err: error }, 'Error initializing multi-chain wallet:');
     throw error;
   }
 }

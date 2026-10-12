@@ -1,0 +1,177 @@
+{
+  "checkedAt": "2026-10-09T04:12:23.677Z",
+  "networks": [
+    {
+      "name": "botchain",
+      "expectedChainId": 677,
+      "probes": {
+        "chainId": {
+          "result": "0x2a5"
+        },
+        "blockNumber": {
+          "result": "0x18d6f67"
+        },
+        "bundlerChainId": {
+          "result": "0x2a5"
+        },
+        "entryPoints": {
+          "result": [
+            "0x0000000071727de22e5e9d8baf0edac6f37da032"
+          ]
+        },
+        "gasPrice": {
+          "result": {
+            "maxPriorityFeePerGas": "0x4a817c800",
+            "maxFeePerGas": "0x4a817c800"
+          }
+        },
+        "logs": {
+          "result": []
+        },
+        "historicalLogs": {
+          "supported": true,
+          "range": "26044311-26045311",
+          "logs": 0
+        },
+        "rpcLatency": {
+          "runs": 5,
+          "failures": 0,
+          "errors": [],
+          "minMs": 214,
+          "maxMs": 1130,
+          "avgMs": 418
+        },
+        "rpcBurst": {
+          "sent": 10,
+          "failures": 0,
+          "errors": []
+        },
+        "websocket": {
+          "url": "wss://ws-rpc.botchain.ai",
+          "initialConnect": {
+            "connected": true,
+            "firstHead": 26046313
+          },
+          "reconnect": {
+            "connected": true,
+            "firstHead": 26046315
+          }
+        },
+        "entryPointCode": {
+          "deployed": true,
+          "bytes": 16035
+        },
+        "simpleAccountFactoryCode": {
+          "deployed": true,
+          "bytes": 2288
+        },
+        "thirdwebFactoryV07Code": {
+          "deployed": false,
+          "bytes": 0
+        },
+        "wbotCode": {
+          "deployed": true,
+          "bytes": 2317
+        },
+        "usdtCode": {
+          "deployed": true,
+          "bytes": 6188
+        },
+        "usdtDecimals": {
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000006"
+        },
+        "usdtSymbol": {
+          "result": "0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000045553445400000000000000000000000000000000000000000000000000000000"
+        },
+        "wbotDecimals": {
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000012"
+        },
+        "wbotSymbol": {
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000457424f5400000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "name": "botchain-testnet",
+      "expectedChainId": 968,
+      "probes": {
+        "chainId": {
+          "result": "0x3c8"
+        },
+        "blockNumber": {
+          "result": "0x18ffa16"
+        },
+        "bundlerChainId": {
+          "result": "0x3c8"
+        },
+        "entryPoints": {
+          "result": [
+            "0x0000000071727de22e5e9d8baf0edac6f37da032"
+          ]
+        },
+        "gasPrice": {
+          "result": {
+            "maxPriorityFeePerGas": "0x4a817c800",
+            "maxFeePerGas": "0x4a817c800"
+          }
+        },
+        "logs": {
+          "result": []
+        },
+        "historicalLogs": {
+          "supported": true,
+          "range": "26210888-26211888",
+          "logs": 0
+        },
+        "rpcLatency": {
+          "runs": 5,
+          "failures": 0,
+          "errors": [],
+          "minMs": 222,
+          "maxMs": 2894,
+          "avgMs": 779
+        },
+        "rpcBurst": {
+          "sent": 10,
+          "failures": 0,
+          "errors": []
+        },
+        "websocket": {
+          "skipped": "Testnet WebSocket URL is not documented; set BOTCHAIN_TESTNET_WS_URL to probe it"
+        },
+        "entryPointCode": {
+          "deployed": true,
+          "bytes": 16035
+        },
+        "simpleAccountFactoryCode": {
+          "deployed": true,
+          "bytes": 2288
+        },
+        "thirdwebFactoryV07Code": {
+          "deployed": false,
+          "bytes": 0
+        },
+        "wbotCode": {
+          "deployed": true,
+          "bytes": 2317
+        },
+        "usdtCode": {
+          "deployed": true,
+          "bytes": 6188
+        },
+        "usdtDecimals": {
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000006"
+        },
+        "usdtSymbol": {
+          "result": "0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000045553445400000000000000000000000000000000000000000000000000000000"
+        },
+        "wbotDecimals": {
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000012"
+        },
+        "wbotSymbol": {
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000457424f5400000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    }
+  ]
+}

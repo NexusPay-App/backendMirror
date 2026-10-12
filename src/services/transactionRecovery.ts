@@ -176,7 +176,7 @@ async function recoverEscrowToUserTransaction(tx: TransactionLogWithRecovery): P
       // Mock user lookup since we don't have the actual userModel
       // In a real implementation, this would use the actual User model
       /*
-      const { User } = await import('../models/userModel');
+      const { User } = await import('../models/userModel.js');
       const user = await User.findById(escrow.userId);
       
       if (!user || !user.walletAddress) {

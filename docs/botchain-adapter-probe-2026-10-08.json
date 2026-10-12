@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-08",
+  "writes": 0,
+  "networks": [
+    {
+      "network": "botchain-testnet",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "predictedAccount": "0x9f10B47700582B607f8E6491E7DAED0fd62d0960",
+      "nonce": "0",
+      "factoryCalldataBytes": 68,
+      "implementation": "0xDE15Ab00C52FF37eCe01C384eB42C802721db823",
+      "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "writes": 0
+    },
+    {
+      "network": "botchain",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "predictedAccount": "0x9f10B47700582B607f8E6491E7DAED0fd62d0960",
+      "nonce": "0",
+      "factoryCalldataBytes": 68,
+      "implementation": "0xDE15Ab00C52FF37eCe01C384eB42C802721db823",
+      "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "writes": 0
+    }
+  ]
+}

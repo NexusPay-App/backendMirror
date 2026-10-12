@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { ThirdwebSDK } from '@thirdweb-dev/sdk';
+
 import { Business } from '../models/businessModel';
 import { User } from '../models/models';
 import { createAccount, generateOTP, otpStore } from '../services/auth';
@@ -12,7 +12,6 @@ import { BusinessCreditService } from '../services/businessCreditService';
 import { SMSService } from '../services/smsService';
 import { UserOptimizationService } from '../services/userOptimizationService';
 
-// Define interface for token transfer events
 interface TokenTransferEvent {
   hash: string;
   from: string;
@@ -24,14 +23,12 @@ interface TokenTransferEvent {
   confirmations: string;
 }
 
-// Utility: Generate Unique Merchant ID (Borderless Till Number)
 function generateMerchantId(): string {
   const timestamp = Date.now().toString().slice(-5);
   const randomDigits = Math.floor(10000 + Math.random() * 90000).toString();
   return `NX-${timestamp}${randomDigits}`;
 }
 
-// Step 1: Request Business Creation (Sends OTP)
 export const requestBusinessCreation = async (req: Request, res: Response): Promise<Response> => {
   const { userId, phoneNumber, businessName, ownerName, location, businessType } = req.body;
 
@@ -40,7 +37,6 @@ export const requestBusinessCreation = async (req: Request, res: Response): Prom
   }
 
   try {
-    // Use optimization service to validate user and business creation
     const validation = await UserOptimizationService.validateBusinessCreation(userId, phoneNumber, businessName);
     
     if (!validation.canCreate) {
@@ -52,31 +48,28 @@ export const requestBusinessCreation = async (req: Request, res: Response): Prom
       return res.status(404).send({ message: 'User not found. Please create a personal account first.' });
     }
 
-    // Check if business name already exists
     const existingBusiness = await Business.findOne({ businessName });
     if (existingBusiness) {
       return res.status(409).send({ message: 'A business with this name already exists.' });
     }
 
-    // Generate OTP for verification
     const otp = generateOTP();
     otpStore[phoneNumber] = otp;
 
-    console.log(`✅ Business Creation OTP for ${phoneNumber}: ${otp}`);
+    console.log("Operation diagnostic");
 
-    // Send OTP via SMS with better error handling
     try {
-      console.log(`📱 Attempting to send business OTP to: ${phoneNumber} (type: ${typeof phoneNumber})`);
+      console.log("Operation diagnostic");
       const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'business_creation');
       
       if (!smsSent) {
-        console.error(`❌ Failed to send business OTP SMS to ${phoneNumber}`);
+        console.error("Operation diagnostic");
         return res.status(500).send({ message: 'Failed to send OTP. Please try again.' });
       }
       
-      console.log(`✅ Business OTP SMS sent successfully to ${phoneNumber}`);
+      console.log("Operation diagnostic");
     } catch (smsError) {
-      console.error(`❌ Error sending business OTP SMS to ${phoneNumber}:`, smsError);
+      console.error("Operation diagnostic");
       return res.status(500).send({ message: 'Failed to send OTP. Please try again.' });
     }
 
@@ -86,12 +79,11 @@ export const requestBusinessCreation = async (req: Request, res: Response): Prom
     });
 
   } catch (error) {
-    console.error('❌ Error in business creation request:', error);
+    console.error("❌ Error in business creation request:");
     return handleError(error, res, 'Failed to process business creation request.');
   }
 };
 
-// Step 2: Complete Business Creation (Creates Business Wallet)
 export const completeBusinessCreation = async (req: Request, res: Response): Promise<Response> => {
   const { userId, phoneNumber, otp, businessName, ownerName, location, businessType } = req.body;
 
@@ -110,16 +102,13 @@ export const completeBusinessCreation = async (req: Request, res: Response): Pro
       return res.status(404).send({ message: 'User not found. Please create a personal account first.' });
     }
 
-    // Check if business name already exists
     const existingBusiness = await Business.findOne({ businessName });
     if (existingBusiness) {
       return res.status(409).send({ message: 'A business with this name already exists.' });
     }
 
-    // Create Business Wallet Using Thirdweb SDK
     const { pk, walletAddress } = await createAccount();
     
-    // Generate a unique merchant ID
     let merchantId;
     let isUnique = false;
     let attempts = 0;
@@ -127,7 +116,6 @@ export const completeBusinessCreation = async (req: Request, res: Response): Pro
 
     while (!isUnique && attempts < maxAttempts) {
       merchantId = generateMerchantId();
-      // Check if merchant ID already exists
       const existingMerchantId = await Business.findOne({ merchantId });
       if (!existingMerchantId) {
         isUnique = true;
@@ -156,7 +144,6 @@ export const completeBusinessCreation = async (req: Request, res: Response): Pro
 
     await business.save();
 
-    // Send business creation SMS notification
     try {
       console.log(`📱 Attempting to send business creation notification to: ${phoneNumber}`);
       const smsSent = await SMSService.sendBusinessNotification({
@@ -197,7 +184,36 @@ export const completeBusinessCreation = async (req: Request, res: Response): Pro
   }
 };
 
-// Get business details for authenticated user
+export const getMyBusinesses = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    if (!req.user) {
+      return res.status(401).send({ success: false, message: 'Authentication required' });
+    }
+    const businesses = await Business.find({ userId: req.user._id }).lean();
+    const payload = businesses.map((business: any) => ({
+      businessId: String(business._id),
+      merchantId: business.merchantId,
+      businessName: business.businessName,
+      businessType: business.businessType,
+      phoneNumber: business.phoneNumber,
+      walletAddress: business.walletAddress,
+      creditLimit: business.creditLimit ?? 0,
+      availableCredit: business.availableCredit ?? 0,
+      currentBalance: business.currentCredit ?? 0,
+      overdraftEnabled: business.overdraftEnabled ?? false,
+      status: business.status || 'active',
+      isVerified: business.isVerified ?? false,
+      pinSet: false,
+      createdAt: business.createdAt,
+      updatedAt: business.updatedAt,
+    }));
+    return res.json({ success: true, message: 'Businesses retrieved', data: { businesses: payload, totalCount: payload.length } });
+  } catch (error) {
+    console.error('Error listing user businesses:', error);
+    return res.status(500).json({ success: false, message: 'Failed to list businesses' });
+  }
+};
+
 export const getBusinessDetails = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.user) {
@@ -209,7 +225,6 @@ export const getBusinessDetails = async (req: Request, res: Response): Promise<R
       return res.status(404).send({ message: 'No business found for this user' });
     }
 
-    // Return business details without sensitive information
     return res.send({
       success: true,
       message: 'Business details retrieved successfully',
@@ -241,10 +256,9 @@ export const getBusinessDetails = async (req: Request, res: Response): Promise<R
   }
 };
 
-// Get business by merchant ID
 export const getBusinessByMerchantId = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { merchantId } = req.params;
+    const merchantId = String(req.params.merchantId);
     if (!merchantId) {
       return res.status(400).send({ message: 'Merchant ID is required!' });
     }
@@ -274,7 +288,6 @@ export const getBusinessByMerchantId = async (req: Request, res: Response): Prom
   }
 };
 
-// Check Business Account Status and Details
 export const checkBusinessStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
     if (!req.user) {
@@ -285,7 +298,6 @@ export const checkBusinessStatus = async (req: Request, res: Response): Promise<
       });
     }
 
-    // Find business account for the user
     const business = await Business.findOne({ userId: req.user._id });
     
     if (!business) {
@@ -298,10 +310,8 @@ export const checkBusinessStatus = async (req: Request, res: Response): Promise<
       });
     }
 
-    // Get transaction history for the business wallet
     const transactions = await getAllTokenTransferEvents('arbitrum', business.walletAddress);
 
-    // Format transaction data
     const formattedTransactions = transactions.map((tx: TokenTransferEvent) => ({
       hash: tx.hash,
       from: tx.from,
@@ -354,7 +364,6 @@ export const checkBusinessStatus = async (req: Request, res: Response): Promise<
   }
 };
 
-// Handle OTP verification for external transfers
 export const verifyExternalTransfer = async (req: Request, res: Response): Promise<Response> => {
   const { businessId, amount, destinationAddress, otp } = req.body;
 
@@ -368,24 +377,17 @@ export const verifyExternalTransfer = async (req: Request, res: Response): Promi
       return res.status(404).send({ message: 'Business account not found.' });
     }
 
-    // Verify OTP
     if (!otpStore[business.phoneNumber] || otpStore[business.phoneNumber] !== otp) {
       return res.status(400).send({ message: 'Invalid or expired OTP.' });
     }
     delete otpStore[business.phoneNumber];
 
-    const sdk = ThirdwebSDK.fromPrivateKey(
-      business.privateKey,
-      config.arbitrum.chainId,
-      { secretKey: config.THIRDWEB_SECRET_KEY }
-    );
+    if (!req.user || business.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Business account access denied' });
+    }
+    const tx = await sendToken(destinationAddress, String(amount), 'arbitrum', business.privateKey, 'USDC', business.walletAddress);
 
-    const businessWallet = sdk.wallet;
-
-    // Transfer funds to external wallet
-    const tx = await businessWallet.transfer(destinationAddress, amount);
-
-    console.log(`✅ Business External Transfer: ${tx.receipt.transactionHash}`);
+    console.log(`✅ Business External Transfer: ${tx.transactionHash}`);
     console.log(`From: ${business.walletAddress}`);
     console.log(`To: ${destinationAddress}`);
     console.log(`Amount: ${amount}`);
@@ -394,7 +396,7 @@ export const verifyExternalTransfer = async (req: Request, res: Response): Promi
       success: true,
       message: 'Funds transferred successfully to external wallet!',
       data: {
-        transactionHash: tx.receipt.transactionHash,
+        transactionHash: tx.transactionHash,
         from: business.walletAddress,
         to: destinationAddress,
         amount
@@ -406,9 +408,6 @@ export const verifyExternalTransfer = async (req: Request, res: Response): Promi
   }
 };
 
-// ========================================
-// 🏦 BUSINESS OVERDRAFT/LOAN ENDPOINTS
-// ========================================
 
 /**
  * Request an overdraft/loan for business
@@ -467,7 +466,7 @@ export const requestBusinessOverdraft = async (req: Request, res: Response): Pro
     ));
 
   } catch (error: any) {
-    console.error('❌ Error in business overdraft request:', error);
+    console.error("❌ Error in business overdraft request:");
     return res.status(500).json(standardResponse(
       false,
       "Failed to process overdraft request",
@@ -557,7 +556,7 @@ export const getBusinessCreditAssessment = async (req: Request, res: Response): 
       ));
     }
 
-    const { businessId } = req.params;
+    const businessId = String(req.params.businessId);
     
     if (!businessId) {
       return res.status(400).json(standardResponse(
@@ -659,7 +658,7 @@ export const getBusinessOverdraftHistory = async (req: Request, res: Response): 
       ));
     }
 
-    const { businessId } = req.params;
+    const businessId = String(req.params.businessId);
     
     if (!businessId) {
       return res.status(400).json(standardResponse(
@@ -712,9 +711,8 @@ export const getBusinessOverdraftHistory = async (req: Request, res: Response): 
   }
 };
 
-// Get unified user profile with all business accounts
 export const getUnifiedUserProfile = async (req: Request, res: Response): Promise<Response> => {
-  const { userId } = req.params;
+  const userId = String(req.params.userId);
 
   if (!userId) {
     return res.status(400).send({ message: 'User ID is required!' });
@@ -753,14 +751,13 @@ export const getUnifiedUserProfile = async (req: Request, res: Response): Promis
     ));
 
   } catch (error) {
-    console.error('❌ Error getting unified user profile:', error);
+    console.error("❌ Error getting unified user profile:");
     return handleError(error, res, 'Failed to get unified user profile.');
   }
 };
 
-// Get all business accounts for a phone number
 export const getBusinessesByPhone = async (req: Request, res: Response): Promise<Response> => {
-  const { phoneNumber } = req.params;
+  const phoneNumber = String(req.params.phoneNumber);
 
   if (!phoneNumber) {
     return res.status(400).send({ message: 'Phone number is required!' });

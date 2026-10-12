@@ -33,7 +33,7 @@ export const retryFailedDeposits = async (minutes: number = 60): Promise<number>
         // Get user information
         const user = await User.findById(transaction.userId);
         if (!user) {
-          console.error(`User not found for transaction ${transaction.transactionId}`);
+          console.error("Operation diagnostic");
           continue;
         }
         
@@ -124,7 +124,7 @@ export const retryFailedWithdrawals = async (minutes: number = 60): Promise<numb
         // Get user information
         const user = await User.findById(transaction.userId);
         if (!user) {
-          console.error(`User not found for transaction ${transaction.transactionId}`);
+          console.error("Operation diagnostic");
           continue;
         }
         
@@ -169,7 +169,7 @@ export const retryFailedWithdrawals = async (minutes: number = 60): Promise<numb
               user.privateKey
             );
           } catch (tokenError) {
-            console.error(`Failed to transfer tokens for transaction ${transaction.transactionId}:`, tokenError);
+            console.error("Operation diagnostic");
             continue;
           }
         }
@@ -193,7 +193,7 @@ export const retryFailedWithdrawals = async (minutes: number = 60): Promise<numb
           console.log(`✅ Successfully retried withdrawal ${transaction.transactionId}`);
           successCount++;
         } else {
-          console.error(`Failed to retry withdrawal ${transaction.transactionId}: ${result?.ResponseDescription || 'Unknown error'}`);
+          console.error("Operation diagnostic");
         }
       } catch (error) {
         console.error(`Error retrying withdrawal ${transaction.transactionId}:`, error);

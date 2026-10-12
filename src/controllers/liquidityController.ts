@@ -106,7 +106,7 @@ export const getLiquidityPositions = async (req: Request, res: Response): Promis
 // Get liquidity stats for a token
 export const getLiquidityStats = async (req: Request, res: Response): Promise<Response> => {
     try {
-        const { token } = req.params;
+        const token = String(req.params.token);
 
         if (!token) {
             return res.status(400).json({
@@ -179,7 +179,7 @@ export const withdrawLiquidity = async (req: Request, res: Response): Promise<Re
 export const deletePosition = async (req: Request, res: Response): Promise<Response> => {
     try {
         const userId = req.user._id;
-        const { positionId } = req.params;
+        const positionId = String(req.params.positionId);
 
         if (!positionId) {
             return res.status(400).json({
@@ -267,7 +267,7 @@ export const initiateWithdrawal = async (req: Request, res: Response): Promise<R
         
         // Log OTP for testing purposes
         console.log('\n======================================');
-        console.log(`🔑 WITHDRAWAL OTP FOR ${phoneNumber}: ${otp}`);
+        console.log("Operation diagnostic");
         console.log('======================================\n');
         
         try {
@@ -275,7 +275,7 @@ export const initiateWithdrawal = async (req: Request, res: Response): Promise<R
             const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'withdrawal');
             
             if (!smsSent) {
-                console.log(`❌ SMS sending failed but withdrawal OTP was generated: ${otp}`);
+                console.log("Operation diagnostic");
                 return res.json({
                     success: false,
                     message: "Failed to send OTP via SMS, but check server logs for OTP code",
@@ -294,8 +294,8 @@ export const initiateWithdrawal = async (req: Request, res: Response): Promise<R
                 }
             });
         } catch (error) {
-            console.error("❌ Error sending SMS OTP:", error);
-            console.log(`❌ SMS sending error but withdrawal OTP was generated: ${otp}`);
+            console.error("❌ Error sending SMS OTP:");
+            console.log("Operation diagnostic");
             return handleError(error, res, "Failed to send withdrawal verification code. Please check server logs for OTP.");
         }
 

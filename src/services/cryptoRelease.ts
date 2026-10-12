@@ -1,3 +1,4 @@
+import { getConversionRateWithCaching } from './rates';
 import { sendFromPlatformWallet, getPlatformWalletBalance } from './platformWallet';
 import { Chain, TokenSymbol } from '../types/token';
 import config from '../config/env';
@@ -98,7 +99,7 @@ export async function processCryptoRelease(
     logger.info(`Transaction hash: ${result.transactionHash}`);
   } catch (err) {
     const error = err as Error;
-    logger.error('Error processing crypto release:', error);
+    logger.error({ err: error }, 'Error processing crypto release:');
 
     // Update release status with error
     const release: CryptoRelease = {
@@ -125,13 +126,6 @@ export async function processCryptoRelease(
  * @returns Equivalent amount in USDC
  */
 async function convertKEStoUSDC(kesAmount: number): Promise<number> {
-  // Implement your conversion logic here
-  // This could involve:
-  // 1. Fetching current KES/USD exchange rate
-  // 2. Applying any platform fees/spreads
-  // 3. Converting to the appropriate USDC decimal places
-  
-  // For now, using a simple mock conversion (implement proper conversion)
-  const mockUsdRate = 0.0069; // 1 KES = 0.0069 USD
-  return kesAmount * mockUsdRate;
-} 
+  const rate = await getConversionRateWithCaching('USDC');
+  return Math.floor((kesAmount / rate) * 1_000_000) / 1_000_000;
+}

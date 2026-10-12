@@ -34,14 +34,14 @@ export const startSchedulers = async () => {
   try {
     await clearFailedTransactionsAndRestart();
   } catch (error) {
-    logger.error('Error clearing failed transactions on startup:', error);
+    logger.error({ err: error }, 'Error clearing failed transactions on startup:');
   }
   
   // Process transaction queue immediately
   try {
     await processTransactionQueue();
   } catch (error) {
-    logger.error('Error processing transaction queue on startup:', error);
+    logger.error({ err: error }, 'Error processing transaction queue on startup:');
   }
   
   // Schedule transaction queue processing with optimized setup
@@ -54,7 +54,7 @@ export const startSchedulers = async () => {
     try {
       await processScheduledRetries();
     } catch (error) {
-      logger.error('Error processing scheduled retries:', error);
+      logger.error({ err: error }, 'Error processing scheduled retries:');
     }
   }, 15 * 1000); // 15 seconds
   intervals.push(retryInterval);
@@ -96,6 +96,6 @@ export const runImmediateRetry = async () => {
     
     logger.info('Immediate retry completed');
   } catch (error) {
-    logger.error('Error in immediate retry:', error);
+    logger.error({ err: error }, 'Error in immediate retry:');
   }
 }; 

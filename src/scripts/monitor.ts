@@ -70,11 +70,11 @@ async function checkBalances() {
           // TODO: Implement alert notification system (email, Slack, etc.)
         }
       } catch (error) {
-        logger.error(`❌ Error checking balance on ${info.name}:`, error);
+        logger.error({ err: error }, `❌ Error checking balance on ${info.name}:`);
       }
     }
   } catch (error) {
-    logger.error('Error in balance check:', error);
+    logger.error({ err: error }, 'Error in balance check:');
   }
 }
 
@@ -83,7 +83,7 @@ async function processQueue() {
     logger.info('🔄 Processing transaction queue...');
     await processTransactionQueue();
   } catch (error) {
-    logger.error('Error processing transaction queue:', error);
+    logger.error({ err: error }, 'Error processing transaction queue:');
   }
 }
 
@@ -92,7 +92,7 @@ async function processRetries() {
     logger.info('🔄 Processing scheduled retries...');
     await processScheduledRetries();
   } catch (error) {
-    logger.error('Error processing retries:', error);
+    logger.error({ err: error }, 'Error processing retries:');
   }
 }
 
@@ -104,7 +104,7 @@ async function cleanup() {
       logger.info(`Cleared ${clearedCount} duplicate transactions`);
     }
   } catch (error) {
-    logger.error('Error in cleanup:', error);
+    logger.error({ err: error }, 'Error in cleanup:');
   }
 }
 

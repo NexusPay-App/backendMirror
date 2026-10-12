@@ -82,7 +82,7 @@ export const getUserTransactions = async (req: Request, res: Response): Promise<
         });
 
     } catch (error) {
-        console.error('Error getting user transactions:', error);
+        console.error("Error getting user transactions:");
         return handleError(error, res, 'Failed to get transactions');
     }
 };

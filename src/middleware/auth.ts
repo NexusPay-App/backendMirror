@@ -124,7 +124,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       ));
     }
   } catch (error: any) {
-    console.error('❌ Error in authentication middleware:', error);
+    console.error("❌ Error in authentication middleware:");
     return res.status(500).json(standardResponse(
       false,
       'Server error',
