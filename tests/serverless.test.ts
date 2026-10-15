@@ -1,0 +1,28 @@
+jest.mock('../src/app', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('../src/index', () => ({ initializeServices: jest.fn() }));
+jest.mock('mongoose', () => ({ __esModule: true, default: { connection: { readyState: 0 } } }));
+import mongoose from 'mongoose';
+import handler from '../src/serverless';
+import app from '../src/app';
+import { initializeServices } from '../src/index';
+const connection = mongoose.connection as any;
+test('serverless requests share initialization and reconnect after an idle disconnect', async () => {
+  const req = {} as any, res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
+  (initializeServices as jest.Mock).mockImplementation(async () => { connection.readyState = 1; });
+  await Promise.all([handler(req, res), handler(req, res)]);
+  expect(initializeServices).toHaveBeenCalledTimes(1);
+  await handler(req, res);
+  expect(initializeServices).toHaveBeenCalledTimes(1);
+  connection.readyState = 0;
+  await Promise.all([handler(req, res), handler(req, res)]);
+  expect(initializeServices).toHaveBeenCalledTimes(2);
+  expect(app).toHaveBeenCalledTimes(5);
+  connection.readyState = 0;
+  (initializeServices as jest.Mock).mockRejectedValueOnce(Error('private connection details'));
+  await handler(req, res);
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith({ success: false, message: 'Service initialization failed' });
+  await handler(req, res);
+  expect(initializeServices).toHaveBeenCalledTimes(4);
+  expect(app).toHaveBeenCalledTimes(6);
+});

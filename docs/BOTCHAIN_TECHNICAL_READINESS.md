@@ -13,6 +13,7 @@ The public test deployment is https://nexuspayapp-ten.vercel.app. BOT Chain test
 - Corrected phone registration to create the account and session after successful OTP verification. It no longer consumes the code and then asks the user to log in again. Unverified secondary contact fields are not attached during registration. Delivery failures do not claim that an OTP was sent. Google initialization errors no longer block the phone form.
 - Preserved the legacy `uniqueCode` business index by populating new merchants' compatibility field from their merchant ID. No existing user indexes or wallet addresses were rewritten.
 - Updated Reclaim SDK to 5.8.3. Fresh production audits: backend 24 moderate, frontend 2 moderate; neither reports high/critical findings. Reclaim remains disabled. See the dependency security reviews for remaining transitive findings.
+- Reinitialize the serverless database connection after an idle disconnect, sharing one reconnect across concurrent requests. A regression test covers reconnect, failure and recovery.
 - Added a public deployment-health checker and a six-hour GitHub Actions schedule. It checks website links, MongoDB readiness, and testnet/mainnet capabilities. This does not replace payment monitoring.
 
 ## Evidence
@@ -20,7 +21,7 @@ The public test deployment is https://nexuspayapp-ten.vercel.app. BOT Chain test
 | Check | Result |
 | --- | --- |
 | Backend build and lint | Passed |
-| Backend unit/API tests | 53 tests passed across 13 suites (including the final targeted limiter rerun) |
+| Backend unit/API tests | 54 tests passed across 14 suites |
 | Frontend production build / TypeScript | Passed |
 | Frontend lint | 0 errors, 10 existing warnings |
 | Frontend unit tests | 13 passed |
@@ -73,7 +74,7 @@ The storage probe requires `DEV_MONGO_URL` to differ from `PROD_MONGO_URL`, crea
 
 ## Deployed revisions
 
-- Backend Vercel deployment: `dpl_8FFfsBLJvjrS1w8PaxzY9a8rfhHQ`, aliased to `https://nexuspay-backend-test.vercel.app`.
+- Backend Vercel deployment: `dpl_BpuZUtzcigE6GjFKM3NRJLdGeXfG`, aliased to `https://nexuspay-backend-test.vercel.app`.
 - Frontend Vercel deployment: `dpl_H18Detr2fGKkNw4vBJxbwte1BEim`, aliased to `https://nexuspayapp-ten.vercel.app`.
 
 Both are the existing testnet application deployments. Vercel's `production` alias terminology does not enable BOT mainnet.
