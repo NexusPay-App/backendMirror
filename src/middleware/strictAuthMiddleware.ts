@@ -4,18 +4,9 @@ import { User } from '../models/models';
 import config from '../config/env';
 import { standardResponse } from '../services/utils';
 
-// Define session store for tracking verified sessions
-interface SessionStore {
-  [key: string]: {
-    userId: string;
-    verified: boolean;
-    verifiedAt: Date;
-    expiresAt: Date;
-  }
-}
-
-// In-memory session store (in production, use Redis or another persistent store)
-const verifiedSessions: SessionStore = {};
+import { createHash } from 'node:crypto';
+import { VerifiedSession } from '../models/verifiedSession';
+const sessionKey = (token: string) => createHash('sha256').update(token).digest('hex');
 
 // Extend Express Request type to include verified session
 declare global {
@@ -111,8 +102,8 @@ export const enforceStrictAuth = async (req: Request, res: Response, next: NextF
     }
 
     // Step 2: Check if the session has been verified with OTP
-    const sessionId = token; // Use token as session ID
-    const verifiedSession = verifiedSessions[sessionId];
+    const sessionId = sessionKey(token);
+    const verifiedSession = await VerifiedSession.findOne({ _id: sessionId, userId: String(user._id) });
     
     if (!verifiedSession || !verifiedSession.verified) {
       return res.status(403).json(standardResponse(
@@ -127,7 +118,7 @@ export const enforceStrictAuth = async (req: Request, res: Response, next: NextF
     const now = new Date();
     if (now > verifiedSession.expiresAt) {
       // Remove expired session
-      delete verifiedSessions[sessionId];
+      await VerifiedSession.deleteOne({ _id: sessionId });
       
       return res.status(403).json(standardResponse(
         false,
@@ -160,53 +151,14 @@ export const enforceStrictAuth = async (req: Request, res: Response, next: NextF
  * Register a verified session after successful OTP verification
  * Call this function after successfully verifying an OTP
  */
-export const registerVerifiedSession = (token: string, userId: string, expiryHours: number = 4): void => {
+export const registerVerifiedSession = async (token: string, userId: string, expiryHours = 4): Promise<void> => {
   const now = new Date();
-  const expiresAt = new Date(now);
-  expiresAt.setHours(now.getHours() + expiryHours);
-  
-  verifiedSessions[token] = {
-    userId,
-    verified: true,
-    verifiedAt: now,
-    expiresAt
-  };
-  
-  // Log for debugging
-  console.log("Operation diagnostic");
-  
-  // Clean up expired sessions periodically
-  cleanupExpiredSessions();
+  await VerifiedSession.updateOne({ _id: sessionKey(token) }, { $set: { userId, verified: true, verifiedAt: now, expiresAt: new Date(now.getTime() + expiryHours * 60 * 60 * 1000) } }, { upsert: true });
 };
-
-/**
- * Invalidate a session when user logs out
- */
-export const invalidateSession = (token: string): void => {
-  if (verifiedSessions[token]) {
-    delete verifiedSessions[token];
-    console.log("Operation diagnostic");
-  }
+export const invalidateSession = async (token: string): Promise<void> => {
+  await VerifiedSession.deleteOne({ _id: sessionKey(token) });
 };
-
-/**
- * Clean up expired sessions to prevent memory leaks
- */
-const cleanupExpiredSessions = (): void => {
-  const now = new Date();
-  let expiredCount = 0;
-  
-  Object.keys(verifiedSessions).forEach(sessionId => {
-    if (now > verifiedSessions[sessionId].expiresAt) {
-      delete verifiedSessions[sessionId];
-      expiredCount++;
-    }
-  });
-  
-  if (expiredCount > 0) {
-    console.log(`🧹 Cleaned up ${expiredCount} expired sessions`);
-  }
-};
-
-// Schedule regular cleanup (every hour)
-export const startSessionCleanup = () => setInterval(cleanupExpiredSessions, 60 * 60 * 1000).unref();
+// TTL expiry is persisted; this timer is only housekeeping on persistent hosts.
+export const startSessionCleanup = () => setInterval(() => {
+  void VerifiedSession.deleteMany({ expiresAt: { $lte: new Date() } }).catch(() => {});
+}, 60 * 60 * 1000).unref();

@@ -1,5 +1,11 @@
 # Dependency security review — 8 October 2026
 
+## Update — 15 October 2026
+
+Reclaim SDK is now pinned to **5.8.3** in both applications. The installed dependency tree no longer includes its vulnerable node-forge path. A fresh production-only audit reports **0 high and 0 critical** findings: backend **24 moderate**, frontend **2 moderate**. These counts include transitive parents. The current snapshots are in `production-dependency-audit-2026-10-15.json` in each repository.
+
+Remaining production findings are in Thirdweb wallet connector dependencies (backend) and Reclaim's uuid dependency (both). npm proposes incompatible SDK downgrades; no forced downgrade or untested major override was applied. Reclaim stays disabled pending credential rotation and provider-backed verification. Development-only lint findings remain. The historical counts and assessment below describe the 8 October baseline, not the current installed production tree.
+
 These are npm advisory counts, including transitive parent findings; they are not counts of independently exploitable application flaws. Upgrading a package does not prove application security.
 
 | Package root | Before | After |

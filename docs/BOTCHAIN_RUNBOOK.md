@@ -1,6 +1,6 @@
 # BOT Chain implementation and staging runbook
 
-Status: implemented behind explicit capability flags; funded transaction acceptance is pending. No deployment or chain transaction was made during this change.
+Status (15 October 2026): funded testnet payments and merchant settlement passed. Mainnet remains disabled. See [current readiness and evidence](BOTCHAIN_TECHNICAL_READINESS.md) for completed work and release gates.
 
 ## Accounts and gas
 
@@ -71,7 +71,7 @@ Do not restore an old build that cannot read encrypted keys after encryption mig
 
 ## Other release requirements
 
-- Keep `ENABLE_RECLAIM=false` until the unpatched cryptographic dependency has been reviewed/remediated (see `DEPENDENCY_SECURITY_REVIEW.md`). Rotate the Reclaim application secret previously exposed in the old frontend. Set the new secret only on the backend and allowlist provider IDs. The server creates sessions and verifies proofs against their provider version, user context, expiry, and single-use session before recording verified results.
+- Keep `ENABLE_RECLAIM=false` until rotated credentials and provider-backed verification have been validated (see `DEPENDENCY_SECURITY_REVIEW.md`). Rotate the Reclaim application secret previously exposed in the old frontend. Set the new secret only on the backend and allowlist provider IDs. The server creates sessions and verifies proofs against their provider version, user context, expiry, and single-use session before recording verified results.
 - Google sign-in remains available. The former Google Authenticator payment branch never verified a code; payment authorization now requires an actual account password. Passwordless Google users need a supported password/step-up setup before making payments. Implementing TOTP is a separate credential-enrollment and recovery workflow, not accepting arbitrary codes.
 - Configure M-Pesa callback URLs with the shared callback token and run a durable worker before setting `ENABLE_MPESA=true`. Inbox acknowledgement occurs after MongoDB persistence. Processing records left by crashes are retained for review. The forwarder awaits backend acknowledgement. Validate this with the provider sandbox before production cutover; token authentication is not a replacement for provider transaction reconciliation.
 - BOT M-Pesa, treasury funding/approval policy, sponsorship/paymaster, BDEX swaps, and bridging are not enabled. No unverified USDT is substituted for USDC in existing fiat settlement.

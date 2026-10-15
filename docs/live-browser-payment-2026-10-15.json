@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-10-15T10:25:15.097Z",
+  "deployment": "https://nexuspayapp-ten.vercel.app",
+  "scope": "One controlled QA payment through the live browser; login session preloaded, not an OAuth/SMS test",
+  "amount": "0.001",
+  "token": "USDT",
+  "chainId": 968,
+  "submitted": true,
+  "httpStatus": 202,
+  "paymentId": "6ad0aa1b95fbac447d73b019",
+  "initialStatus": "pending",
+  "explorerUrl": "https://scan.bohr.life/tx/0xab11826e2e922975646aa58a7faaa81289693055e31bc8778561fb2810a49c67",
+  "confirmedInBrowser": true
+}

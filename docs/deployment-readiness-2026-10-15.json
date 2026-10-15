@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-10-15T10:25:38.895Z",
+  "deployment": "https://nexuspayapp-ten.vercel.app",
+  "scope": "testnet readiness; does not establish funded-payment success or ecosystem eligibility",
+  "results": [
+    {
+      "name": "Public website and BOT ecosystem links",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "Integration showcase",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "API and database readiness",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "BOT testnet enabled; mainnet disabled",
+      "passed": true,
+      "status": 200
+    }
+  ]
+}

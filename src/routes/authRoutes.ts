@@ -1,3 +1,4 @@
+import { issueChallenge, consumeChallenge } from '../services/verificationChallenges';
 import express from 'express';
 import { 
   requestPasswordReset, 
@@ -86,11 +87,10 @@ const { SMSService } = require('../services/smsService');
     
     // Generate and store OTP
     const otp = generateOTP();
-    otpStore[phone] = otp;
+    await issueChallenge(phone, 'phone-standalone', otp);
     
     // Log OTP for testing purposes
     console.log('\n======================================');
-    console.log(`🔑 OTP FOR ${phone}: ${otp}`);
     console.log('======================================\n');
     
     // Send OTP via SMS
@@ -99,14 +99,13 @@ const { SMSService } = require('../services/smsService');
       const smsSent = await SMSService.sendOTP(phone, otp, 'verification');
       
       if (!smsSent) {
-        console.log(`❌ SMS sending failed but OTP was generated: ${otp}`);
         return res.status(500).json({
           success: false,
-          message: "Failed to send OTP via SMS, but check server logs for OTP code",
+          message: "Unable to deliver the verification code. Try again later.",
           data: null,
           error: {
             code: "SMS_FAILED",
-            message: "Failed to send SMS. Please check server logs for OTP."
+            message: "Unable to deliver SMS."
           }
         });
       }
@@ -120,14 +119,13 @@ const { SMSService } = require('../services/smsService');
       });
     } catch (error) {
       console.error('Error sending SMS:', error);
-      console.log(`❌ SMS sending error but OTP was generated: ${otp}`);
       return res.status(500).json({
         success: false,
-        message: "Failed to send OTP via SMS, but check server logs for OTP code",
+        message: "Unable to deliver the verification code. Try again later.",
         data: null,
         error: {
           code: "SMS_ERROR",
-          message: "Error sending SMS. Please check server logs for OTP."
+          message: "Unable to deliver SMS."
         }
       });
     }
@@ -169,12 +167,10 @@ router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) 
     // Log OTP verification attempt
     console.log('\n======================================');
     console.log(`🔍 STANDALONE VERIFYING OTP FOR ${phone}`);
-    console.log(`📱 Received OTP: ${otp}`);
-    console.log(`🔐 Stored OTP: ${otpStore[phone] || 'No OTP found'}`);
     console.log('======================================\n');
     
     // Verify OTP
-    if (!otpStore[phone] || otpStore[phone] !== otp) {
+    if (!await consumeChallenge(phone, 'phone-standalone', otp)) {
       return res.status(400).json({
         success: false,
         message: "Invalid or expired OTP",
@@ -187,7 +183,7 @@ router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) 
     }
     
     // Clear OTP after verification
-    delete otpStore[phone];
+    // Challenge consumed atomically.
     
     // Find user and generate token
     const user = await User.findOne({ phoneNumber: phone });
@@ -220,7 +216,7 @@ router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) 
     );
     
     // Register this as a verified session
-    registerVerifiedSession(token, user._id.toString());
+    await registerVerifiedSession(token, user._id.toString());
     
     return res.json({
       success: true,
@@ -270,7 +266,7 @@ router.post('/google/link', authenticate, validate(linkGoogleValidation), linkGo
 
 // Account settings routes (for adding phone/password after Google signup)
 router.post('/settings/add-phone-password', authenticate, validate(addPhonePasswordValidation), addPhoneAndPassword);
-router.post('/settings/verify-phone-password', validate(verifyPhonePasswordValidation), verifyPhoneAndPassword);
+router.post('/settings/verify-phone-password', authenticate, validate(verifyPhonePasswordValidation), verifyPhoneAndPassword);
 
 // Google configuration endpoint for frontend
 router.get('/google-config', (req, res) => {

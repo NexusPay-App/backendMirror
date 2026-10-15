@@ -92,6 +92,12 @@ const businessSchema: Schema = new Schema({
     required: true,
     unique: true,
   },
+  // Older databases retain a uniqueCode unique index. Populate it on new
+  // merchants without dropping that index or changing existing identifiers.
+  uniqueCode: {
+    type: String,
+    default: function(this: { merchantId: string }) { return this.merchantId; },
+  },
   walletAddress: {
     type: String,
     required: true,

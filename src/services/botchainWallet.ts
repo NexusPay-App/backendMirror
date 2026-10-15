@@ -8,6 +8,7 @@ import { BOT_ENTRY_POINT, BOT_FACTORY, BOT_SALT, getBotConfig, type BotNetwork, 
 import { ChainAccount } from '../models/chainAccount';
 import { botRpc } from './botchainRpc';
 import { parseAmount, formatAmount } from '../utils/amounts';
+import { BotPaymentError } from './botchainErrors';
 
 export function botAccountOverrides(network: BotNetwork) {
   const n = getBotConfig(network);
@@ -68,6 +69,9 @@ export async function prepareBotTransfer(network: BotNetwork, privateKey: string
   const token = n.tokens[symbol];
   if (!token) throw new Error('Unsupported BOT asset');
   const units = parseAmount(amount, token.decimals);
+  const nativeBalance = BigInt(await botRpc<Hex>(n.rpc, 'eth_getBalance', [sender, 'latest']));
+  if (!token.address && nativeBalance < units) throw new BotPaymentError('INSUFFICIENT_BALANCE', 'Your BOT balance is lower than the amount entered.');
+  if (nativeBalance <= (token.address ? 0n : units)) throw new BotPaymentError('INSUFFICIENT_GAS', 'Keep some native BOT in this wallet for the network fee. Fund your BOT address from Receive.');
   const contract = getContract({ client, chain: n.chain, address: sender });
   const overrides = botAccountOverrides(network);
   const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
@@ -75,8 +79,13 @@ export async function prepareBotTransfer(network: BotNetwork, privateKey: string
   const predicted = await overrides.predictAddress(factory, admin.address);
   if (predicted.toLowerCase() !== sender.toLowerCase()) throw new Error('BOT sender does not match signing account');
   if (token.address) {
-    const actualDecimals = await readContract({ contract: getContract({ client, chain: n.chain, address: token.address }), method: 'function decimals() view returns (uint8)' });
+    const asset = getContract({ client, chain: n.chain, address: token.address });
+    const [actualDecimals, balance] = await Promise.all([
+      readContract({ contract: asset, method: 'function decimals() view returns (uint8)' }),
+      readContract({ contract: asset, method: 'function balanceOf(address account) view returns (uint256)', params: [sender] }),
+    ]);
     if (actualDecimals !== token.decimals) throw new Error('BOT token metadata changed');
+    if (balance < units) throw new BotPaymentError('INSUFFICIENT_BALANCE', `Your ${symbol} balance on ${n.name} is lower than the amount entered.`);
   }
   const data = token.address ? encodeFunctionData({ abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']), functionName: 'transfer', args: [recipient as Hex, units] }) : '0x';
   const fees = await botRpc<{ maxFeePerGas: Hex; maxPriorityFeePerGas: Hex }>(n.bundler, 'skandha_getGasPrice');

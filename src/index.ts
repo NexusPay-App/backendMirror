@@ -1,3 +1,5 @@
+import { VerificationChallenge } from './services/verificationChallenges';
+import { VerifiedSession } from './models/verifiedSession';
 import { startPaymentReconciliation, startBotDepositIndexing } from './services/paymentWorkers';
 import { MpesaCallback } from './models/mpesaCallback';
 import app from './app';
@@ -11,14 +13,16 @@ import { botCapabilities } from './config/botchain';
 import { ReclaimSession } from './models/reclaimSession';
 import { redis } from './config/redis';
 import mongoose from 'mongoose';
+import { BotPaymentLimit } from './middleware/botPaymentLimiter';
 
 export async function initializeServices() {
   validateEnvironment();
   await connect();
+  await Promise.all([VerificationChallenge.createIndexes(), VerifiedSession.createIndexes()]);
   if (process.env.ENABLE_MPESA === 'true') await MpesaCallback.createIndexes();
   if (process.env.RECLAIM_APP_SECRET) await ReclaimSession.createIndexes();
   // Only new BOT collections receive indexes automatically. No existing account indexes are rebuilt.
-  if (botCapabilities().some(n => n.enabled)) await Promise.all([ChainAccount.createIndexes(), BotTransfer.createIndexes()]);
+  if (botCapabilities().some(n => n.enabled)) await Promise.all([ChainAccount.createIndexes(), BotTransfer.createIndexes(), BotPaymentLimit.createIndexes()]);
 }
 export async function startServer() {
   await initializeServices();

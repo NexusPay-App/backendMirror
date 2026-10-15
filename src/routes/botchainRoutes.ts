@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
+import { botPaymentLimiter } from '../middleware/botPaymentLimiter';
 import { authenticate } from '../middleware/auth';
 import { botCapabilities, isBotNetwork, getBotConfig } from '../config/botchain';
 import { resolveBotAccount, getBotBalances } from '../services/botchainWallet';
 import { submitBotTransfer, reconcileBotTransfer, publicBotTransfer } from '../services/botchainTransfers';
 import { BotTransfer } from '../models/botTransfer';
+import { botPaymentError } from '../services/botchainErrors';
 const router = Router();
 router.get('/networks', (_req, res) => res.json({ success: true, data: botCapabilities() }));
 router.use(authenticate);
@@ -20,13 +21,15 @@ router.get('/:network/balances', async (req, res) => {
   const account = await resolveBotAccount(req.user, res.locals.network);
   res.json({ success: true, data: { ...account, balances: await getBotBalances(res.locals.network, account.address), lastUpdated: new Date().toISOString() } });
 });
-router.post('/:network/transfers', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 }), async (req, res) => {
+router.post('/:network/transfers', botPaymentLimiter, async (req, res) => {
+  if (!req.user.password) return res.status(403).json({ success: false, error: { code: 'PASSWORD_SETUP_REQUIRED', message: 'Set up your NexusPay account password in Settings before making payments. Your Google password is not your NexusPay password.' } });
   if (!req.user.password || typeof req.body.password !== 'string' || !await bcrypt.compare(req.body.password, req.user.password)) return res.status(401).json({ success: false, error: { code: 'PAYMENT_AUTH_REQUIRED', message: 'A verified account password is required to authorize this payment' } });
   try {
     const record = await submitBotTransfer(req.user, res.locals.network, req.body, req.get('Idempotency-Key') || '');
     res.status(record.status === 'confirmed' ? 200 : 202).json({ success: true, data: publicBotTransfer(record) });
   } catch (error) {
-    res.status(400).json({ success: false, error: { code: 'BOT_PAYMENT_REJECTED', message: error instanceof Error ? error.message : 'Unable to prepare BOT payment' } });
+    const failure = botPaymentError(error);
+    res.status(failure.status).json({ success: false, error: { code: failure.code, message: failure.message } });
   }
 });
 router.get('/:network/transfers', async (req, res) => {

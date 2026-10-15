@@ -1,0 +1,142 @@
+{
+  "runId": "b6f0415c-d04e-4c32-92c4-1ff3019fba4a",
+  "startedAt": "2026-10-15T10:02:40.235Z",
+  "scope": "Automated QA fixtures on chain 968, not organic adoption",
+  "payments": [
+    {
+      "name": "BOT to registered recipient",
+      "key": "b6f0415c-d04e-4c32-92c4-1ff3019fba4a-BOT-send",
+      "payment": {
+        "id": "6ad0a4cba1191a4b5d125eb2",
+        "network": "botchain-testnet",
+        "chainId": 968,
+        "direction": "outgoing",
+        "sender": "0xaff80c4d9af0d36178338142f8d7275af799b3e3",
+        "recipient": "0x3d876c471711849B3b83BD5482E191e27dac11E3",
+        "amount": "0.01",
+        "amountUnits": "10000000000000000",
+        "tokenSymbol": "BOT",
+        "status": "confirmed",
+        "userOpHash": "0x046e6b531c848880328cdb3b1b4c8201c732bc6c2ea9a7f52ec4c7b6719ebff4",
+        "transactionHash": "0xe1fa14b2cf9655a55890aa255ec2f4575ba9d46797ea2353776bdd69cd5addf5",
+        "explorerUrl": "https://scan.bohr.life/tx/0xe1fa14b2cf9655a55890aa255ec2f4575ba9d46797ea2353776bdd69cd5addf5",
+        "createdAt": "2026-10-15T10:02:51.970Z"
+      },
+      "idempotencyVerified": true
+    },
+    {
+      "name": "USDT to registered recipient",
+      "key": "b6f0415c-d04e-4c32-92c4-1ff3019fba4a-USDT-send",
+      "payment": {
+        "id": "6ad0a4dba1191a4b5d125eb3",
+        "network": "botchain-testnet",
+        "chainId": 968,
+        "direction": "outgoing",
+        "sender": "0xaff80c4d9af0d36178338142f8d7275af799b3e3",
+        "recipient": "0x3d876c471711849B3b83BD5482E191e27dac11E3",
+        "amount": "0.01",
+        "amountUnits": "10000",
+        "tokenSymbol": "USDT",
+        "status": "confirmed",
+        "userOpHash": "0x3dacff533c60c9795458db85f7dfb315ee1c4c365b9f446e2b76cb5e35302154",
+        "transactionHash": "0x6a213617b1a39efda800db64cc9d0f3d2495d2cc29a7254261e8c27e8101377f",
+        "explorerUrl": "https://scan.bohr.life/tx/0x6a213617b1a39efda800db64cc9d0f3d2495d2cc29a7254261e8c27e8101377f",
+        "createdAt": "2026-10-15T10:03:07.415Z"
+      },
+      "idempotencyVerified": true
+    },
+    {
+      "name": "USDT merchant payment",
+      "key": "b6f0415c-d04e-4c32-92c4-1ff3019fba4a-USDT-merchant",
+      "payment": {
+        "id": "6ad0a4eaa1191a4b5d125eb5",
+        "network": "botchain-testnet",
+        "chainId": 968,
+        "direction": "outgoing",
+        "sender": "0xaff80c4d9af0d36178338142f8d7275af799b3e3",
+        "recipient": "0x3d876c471711849B3b83BD5482E191e27dac11E3",
+        "amount": "0.01",
+        "amountUnits": "10000",
+        "tokenSymbol": "USDT",
+        "status": "confirmed",
+        "userOpHash": "0x2f7f5679ed92dd8abd1e2563d4de31114718ea2709d4aec51eeb774bf75288fa",
+        "transactionHash": "0x315a33cd5d9007ddd5f23e8fa502a38153194927127abe50464c5a1794490a69",
+        "explorerUrl": "https://scan.bohr.life/tx/0x315a33cd5d9007ddd5f23e8fa502a38153194927127abe50464c5a1794490a69",
+        "createdAt": "2026-10-15T10:03:22.636Z"
+      },
+      "idempotencyVerified": true
+    },
+    {
+      "name": "Wrap test BOT into WBOT",
+      "key": "b6f0415c-d04e-4c32-92c4-1ff3019fba4a-BOT-wrap",
+      "payment": {
+        "id": "6ad0a563a1191a4b5d125eb6",
+        "network": "botchain-testnet",
+        "chainId": 968,
+        "direction": "outgoing",
+        "sender": "0xaff80c4d9af0d36178338142f8d7275af799b3e3",
+        "recipient": "0xD5452816194a3784dBa983426cCe7c122F4abd30",
+        "amount": "0.01",
+        "amountUnits": "10000000000000000",
+        "tokenSymbol": "BOT",
+        "status": "confirmed",
+        "userOpHash": "0xca3de53e65be31799215f8a9fd55d000f293e8549feabb230cd06491d1d36765",
+        "transactionHash": "0x09bdc461cff8a0a3803a6c7934512816f61c525a34cfc05c6728b5e9af6b7aa2",
+        "explorerUrl": "https://scan.bohr.life/tx/0x09bdc461cff8a0a3803a6c7934512816f61c525a34cfc05c6728b5e9af6b7aa2",
+        "createdAt": "2026-10-15T10:05:23.825Z"
+      },
+      "idempotencyVerified": true
+    },
+    {
+      "name": "WBOT to registered recipient",
+      "key": "b6f0415c-d04e-4c32-92c4-1ff3019fba4a-WBOT-send",
+      "payment": {
+        "id": "6ad0a572a1191a4b5d125eb7",
+        "network": "botchain-testnet",
+        "chainId": 968,
+        "direction": "outgoing",
+        "sender": "0xaff80c4d9af0d36178338142f8d7275af799b3e3",
+        "recipient": "0x3d876c471711849B3b83BD5482E191e27dac11E3",
+        "amount": "0.001",
+        "amountUnits": "1000000000000000",
+        "tokenSymbol": "WBOT",
+        "status": "confirmed",
+        "userOpHash": "0x0252d56656568b327a1553e5fa1b99c7756cb303c2555ecf72ba51fa2efcc3c2",
+        "transactionHash": "0x4c47e5e585ab786f7dd4669fcf3f3362a3795db599b231fc6bd682327514f5f5",
+        "explorerUrl": "https://scan.bohr.life/tx/0x4c47e5e585ab786f7dd4669fcf3f3362a3795db599b231fc6bd682327514f5f5",
+        "createdAt": "2026-10-15T10:05:38.993Z"
+      },
+      "idempotencyVerified": true
+    }
+  ],
+  "sender": "0xaFF80c4D9Af0D36178338142F8D7275aF799B3E3",
+  "initialBalances": [
+    {
+      "symbol": "BOT",
+      "decimals": 18,
+      "address": null,
+      "balance": "9.39492266",
+      "balanceUnits": "9394922660000000000"
+    },
+    {
+      "symbol": "WBOT",
+      "decimals": 18,
+      "address": "0xD5452816194a3784dBa983426cCe7c122F4abd30",
+      "balance": "0",
+      "balanceUnits": "0"
+    },
+    {
+      "symbol": "USDT",
+      "decimals": 6,
+      "address": "0x75edC9335175Fc0552D51D48439F229c10420fe3",
+      "balance": "1000",
+      "balanceUnits": "1000000000"
+    }
+  ],
+  "passwordRejection": {
+    "status": 401,
+    "code": "PAYMENT_AUTH_REQUIRED"
+  },
+  "historyVerified": true,
+  "completedAt": "2026-10-15T10:05:53.184Z"
+}

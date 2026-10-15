@@ -35,3 +35,21 @@ test('wrong-network sender is rejected before any operation is prepared', async 
   await expect(submitBotTransfer(user, 'botchain-testnet', { ...input, senderAddress: user.walletAddress }, 'stable-request-key-3')).rejects.toThrow('Sender address');
   expect(BotTransfer.create).not.toHaveBeenCalled();
 });
+test('a competing request cannot release a live preparation lock', async () => {
+  const active = { status: 'preparing', userOpHash: null, save: jest.fn() };
+  (BotTransfer.create as jest.Mock).mockRejectedValue({ code: 11000 });
+  (BotTransfer.findOne as jest.Mock).mockImplementation(async query => query.chainId ? active : undefined);
+  await expect(submitBotTransfer(user, 'botchain-testnet', input, 'competing-request-key')).rejects.toThrow('requires reconciliation');
+  expect(prepareBotTransfer).not.toHaveBeenCalled();
+  expect(active.save).not.toHaveBeenCalled();
+  expect(BotTransfer.create).toHaveBeenCalledTimes(1);
+});
+test('a preparation failure returns a safe reason without claiming submission', async () => {
+  (prepareBotTransfer as jest.Mock).mockRejectedValue(new Error('AA21 did not pay prefund'));
+  const record = await submitBotTransfer(user, 'botchain-testnet', input, 'underfunded-request-key');
+  expect(record.status).toBe('failed');
+  expect(record.failureCode).toBe('INSUFFICIENT_GAS');
+  expect(record.failureReason).toContain('native BOT');
+  expect(record.userOpHash).toBeUndefined();
+  expect(submit).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { issueChallenge, consumeChallenge } from '../services/verificationChallenges';
 import { Request, Response } from 'express';
 
 import { Business } from '../models/businessModel';
@@ -32,6 +33,7 @@ function generateMerchantId(): string {
 export const requestBusinessCreation = async (req: Request, res: Response): Promise<Response> => {
   const { userId, phoneNumber, businessName, ownerName, location, businessType } = req.body;
 
+  if (String(userId) !== String(req.user?._id)) return res.status(403).json({ success: false, message: 'Business owner must match the signed-in account' });
   if (!userId || !phoneNumber || !businessName || !ownerName || !location || !businessType) {
     return res.status(400).send({ message: 'All fields are required!' });
   }
@@ -54,7 +56,7 @@ export const requestBusinessCreation = async (req: Request, res: Response): Prom
     }
 
     const otp = generateOTP();
-    otpStore[phoneNumber] = otp;
+    await issueChallenge(phoneNumber, 'business-creation', otp, { userId: String(req.user._id) });
 
     console.log("Operation diagnostic");
 
@@ -87,14 +89,15 @@ export const requestBusinessCreation = async (req: Request, res: Response): Prom
 export const completeBusinessCreation = async (req: Request, res: Response): Promise<Response> => {
   const { userId, phoneNumber, otp, businessName, ownerName, location, businessType } = req.body;
 
+  if (String(userId) !== String(req.user?._id)) return res.status(403).json({ success: false, message: 'Business owner must match the signed-in account' });
   if (!userId || !phoneNumber || !otp || !businessName || !ownerName || !location || !businessType) {
     return res.status(400).send({ message: 'All fields are required!' });
   }
 
-  if (!otpStore[phoneNumber] || otpStore[phoneNumber] !== otp) {
+  if (!await consumeChallenge(phoneNumber, 'business-creation', otp, String(req.user._id))) {
     return res.status(400).send({ message: 'Invalid or expired OTP.' });
   }
-  delete otpStore[phoneNumber]; // Clear OTP after verification
+  // Code consumed atomically.
 
   try {
     const user = await User.findById(userId);

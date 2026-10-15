@@ -1,7 +1,7 @@
+import { issueChallenge, consumeChallenge } from './verificationChallenges';
 import { randomInt } from "node:crypto";
 import nodemailer from 'nodemailer';
 import config from '../config/env';
-import Redis from 'ioredis';
 
 // Define email template types
 type EmailTemplate = {
@@ -11,12 +11,6 @@ type EmailTemplate = {
 
 type StandardTemplateFunction = (otp: string) => EmailTemplate;
 type TransactionTemplateFunction = (otp: string, amount: string, token: string) => EmailTemplate;
-
-// In-memory OTP store as fallback when Redis is unavailable
-const inMemoryOtpStore: Record<string, { otp: string, expiry: number }> = {};
-
-// Use centralized Redis client
-import { redis, isRedisConnected } from '../config/redis';
 
 // Create a transporter using Gmail
 const transporter = nodemailer.createTransport({
@@ -38,7 +32,7 @@ const emailTemplates = {
                 <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; letter-spacing: 5px; margin: 20px 0;">
                     <strong>${otp}</strong>
                 </div>
-                <p>This OTP will expire in 10 minutes.</p>
+                <p>This OTP will expire in 5 minutes.</p>
                 <p>If you didn't request this, please ignore this email.</p>
             </div>
         `
@@ -68,7 +62,7 @@ const emailTemplates = {
                 <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; letter-spacing: 5px; margin: 20px 0;">
                     <strong>${otp}</strong>
                 </div>
-                <p>This OTP will expire in 10 minutes.</p>
+                <p>This OTP will expire in 5 minutes.</p>
                 <p>If you didn't request a password reset, please ignore this email.</p>
             </div>
         `
@@ -129,6 +123,7 @@ export async function sendEmail(
             emailContent = (emailTemplates[template] as StandardTemplateFunction)(otp);
         }
 
+        await storeOTP(to, otp, template);
         try {
             // Try to send email
             await transporter.sendMail({
@@ -139,15 +134,13 @@ export async function sendEmail(
             });
             console.log(`✅ Email sent to ${to} for ${template}`);
         } catch (emailError) {
-            // If email fails, just log the error and continue
-            console.error('❌ Error sending email:', emailError);
-            console.log("Operation diagnostic");
+            // A delivery failure must not advance the verification flow.
+            console.error('Verification email delivery failed');
+            return false;
         }
 
         // Store OTP with purpose and expiry
-        await storeOTP(to, otp, template);
-        
-        // Always return true so verification flow can continue
+        // Return success only after delivery completes.
         return true;
     } catch (error) {
         console.error('❌ Error in sendEmail function:', error);
@@ -160,80 +153,10 @@ function generateOTP(): string {
     return randomInt(100000, 1000000).toString();
 }
 
-// Store OTP with expiry in Redis or in-memory
+// Verification state is durable and purpose-bound across serverless instances.
 async function storeOTP(email: string, otp: string, purpose: string): Promise<void> {
-    try {
-        const key = `otp:${purpose}:${email}`;
-        const expirySeconds = getExpiryTime(purpose);
-        
-        if (isRedisConnected()) {
-            // Store in Redis with expiry
-            await redis.set(key, otp, 'EX', expirySeconds);
-            console.log("Operation diagnostic");
-        } else {
-            // Store in memory with expiry
-            const expiryTime = Date.now() + (expirySeconds * 1000);
-            inMemoryOtpStore[key] = { otp, expiry: expiryTime };
-            console.log("Operation diagnostic");
-            
-            // Set up cleanup of expired OTPs in memory
-            setTimeout(() => {
-                if (inMemoryOtpStore[key] && inMemoryOtpStore[key].expiry <= Date.now()) {
-                    delete inMemoryOtpStore[key];
-                }
-            }, expirySeconds * 1000);
-        }
-    } catch (error: any) {
-        console.error("Operation diagnostic");
-        throw new Error(`Failed to store OTP: ${error.message || String(error)}`);
-    }
+    await issueChallenge(email, `email-${purpose}`, otp);
 }
-
-// Get expiry time based on purpose
-function getExpiryTime(purpose: string): number {
-    switch (purpose) {
-        case 'login':
-            return 5 * 60; // 5 minutes
-        case 'registration':
-        case 'passwordReset':
-            return 10 * 60; // 10 minutes
-        case 'transactionConfirmation':
-            return 5 * 60; // 5 minutes
-        case 'accountDeletion':
-            return 5 * 60; // 5 minutes
-        default:
-            return 10 * 60; // Default 10 minutes
-    }
-}
-
-// Verify OTP from Redis or in-memory
 export async function verifyOTP(email: string, otp: string, purpose: keyof typeof emailTemplates): Promise<boolean> {
-    try {
-        const key = `otp:${purpose}:${email}`;
-        
-        if (isRedisConnected()) {
-            // Verify from Redis
-            const storedOTP = await redis.get(key);
-            if (storedOTP === otp) {
-                // Delete OTP after successful verification
-                await redis.del(key);
-                return true;
-            }
-        } else {
-            // Verify from in-memory store
-            const storedData = inMemoryOtpStore[key];
-            if (storedData && storedData.otp === otp) {
-                // Check if the OTP is still valid
-                if (storedData.expiry > Date.now()) {
-                    // Delete OTP after successful verification
-                    delete inMemoryOtpStore[key];
-                    return true;
-                }
-            }
-        }
-        return false;
-    } catch (error: any) {
-        console.error("Operation diagnostic");
-        return false;
-    }
-} 
+    return !!await consumeChallenge(email, `email-${purpose}`, otp);
+}

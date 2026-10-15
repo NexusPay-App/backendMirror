@@ -1,9 +1,10 @@
+import { issueChallenge, consumeChallenge, isChallengeCooldown } from '../services/verificationChallenges';
 // src/controllers/authController.ts
 import { User } from '../models/models';
 import bcrypt from 'bcrypt';
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { createAccount, generateOTP, otpStore, SALT_ROUNDS } from "../services/auth";
+import { createAccount, generateOTP, SALT_ROUNDS } from "../services/auth";
 import { handleError, standardResponse } from "../services/utils";
 import config from '../config/env';
 import { sendEmail, verifyOTP } from '../services/email';
@@ -35,6 +36,7 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
     try {
         existingUser = await User.findOne({ phoneNumber: phoneNumberStr });
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("❌ Error checking existing user:");
         return res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to check existing user'));
     }
@@ -44,7 +46,7 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
     }
 
     const otp = generateOTP();
-    otpStore[phoneNumberStr] = otp;
+    await issueChallenge(phoneNumberStr, 'phone-registration', otp);
 
     // Log OTP for testing purposes
     console.log('\n======================================');
@@ -58,7 +60,7 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
         const smsSent = await SMSService.sendOTP(phoneNumberStr, otp, 'registration');
         
         if (!smsSent) {
-            return res.status(500).json(createErrorResponse('OTP_NOT_SENT', 'Failed to send OTP. Check your number and try again.'));
+            return res.status(503).json(createErrorResponse('OTP_NOT_SENT', 'Failed to send OTP. Check your number and try again.'));
         }
 
         return res.json({
@@ -73,6 +75,7 @@ export const initiateRegisterUser = async (req: Request, res: Response) => {
         });
 
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("❌ Error sending OTP:");
         return res.status(500).json(createErrorResponse('INTERNAL_ERROR', 'Failed to send OTP'));
     }
@@ -119,6 +122,7 @@ export const registerUser = async (req: Request, res: Response) => {
 
         // Verify OTP before creating account
         let otpValid = false;
+        let phoneVerified = false, emailVerified = false;
         
         if (verificationMethod === 'phone' || verificationMethod === 'both') {
             // Log OTP verification attempt
@@ -128,14 +132,16 @@ export const registerUser = async (req: Request, res: Response) => {
             console.log("Operation diagnostic");
             console.log('======================================\n');
             
-            otpValid = otpStore[phoneNumber] === otp;
+            otpValid = !!await consumeChallenge(phoneNumber, 'phone-registration', otp);
+            phoneVerified = otpValid;
             if (otpValid) {
-                delete otpStore[phoneNumber]; // Clear OTP after successful verification
+                // Code consumed atomically in MongoDB. // Clear OTP after successful verification
             }
         }
         
         if (verificationMethod === 'email' || verificationMethod === 'both') {
             const emailOtpValid = await verifyOTP(email, otp, 'registration');
+            emailVerified = emailOtpValid;
             otpValid = verificationMethod === 'email' ? emailOtpValid : (otpValid || emailOtpValid);
         }
 
@@ -150,35 +156,30 @@ export const registerUser = async (req: Request, res: Response) => {
 
         // Create new user with unified wallet
         const newUser = new User({
-            phoneNumber: phoneNumber ? phoneNumber : undefined,
-            email: email ? email : undefined,
+            phoneNumber: phoneVerified ? phoneNumber : undefined,
+            email: emailVerified ? email : undefined,
             walletAddress,
             password: hashedPassword,
             privateKey: pk,
-            isEmailVerified: false,
-            isPhoneVerified: false,
+            isEmailVerified: emailVerified,
+            isPhoneVerified: phoneVerified,
             isUnified: true // Mark as unified wallet
         });
         await newUser.save();
 
-        const verificationChannel = verificationMethod === 'both' 
-            ? 'email and phone' 
-            : verificationMethod === 'email' ? 'email' : 'phone';
-
-        const responseData = {
-            registrationId: newUser._id.toString(),
-            verificationMethod,
-            ...(email && { email }),
-            ...(phoneNumber && { phoneNumber })
-        };
-
-        res.status(201).json(standardResponse(
-            true,
-            `Registration initiated. Please verify your ${verificationChannel}.`,
-            responseData
-        ));
+        const token = jwt.sign({ id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email }, config.JWT_SECRET, { expiresIn: '24h' });
+        await registerVerifiedSession(token, String(newUser._id));
+        return res.status(201).json(standardResponse(true, 'Account created and verified', {
+            token,
+            walletAddress: newUser.walletAddress,
+            phoneNumber: newUser.phoneNumber,
+            email: newUser.email,
+            isPhoneVerified: phoneVerified,
+            isEmailVerified: emailVerified,
+        }));
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in registerUser:");
         return handleError(error, res, "Error registering user");
     }
@@ -231,6 +232,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
         ));
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error('Error in verifyEmail:', error);
         return handleError(error, res, "Error verifying email");
     }
@@ -251,12 +253,12 @@ export const verifyPhone = async (req: Request, res: Response) => {
         console.log("Operation diagnostic");
         console.log('======================================\n');
         
-        if (!otpStore[phoneNumber] || otpStore[phoneNumber] !== otp) {
+        if (!await consumeChallenge(phoneNumber, 'phone-registration', otp)) {
             return res.status(400).send({ message: "Invalid or expired OTP." });
         }
         
         // Clear OTP after verification
-        delete otpStore[phoneNumber];
+        // Code consumed atomically in MongoDB.
 
         const user = await User.findOne({ phoneNumber });
         if (!user) {
@@ -286,6 +288,7 @@ export const verifyPhone = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error('Error in verifyPhone:', error);
         res.status(500).send({ 
             message: "Error verifying phone number", 
@@ -378,7 +381,7 @@ export const login = async (req: Request, res: Response) => {
         } else {
             // Send SMS OTP for phone login
             const otp = generateOTP();
-            otpStore[phoneNumber] = otp;
+            await issueChallenge(phoneNumber, 'phone-login', otp);
             
             // Log OTP for testing purposes
             console.log('\n======================================');
@@ -404,6 +407,7 @@ export const login = async (req: Request, res: Response) => {
                     { phoneNumber }
                 ));
             } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
                 console.error("❌ Error sending SMS OTP:");
                 console.log("Operation diagnostic");
                 return res.status(200).json(standardResponse(
@@ -414,6 +418,7 @@ export const login = async (req: Request, res: Response) => {
             }
         }
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error('Error in login:', error);
         return handleError(error, res, "Error during login");
     }
@@ -450,9 +455,9 @@ export const verifyLogin = async (req: Request, res: Response) => {
             // Log for phone verification
             console.log("Operation diagnostic");
             // Verify phone OTP
-            isValidOtp = otpStore[phoneNumber] === otp;
+            isValidOtp = !!await consumeChallenge(phoneNumber, 'phone-login', otp);
             if (isValidOtp) {
-                delete otpStore[phoneNumber]; // Clear OTP after successful verification
+                // Code consumed atomically in MongoDB. // Clear OTP after successful verification
             }
             user = await User.findOne({ phoneNumber });
         }
@@ -491,7 +496,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
         );
 
         // Register this as a verified session
-        registerVerifiedSession(token, user._id.toString());
+        await registerVerifiedSession(token, user._id.toString());
 
         // Return user data and token
         return res.json(standardResponse(
@@ -505,6 +510,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
             }
         ));
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in verifyLogin:", error);
         return handleError(error, res, "Error verifying login");
     }
@@ -534,6 +540,7 @@ export const requestPasswordReset = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in requestPasswordReset:");
         res.status(500).send({ 
             message: "Error requesting password reset", 
@@ -566,6 +573,7 @@ export const resetPassword = async (req: Request, res: Response) => {
         res.send({ message: "Password reset successful. You can now login with your new password." });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in resetPassword:");
         res.status(500).send({ 
             message: "Error resetting password", 
@@ -607,7 +615,7 @@ export const requestPhonePasswordReset = async (req: Request, res: Response) => 
 
         // Generate and send OTP
         const otp = generateOTP();
-        otpStore[phoneNumber] = otp;
+        await issueChallenge(phoneNumber, 'phone-reset', otp);
         
         // Log OTP for testing purposes
         console.log('\n======================================');
@@ -640,6 +648,7 @@ export const requestPhonePasswordReset = async (req: Request, res: Response) => 
         });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in requestPhonePasswordReset:");
         return res.status(500).json({
             success: false,
@@ -679,7 +688,7 @@ export const resetPhonePassword = async (req: Request, res: Response) => {
         console.log('======================================\n');
         
         // Verify OTP
-        const isValid = otpStore[phoneNumber] === otp;
+        const isValid = !!await consumeChallenge(phoneNumber, 'phone-reset', otp);
         if (!isValid) {
             return res.status(400).json({
                 success: false,
@@ -694,7 +703,7 @@ export const resetPhonePassword = async (req: Request, res: Response) => {
         }
         
         // Clear OTP after successful verification
-        delete otpStore[phoneNumber];
+        // Code consumed atomically in MongoDB.
 
         // Find user
         const user = await User.findOne({ phoneNumber });
@@ -729,6 +738,7 @@ export const resetPhonePassword = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in resetPhonePassword:");
         return res.status(500).json({
             success: false,
@@ -767,6 +777,7 @@ export const requestAccountDeletion = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in requestAccountDeletion:");
         res.status(500).send({ 
             message: "Error requesting account deletion", 
@@ -801,6 +812,7 @@ export const confirmAccountDeletion = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error('Error in confirmAccountDeletion:', error);
         res.status(500).send({ 
             message: "Error deleting account", 
@@ -817,7 +829,7 @@ export const logout = async (req: Request, res: Response) => {
         
         if (token) {
             // Invalidate the session
-            invalidateSession(token);
+            await invalidateSession(token);
             
             console.log("Operation diagnostic");
         }
@@ -827,6 +839,7 @@ export const logout = async (req: Request, res: Response) => {
             "Logged out successfully."
         ));
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in logout:", error);
         return handleError(error, res, "Error during logout");
     }
@@ -853,6 +866,7 @@ export const googleAuth = async (req: Request, res: Response) => {
         try {
             googleUser = await verifyGoogleToken(idToken);
         } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
             return res.status(400).json(standardResponse(
                 false,
                 "Invalid Google token",
@@ -939,6 +953,7 @@ export const googleAuth = async (req: Request, res: Response) => {
         ));
 
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in Google authentication:");
         return handleError(error, res, "Google authentication failed");
     }
@@ -990,51 +1005,16 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
             ));
         }
 
-        // Send OTP for phone verification
         const otp = generateOTP();
-        otpStore[phoneNumber] = otp;
-
-        console.log("Operation diagnostic");
-
-        try {
-            // Send OTP via SMS using the new SMS service
-            const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'phone_verification');
-            
-            // Store temporary data for verification regardless of SMS status
-            otpStore[`${phoneNumber}_password`] = password;
-            otpStore[`${phoneNumber}_userId`] = user._id.toString();
-
-            if (!smsSent) {
-                console.log("⚠️ SMS failed but OTP generated for testing. Check server logs.");
-                return res.json(standardResponse(
-                    true,
-                    "Verification OTP generated (check server logs for testing)",
-                    { phoneNumber, testMode: true }
-                ));
-            }
-
-            return res.json(standardResponse(
-                true,
-                "Verification OTP sent to your phone number",
-                { phoneNumber }
-            ));
-
-        } catch (error) {
-            console.error("Error sending OTP:");
-            
-            // Store temporary data for verification even if SMS completely fails
-            otpStore[`${phoneNumber}_password`] = password;
-            otpStore[`${phoneNumber}_userId`] = user._id.toString();
-            
-            console.log("⚠️ SMS service error but OTP generated for testing. Check server logs.");
-            return res.json(standardResponse(
-                true,
-                "Verification OTP generated (check server logs for testing)",
-                { phoneNumber, testMode: true }
-            ));
-        }
+        await issueChallenge(phoneNumber, 'phone-setup', otp, {
+            userId: String(user._id), passwordHash: await bcrypt.hash(password, SALT_ROUNDS),
+        });
+        const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'phone_verification');
+        if (!smsSent) return res.status(503).json(standardResponse(false, 'Phone verification is unavailable. No password or phone number was changed.'));
+        return res.json(standardResponse(true, 'Verification code sent to your phone number', { phoneNumber }));
 
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in addPhoneAndPassword:");
         return handleError(error, res, "Failed to add phone and password");
     }
@@ -1057,28 +1037,10 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
         }
 
         // Verify OTP
-        const storedOtp = otpStore[phoneNumber];
-        if (!storedOtp || storedOtp !== otp) {
-            return res.status(400).json(standardResponse(
-                false,
-                "Invalid or expired OTP",
-                null,
-                { code: "INVALID_OTP", message: "The OTP provided is invalid or has expired" }
-            ));
-        }
-
-        // Get stored data
-        const password = otpStore[`${phoneNumber}_password`];
-        const userId = otpStore[`${phoneNumber}_userId`];
-
-        if (!password || !userId) {
-            return res.status(400).json(standardResponse(
-                false,
-                "Verification session expired",
-                null,
-                { code: "SESSION_EXPIRED", message: "Please restart the phone verification process" }
-            ));
-        }
+        const challenge = await consumeChallenge(phoneNumber, 'phone-setup', otp, String(req.user._id));
+        if (!challenge?.passwordHash || !challenge.userId) return res.status(400).json(standardResponse(false, 'Invalid or expired verification code'));
+        const password = challenge.passwordHash;
+        const userId = challenge.userId;
 
         const user = await User.findById(userId);
         if (!user) {
@@ -1100,11 +1062,11 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
         }
 
         await user.save();
+        const token = req.headers.authorization?.split(' ')[1];
+        if (token) await registerVerifiedSession(token, String(user._id));
 
         // Clean up OTP store
-        delete otpStore[phoneNumber];
-        delete otpStore[`${phoneNumber}_password`];
-        delete otpStore[`${phoneNumber}_userId`];
+        // Challenge has already been atomically consumed.
 
         return res.json(standardResponse(
             true,
@@ -1127,6 +1089,7 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
         ));
 
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error in verifyPhoneAndPassword:");
         return handleError(error, res, "Phone verification failed");
     }
@@ -1162,6 +1125,7 @@ export const linkGoogleAccount = async (req: Request, res: Response) => {
         try {
             googleUser = await verifyGoogleToken(idToken);
         } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
             return res.status(400).json(standardResponse(
                 false,
                 "Invalid Google token",
@@ -1229,6 +1193,7 @@ export const linkGoogleAccount = async (req: Request, res: Response) => {
         ));
 
     } catch (error) {
+        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         console.error("Error linking Google account:", error);
         return handleError(error, res, "Failed to link Google account");
     }

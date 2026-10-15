@@ -8,6 +8,7 @@ import { resolveBotAccount, prepareBotTransfer } from './botchainWallet';
 import { readBotTransferStatus } from './botchainReceipts';
 import { parseAmount, formatAmount } from '../utils/amounts';
 import { invalidateUserTransactionHistory } from '../utils/txHistoryCache';
+import { botPaymentError } from './botchainErrors';
 
 /** Normalize phone-like identifiers to E.164 for recipient lookup. */
 export function normalizeBotRecipientPhone(raw: string): string {
@@ -61,17 +62,9 @@ export async function submitBotTransfer(user: any, network: BotNetwork, input: {
     if (error.code !== 11000) throw error;
     const retry = await BotTransfer.findOne({ userId: user._id, idempotencyKey, fingerprint });
     if (retry) return retry;
-    // A crashed attempt can leave an empty 'preparing' shell that still holds the
-    // single-active-debit lock. Release only shells that never obtained a userOpHash.
-    const orphan = await BotTransfer.findOne({ chainId: n.id, sender: account.address.toLowerCase(), status: 'preparing', userOpHash: null });
-    if (orphan) {
-      orphan.status = 'failed';
-      orphan.failureReason = 'Recovered abandoned preparing record with no operation hash; safe to submit again.';
-      await orphan.save();
-      record = await BotTransfer.create({ userId: user._id, idempotencyKey, fingerprint, network, chainId: n.id, sender: account.address.toLowerCase(), recipient, token: input.tokenSymbol, amount: formatAmount(BigInt(amountUnits), token.decimals), amountUnits, merchantId: input.merchantId });
-    } else {
-      throw new Error('Another payment from this BOT account requires reconciliation');
-    }
+    // A record without a hash may still be preparing in another live request.
+    // Never release its lock or resubmit an uncertain operation automatically.
+    throw new Error('Another payment from this BOT account requires reconciliation');
   }
   try {
     const prepared = await prepareBotTransfer(network, user.privateKey, account.address, recipient, input.tokenSymbol, record.amount);
@@ -83,19 +76,10 @@ export async function submitBotTransfer(user: any, network: BotNetwork, input: {
       await record.save();
     } catch (saveError: any) {
       if (saveError?.code !== 11000 || !saveError?.keyPattern?.userOpHash) throw saveError;
-      // The prepared op is byte-identical to a prior attempt (account nonce still
-      // unconsumed). If that attempt never reached a terminal on-chain state,
-      // discard this empty shell and resubmit through the tracked record.
-      const prior = await BotTransfer.findOne({ userOpHash: prepared.userOpHash });
-      if (!prior || !['failed', 'review'].includes(prior.status) || prior.sender !== record.sender || prior.fingerprint !== fingerprint) {
-        throw new Error('Another payment from this BOT account requires reconciliation');
-      }
-      await record.deleteOne();
-      record = prior;
-      record.idempotencyKey = idempotencyKey;
-      record.status = 'submitted';
-      record.failureReason = undefined;
-      await record.save();
+      // The unique-index rejection guarantees this record did not persist the
+      // hash. Keep the original record intact; it may already be on-chain.
+      record.userOpHash = undefined;
+      throw new Error('Another payment from this BOT account requires reconciliation');
     }
     const hash = await prepared.submit();
     if (hash.toLowerCase() !== prepared.userOpHash.toLowerCase()) throw new Error('Bundler returned an unexpected operation hash');
@@ -103,12 +87,14 @@ export async function submitBotTransfer(user: any, network: BotNetwork, input: {
     await record.save();
   } catch (error) {
     // Log the underlying cause; the payment stays locked until reconciliation decides.
-    console.warn(`BOT submit ${record.idempotencyKey}: ${error instanceof Error ? error.message : String(error)}`);
+    const failure = botPaymentError(error);
+    console.warn('BOT payment preparation/submission failed', { paymentId: String(record._id), network, code: failure.code });
     record.status = record.userOpHash ? 'review' : 'failed';
-    record.failureReason = record.userOpHash ? 'Submission outcome requires reconciliation; do not retry with a new payment key.' : 'Preparation failed; check account funding and network configuration.';
+    record.failureCode = record.userOpHash ? 'SUBMISSION_UNCERTAIN' : failure.code;
+    record.failureReason = record.userOpHash ? 'Submission outcome requires reconciliation; do not retry with a new payment key.' : failure.message;
     try { await record.save(); } catch (saveError) {
       // A colliding userOpHash must not mask the original failure; keep the reason visible.
-      console.warn(`BOT submit persist ${record.idempotencyKey}: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+      console.warn('BOT payment state could not be persisted', { paymentId: String(record._id) });
     }
   }
   // New or updated BOT payments must appear in history immediately, not after the TTL.
@@ -134,5 +120,5 @@ export async function reconcileBotTransfer(record: any) {
 }
 export function publicBotTransfer(record: any) {
   const n = getBotConfig(record.network);
-  return { id: String(record._id), network: record.network, chainId: record.chainId, direction: record.direction || 'outgoing', sender: record.sender, recipient: record.recipient, amount: record.amount, amountUnits: record.amountUnits, tokenSymbol: record.token, status: record.status, userOpHash: record.userOpHash, transactionHash: record.transactionHash, explorerUrl: record.transactionHash ? `${n.explorer}/tx/${record.transactionHash}` : undefined, failureReason: record.failureReason, createdAt: record.createdAt };
+  return { id: String(record._id), network: record.network, chainId: record.chainId, direction: record.direction || 'outgoing', sender: record.sender, recipient: record.recipient, amount: record.amount, amountUnits: record.amountUnits, tokenSymbol: record.token, status: record.status, userOpHash: record.userOpHash, transactionHash: record.transactionHash, explorerUrl: record.transactionHash ? `${n.explorer}/tx/${record.transactionHash}` : undefined, failureReason: record.failureReason, failureCode: record.failureCode, createdAt: record.createdAt };
 }

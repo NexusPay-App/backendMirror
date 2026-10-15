@@ -19,6 +19,7 @@ const schema = new Schema({
   blockNumber: String,
   status: { type: String, enum: ['preparing', 'submitted', 'pending', 'confirmed', 'failed', 'review'], default: 'preparing' },
   failureReason: String,
+  failureCode: String,
 }, { timestamps: true });
 schema.index({ userId: 1, idempotencyKey: 1 }, { unique: true });
 // Nonce key 0 is sequential. Keep a durable single active debit per account,
