@@ -1,5 +1,7 @@
 # BOT Chain technical readiness — 15 October 2026
 
+Historical snapshot. See [23 October mainnet activation](MAINNET_ACTIVATION.md) for the owner's later authorization, current changes and remaining provider/release limitations.
+
 The public test deployment is https://nexuspayapp-ten.vercel.app. BOT Chain testnet (968) is enabled. **Mainnet (677) remains disabled; no mainnet launch or transfer is authorized by this readiness work.**
 
 ## Completed

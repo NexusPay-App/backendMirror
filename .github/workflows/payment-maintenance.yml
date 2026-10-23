@@ -1,0 +1,24 @@
+name: Payment reconciliation
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '2-59/5 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: payment-reconciliation
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Reconcile submitted payments
+        env:
+          PAYMENT_MAINTENANCE_SECRET: ${{ secrets.PAYMENT_MAINTENANCE_SECRET }}
+        run: |
+          test -n "$PAYMENT_MAINTENANCE_SECRET"
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer $PAYMENT_MAINTENANCE_SECRET" \
+            https://nexuspay-backend-test.vercel.app/api/internal/payments/reconcile

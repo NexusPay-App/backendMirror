@@ -1,3 +1,5 @@
+import { isUserFundedNetwork } from '../config/mainnetPayments';
+import { evmPaymentError } from '../services/evmPaymentErrors';
 import { paymentChains, paymentCapabilities } from '../config/chains';
 import { botCapabilities, isBotNetwork, getBotConfig, type BotNetwork } from '../config/botchain';
 import { resolveBotAccount, getBotBalances } from '../services/botchainWallet';
@@ -368,6 +370,10 @@ export const send = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (isUserFundedNetwork(chain)) {
+            const failure = evmPaymentError(error, chain);
+            return res.status(failure.status).json({ success: false, message: failure.message, error: { code: failure.code, message: failure.message, requestId: res.locals.requestId } });
+        }
         console.error("Error in send API:", error);
         
         // Enhanced error logging for debugging
@@ -540,6 +546,10 @@ export const pay = async (req: Request, res: Response) => {
         });
         
     } catch (error: any) {
+        if (isUserFundedNetwork(chainName)) {
+            const failure = evmPaymentError(error, chainName);
+            return res.status(failure.status).json({ success: false, message: failure.message, error: { code: failure.code, message: failure.message, requestId: res.locals.requestId } });
+        }
         console.error("Error in pay API:", error);
         res.status(500).json({
             success: false,

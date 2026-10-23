@@ -7,6 +7,11 @@ import { defineChain, getContract, sendTransaction, waitForReceipt, readContract
 import { transfer, balanceOf } from "thirdweb/extensions/erc20";
 import config from "../config/env";
 import { keccak256, toHex } from 'viem';
+import { eth_getBalance } from 'thirdweb/rpc';
+import { getRpcClient } from 'thirdweb';
+import { estimateUserOpGasCost } from 'thirdweb/wallets/smart';
+import { paymentChain, paymentWalletOptions, isUserFundedNetwork, isUserFundedChain } from '../config/mainnetPayments';
+import { EvmPaymentError } from './evmPaymentErrors';
 
 export type { Chain, TokenSymbol } from '../types/token';
 import type { Chain, TokenSymbol } from '../types/token';
@@ -74,7 +79,7 @@ export async function sendToken(
     if (!token) throw new Error(`Token ${tokenSymbol} is not supported on ${chainName}`);
     if (!config[chainName]?.chainId) throw new Error('Unsupported chain');
     const units = parseAmount(amount, token.decimals);
-    const chain = defineChain(config[chainName].chainId);
+    const chain = paymentChain(chainName, config[chainName].chainId);
     const contract = getContract({ client, chain, address: token.address });
     const [decimals, symbol] = await Promise.all([
       readContract({ contract, method: 'function decimals() view returns (uint8)' }),
@@ -82,12 +87,21 @@ export async function sendToken(
     ]);
     if (decimals !== token.decimals || symbol !== tokenSymbol) throw new Error('Configured token does not match on-chain metadata');
     const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-    const wallet = smartWallet({ chain, sponsorGas: true, factoryAddress: '0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00' });
+    const walletOptions = paymentWalletOptions(chainName, chain);
+    const wallet = smartWallet(walletOptions);
     const account = await wallet.connect({ client, personalAccount });
     if (expectedSender && account.address.toLowerCase() !== expectedSender.toLowerCase()) throw new Error('Signing account does not match the stored sender wallet');
     const available = await balanceOf({ contract, address: account.address });
     if (available < units) throw new Error('Insufficient token balance');
-    const sent = await sendTransaction({ account, transaction: transfer({ contract, to: recipientAddress, amountWei: units }) });
+    const transaction = transfer({ contract, to: recipientAddress, amountWei: units });
+    if (isUserFundedNetwork(chainName)) {
+      const nativeBalance = await eth_getBalance(getRpcClient({ client, chain }), { address: account.address });
+      if (nativeBalance === 0n) throw new EvmPaymentError('INSUFFICIENT_GAS', `Add ETH on ${chain.name} to your NexusPay wallet to pay the network fee. USDC and USDT cannot pay this fee.`);
+      // Includes the initial smart-account deployment and EntryPoint overhead.
+      const fee = await estimateUserOpGasCost({ transactions: [transaction], adminAccount: personalAccount, client, smartWalletOptions: walletOptions });
+      if (nativeBalance < fee.wei) throw new EvmPaymentError('INSUFFICIENT_GAS', `Your wallet needs approximately ${fee.ether} ETH on ${chain.name} for this payment. Add ETH to the address shown on Receive.`);
+    }
+    const sent = await sendTransaction({ account, transaction });
     const receipt = await waitForReceipt(sent);
     if (receipt.status !== 'success') throw new Error('Token transfer reverted');
     // No EOA fallback: sponsorship failure must never change the source of funds.
@@ -103,7 +117,7 @@ export async function generateUnifiedWallet(phoneNumber: string): Promise<{ addr
     const wallet = smartWallet({
         chain,
         // factoryAddress removed to use default
-        sponsorGas: true, // Enable gas sponsorship
+        sponsorGas: !isUserFundedChain(chain.id), // User-funded on Base and Arbitrum
     });
 
     const smartAccount = await wallet.connect({ client, personalAccount: newAccount });
@@ -124,7 +138,7 @@ export async function unifyWallets(pk: string): Promise<string> {
         const wallet = smartWallet({
             chain,
             // factoryAddress removed to use default
-            sponsorGas: true, // Enable gas sponsorship
+            sponsorGas: !isUserFundedChain(chain.id), // User-funded on Base and Arbitrum
         });
         console.log("Smart wallet initialized with default factory");
 
@@ -160,7 +174,7 @@ export async function migrateFunds(
         const personalAccount = privateKeyToAccount({ client, privateKey: pk });
         const wallet = smartWallet({
             chain,
-            sponsorGas: true, // Enable gas sponsorship
+            sponsorGas: !isUserFundedChain(chain.id), // User-funded on Base and Arbitrum
         });
 
         const smartAccount = await wallet.connect({ client, personalAccount });

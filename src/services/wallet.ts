@@ -1,3 +1,4 @@
+import { isUserFundedChain } from '../config/mainnetPayments';
 import { getTokenConfig } from '../config/tokens';
 import { formatAmount } from '../utils/amounts';
 import { ethers } from 'ethers';
@@ -77,7 +78,7 @@ export async function transferTokens(
     // Connect the smart wallet
     const wallet = smartWallet({
       chain,
-      sponsorGas: true,
+      sponsorGas: !isUserFundedChain(chain.id),
     });
     
     const smartAccount = await wallet.connect({

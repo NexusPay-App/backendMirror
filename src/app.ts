@@ -1,3 +1,5 @@
+import paymentMaintenance from './routes/paymentMaintenance';
+import { mainnetReadiness } from './services/mainnetReadiness';
 import express, { type ErrorRequestHandler } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -37,6 +39,8 @@ export function createApp() {
     const ready = mongoose.connection.readyState === 1;
     res.status(ready ? 200 : 503).json({ success: ready, data: { status: ready ? 'ready' : 'unavailable', database: ready ? 'connected' : 'unavailable', timestamp: new Date().toISOString() } });
   });
+  app.get('/api/health/mainnet', async (_req, res) => { const data = await mainnetReadiness(); res.json({ success: true, data }); });
+  app.use('/api/internal/payments', paymentMaintenance);
   app.use('/api/auth', authRoutes);
   app.use('/api/token', tokenRoutes);
   app.use('/api/business', businessRoutes);

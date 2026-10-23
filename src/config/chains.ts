@@ -1,3 +1,4 @@
+import { isUserFundedNetwork } from './mainnetPayments';
 import { tokenConfigs } from './tokens';
 import type { Chain } from '../types/token';
 export const chains: Record<Chain, { id: number; name: string; rpc: string; explorer: string }> = {
@@ -19,5 +20,5 @@ export const chains: Record<Chain, { id: number; name: string; rpc: string; expl
 };
 export const paymentChains = Object.keys(chains).filter(key => Object.values(tokenConfigs[key as Chain]).some(t => /^0x[0-9a-f]{40}$/i.test(t.address))) as Chain[];
 export function paymentCapabilities() {
-  return paymentChains.map(id => ({ id, name: chains[id].name, chainId: chains[id].id, explorer: chains[id].explorer, tokens: Object.values(tokenConfigs[id]).filter(t => /^0x[0-9a-f]{40}$/i.test(t.address)) }));
+  return paymentChains.map(id => ({ id, name: chains[id].name, chainId: chains[id].id, testnet: false, gasMode: isUserFundedNetwork(id) ? 'self-funded' : 'sponsored', gasToken: isUserFundedNetwork(id) ? 'ETH' : undefined, explorer: chains[id].explorer, tokens: Object.values(tokenConfigs[id]).filter(t => /^0x[0-9a-f]{40}$/i.test(t.address)) }));
 }

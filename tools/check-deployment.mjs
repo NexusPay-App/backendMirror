@@ -12,13 +12,17 @@ async function check(name, path, validate) {
 await check('Public website and BOT ecosystem links', '/onboarding', text => text.includes('https://botchain.ai') && text.includes('https://scan.botchain.ai'));
 await check('Integration showcase', '/ecosystem', text => text.includes('BOT Chain'));
 await check('API and database readiness', '/api/health/ready', text => JSON.parse(text).data?.status === 'ready');
-await check('BOT testnet enabled; mainnet disabled', '/api/botchain/networks', text => {
+await check('BOT mainnet and testnet payments enabled', '/api/botchain/networks', text => {
   const networks = JSON.parse(text).data;
   const test = networks.find(n => n.chainId === 968);
   const main = networks.find(n => n.chainId === 677);
-  return test?.enabled === true && test.transfers === true && main?.enabled === false && main.transfers === false;
+  return test?.enabled === true && test.transfers === true && main?.enabled === true && main.transfers === true;
 });
-const report = { checkedAt: new Date().toISOString(), deployment: base.origin, scope: 'testnet readiness; does not establish funded-payment success or ecosystem eligibility', results };
+await check('Mainnet provider readiness (BOT, Base, Arbitrum)', '/api/health/mainnet', text => {
+  const networks = JSON.parse(text).data?.networks;
+  return ['botchain', 'base', 'arbitrum'].every(id => networks?.some(n => n.id === id && n.ready === true));
+});
+const report = { checkedAt: new Date().toISOString(), deployment: base.origin, scope: 'Read-only deployment readiness; does not establish funded-payment success or ecosystem eligibility', results };
 if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(report, null, 2));
 if (results.some(result => !result.passed)) process.exitCode = 1;

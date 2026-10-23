@@ -1,4 +1,4 @@
-name: Testnet deployment health
+name: Deployment health
 on:
   workflow_dispatch:
   schedule:

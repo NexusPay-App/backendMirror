@@ -38,7 +38,7 @@ export async function createAccount() {
     // Configure the smart wallet
     const wallet = smartWallet({
         chain: defaultChain,
-        sponsorGas: true,
+        sponsorGas: false,
         factoryAddress: '0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00',
     });
 
