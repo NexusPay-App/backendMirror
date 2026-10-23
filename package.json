@@ -58,7 +58,7 @@
     "express": "5.2.1",
     "express-rate-limit": "8.7.1",
     "express-validator": "7.3.2",
-    "gcp-metadata": "7.0.1",
+    "gcp-metadata": "9.2.1",
     "google-auth-library": "11.2.0",
     "helmet": "8.3.0",
     "ioredis": "5.11.1",
