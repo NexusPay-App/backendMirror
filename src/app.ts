@@ -28,7 +28,8 @@ export function createApp() {
   if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 10) throw new Error('TRUST_PROXY_HOPS must be an integer between 0 and 10');
   app.set('trust proxy', proxyHops);
   app.use((_req, res, next) => { res.locals.requestId = randomUUID(); res.set('X-Request-ID', res.locals.requestId); next(); });
-  const origins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',').map(x => x.trim());
+  const origins = [process.env.ALLOWED_ORIGINS || 'http://localhost:3000', process.env.APP_ORIGIN || '']
+    .flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
   app.use(helmet());
   app.use(cors({ origin: (origin, done) => done(origin && !origins.includes(origin) ? new Error('Origin not allowed') : null, true), credentials: true }));
   app.use(express.json({ limit: '256kb' }), express.urlencoded({ extended: false, limit: '64kb' }), compression());
