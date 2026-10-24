@@ -15,7 +15,7 @@ BOT mainnet requires `BOTCHAIN_ENABLED=true` and `BOTCHAIN_TRANSFERS_ENABLED=tru
 ## Verified and blocked
 
 - Production-credential read-only checks pass for BOT RPC, entry point, account factory and bundler.
-- Base and Arbitrum RPC and contract checks pass, but the configured Thirdweb project rejects mainnet bundler access with `Mainnets not enabled for this account`. Enable billing for that project at https://thirdweb.com/dashboard/settings/billing. A paid service account and user-paid gas are separate settings; sponsorship stays off.
+- Base and Arbitrum RPC and contract checks pass, but the configured Thirdweb project rejects mainnet bundler access with `Mainnets not enabled for this account`. Thirdweb-hosted bundling requires billing access independently of who pays gas. Alternatively, use the [Alchemy bundler configuration](MAINNET_BUNDLER.md) to retain the SDK without a Thirdweb bundler subscription. Sponsorship stays off.
 - `GET /api/health/mainnet` reports read-only provider readiness, cached for five minutes. It does not sign or submit transactions. The deployment-health workflow reports failure while any requested mainnet provider remains unavailable.
 - Backend build, lint and 63 tests pass, including native-fee rejection, account preservation, safe provider errors and maintenance authentication.
 - Next.js is patched to 16.4.3; the backend TOML parser override is 5.0.1. Root dependency audits report no high/critical findings; moderate transitive findings remain.

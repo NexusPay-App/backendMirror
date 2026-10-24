@@ -6,6 +6,8 @@ import { assertBotInfrastructure } from './botchainWallet';
 import { getBotConfig } from '../config/botchain';
 import { tokenConfigs } from '../config/tokens';
 import { LEGACY_ACCOUNT_FACTORY, paymentChain, paymentWalletOptions, userFundedNetworks, type UserFundedNetwork } from '../config/mainnetPayments';
+import { alchemyGasFees, bundlerRead, isAlchemyBundler } from './evmBundler';
+import { EvmPaymentError } from './evmPaymentErrors';
 
 // No signing keys, account creation or transactions. Coalesce/cap public probes.
 let cached: { at: number; promise: ReturnType<typeof inspect> } | undefined;
@@ -20,11 +22,22 @@ async function inspect() {
       const token = tokenConfigs[id].USDC!;
       const decimals = await readContract({ contract: getContract({ client, chain, address: token.address }), method: 'function decimals() view returns (uint8)' });
       if (decimals !== token.decimals) throw new Error('Token mismatch');
-      await getUserOpGasFees({ options: { client, chain, ...paymentWalletOptions(id, chain).overrides } });
-      return { ...base, ready: true };
+      const walletOptions = paymentWalletOptions(id, chain);
+      const url = walletOptions.overrides?.bundlerUrl;
+      if (url) {
+        const [bundlerChainId, entryPoints, factoryEntryPoint] = await Promise.all([
+          bundlerRead(url, 'eth_chainId'), bundlerRead(url, 'eth_supportedEntryPoints'),
+          readContract({ contract: getContract({ client, chain, address: LEGACY_ACCOUNT_FACTORY }), method: 'function entrypoint() view returns (address)' }),
+        ]);
+        if (Number(bundlerChainId) !== chain.id || !Array.isArray(entryPoints) || !entryPoints.some(point => typeof point === 'string' && point.toLowerCase() === factoryEntryPoint.toLowerCase())) throw new Error('Bundler EntryPoint mismatch');
+        if (isAlchemyBundler(url)) await alchemyGasFees(walletOptions, client);
+      } else {
+        await getUserOpGasFees({ options: { client, chain } });
+      }
+      return { ...base, ready: true, bundler: url ? (isAlchemyBundler(url) ? 'alchemy' : 'custom') : 'thirdweb' };
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      return { ...base, ready: false, reason: /mainnets not enabled|billing|401|403|unauthorized/i.test(message) ? 'PROVIDER_MAINNET_ACCESS_REQUIRED' : 'PROVIDER_CHECK_FAILED' };
+      return { ...base, ready: false, reason: error instanceof EvmPaymentError ? error.code : /mainnets not enabled|billing|401|403|unauthorized|API key is not configured/i.test(message) ? 'PROVIDER_MAINNET_ACCESS_REQUIRED' : 'PROVIDER_CHECK_FAILED' };
     }
   }));
   let botReady = false;

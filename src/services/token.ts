@@ -12,6 +12,7 @@ import { getRpcClient } from 'thirdweb';
 import { estimateUserOpGasCost } from 'thirdweb/wallets/smart';
 import { paymentChain, paymentWalletOptions, isUserFundedNetwork, isUserFundedChain } from '../config/mainnetPayments';
 import { EvmPaymentError } from './evmPaymentErrors';
+import { withBundlerFees } from './evmBundler';
 
 export type { Chain, TokenSymbol } from '../types/token';
 import type { Chain, TokenSymbol } from '../types/token';
@@ -87,7 +88,7 @@ export async function sendToken(
     ]);
     if (decimals !== token.decimals || symbol !== tokenSymbol) throw new Error('Configured token does not match on-chain metadata');
     const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-    const walletOptions = paymentWalletOptions(chainName, chain);
+    const walletOptions = await withBundlerFees(paymentWalletOptions(chainName, chain), client);
     const wallet = smartWallet(walletOptions);
     const account = await wallet.connect({ client, personalAccount });
     if (expectedSender && account.address.toLowerCase() !== expectedSender.toLowerCase()) throw new Error('Signing account does not match the stored sender wallet');

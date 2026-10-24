@@ -17,6 +17,12 @@ export function paymentChain(network: string, fallbackId: number) {
   return defineChain({ id: config.id, name: config.name, rpc: process.env[`${config.prefix}_RPC_URL`] || config.rpc, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } });
 }
 export function paymentWalletOptions(network: string, chain: ReturnType<typeof defineChain>) {
-  const bundlerUrl = isUserFundedNetwork(network) ? process.env[`${userFundedNetworks[network].prefix}_BUNDLER_URL`] : undefined;
+  let bundlerUrl = isUserFundedNetwork(network) ? process.env[`${userFundedNetworks[network].prefix}_BUNDLER_URL`] : undefined;
+  if (isUserFundedNetwork(network) && !bundlerUrl && process.env.MAINNET_BUNDLER_PROVIDER === 'alchemy') {
+    const key = process.env.ALCHEMY_API_KEY?.trim();
+    if (!key) throw new Error('Mainnet bundler API key is not configured');
+    const host = network === 'base' ? 'base-mainnet' : 'arb-mainnet';
+    bundlerUrl = `https://${host}.g.alchemy.com/v2/${encodeURIComponent(key)}`;
+  }
   return { chain, sponsorGas: !isUserFundedChain(chain.id), factoryAddress: LEGACY_ACCOUNT_FACTORY, ...(bundlerUrl ? { overrides: { bundlerUrl } } : {}) };
 }

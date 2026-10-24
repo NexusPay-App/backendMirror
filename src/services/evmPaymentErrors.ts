@@ -5,7 +5,7 @@ export class EvmPaymentError extends Error {
 export function evmPaymentError(error: unknown, network: string) {
   if (error instanceof EvmPaymentError) return error;
   const message = error instanceof Error ? error.message : '';
-  if (/mainnets not enabled|billing|unauthorized|invalid.*(?:key|client)|401|403/i.test(message)) {
+  if (/mainnets not enabled|billing|unauthorized|invalid.*(?:key|client)|API key is not configured|401|403/i.test(message)) {
     return new EvmPaymentError('PAYMENT_PROVIDER_UNAVAILABLE', 'Payments on this network are temporarily unavailable. The payment provider needs configuration.', 503);
   }
   if (/AA21|AA31|prefund|insufficient funds|insufficient.*gas/i.test(message)) {
