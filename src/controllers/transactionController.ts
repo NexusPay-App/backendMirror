@@ -108,7 +108,7 @@ async function mapBotTransaction(record: any) {
   const type = record.merchantId ? 'crypto_to_till' : 'token_transfer';
   const amount = Number(record.amount);
   const symbol = record.token;
-  const decimals = network.tokens[symbol as 'BOT' | 'WBOT' | 'USDT']?.decimals ?? 18;
+  const decimals = network.tokens[symbol as keyof typeof network.tokens]?.decimals ?? 18;
   // USDT follows the same stablecoin ≈ $1 convention as legacy records. BOT/WBOT have
   // no validated price source, so they are reported as unavailable rather than valued at $1.
   const isStable = symbol === 'USDT';

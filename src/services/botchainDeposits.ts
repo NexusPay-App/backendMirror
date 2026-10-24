@@ -105,7 +105,7 @@ async function recordDeposit(value: { network: BotNetwork; chainId: number; watc
 }
 async function scanTokenDeposits(network: BotNetwork, from: bigint, to: bigint, watched: Map<string, WatchedAccount>): Promise<number> {
   const n = getBotConfig(network);
-  const tokens = ([n.tokens.USDT, n.tokens.WBOT] as const).filter(t => t.address);
+  const tokens = Object.values(n.tokens).filter(t => t.address);
   let recorded = 0;
   for (const token of tokens) {
     const logs = await botRpc<DepositLog[]>(n.rpc, 'eth_getLogs', [{ fromBlock: `0x${from.toString(16)}`, toBlock: `0x${to.toString(16)}`, address: token.address, topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'] }]);

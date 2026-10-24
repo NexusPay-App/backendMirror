@@ -41,7 +41,7 @@ const setCachedData = async (key: string, data: any, ttlSeconds: number): Promis
 
 // BOT networks feed the same balance records as legacy chains so shared screens
 // render them identically. Only USDT contributes to the USD total (stablecoin
-// convention used elsewhere); BOT/WBOT have no price source and are never valued at $1.
+// convention used elsewhere); BOT has no price source and is never valued at $1.
 async function botBalanceFor(user: any, network: BotNetwork): Promise<Record<string, number> | null> {
     const account = await resolveBotAccount(user, network);
     const rows = await getBotBalances(network, account.address);
@@ -971,7 +971,7 @@ export const getUserBalance = async (req: Request, res: Response) => {
         }
 
         // Check cache first (5 minute cache for balance data)
-        const cacheKey = `balance:${user.walletAddress}:primary`;
+        const cacheKey = `balance:${user.walletAddress}:primary-mainnet-v2`;
         const cachedBalance = await getCachedData(cacheKey);
         
         if (cachedBalance) {
@@ -1052,7 +1052,7 @@ export const getUserBalance = async (req: Request, res: Response) => {
         // BOT networks are capability-gated and join the same balance record.
         const botIds: string[] = [];
         for (const capability of botCapabilities()) {
-            if (!capability.enabled) continue;
+            if (!capability.enabled || capability.testnet) continue;
             botIds.push(capability.id);
             try {
                 const botBalances = await botBalanceFor(user, capability.id as BotNetwork);
@@ -1128,7 +1128,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
                     error: { code: "INVALID_CHAIN", message: `BOT network ${chain} is not enabled` }
                 });
             }
-            const botCacheKey = `balance:${user.walletAddress}:${chain}`;
+            const botCacheKey = `balance:${user.walletAddress}:${chain}:v2`;
             const cachedBotBalance = await getCachedData(botCacheKey);
             if (cachedBotBalance) {
                 return res.json({

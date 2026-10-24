@@ -32,3 +32,17 @@ External deposit indexing remains disabled. Balances use RPC reads; complete ext
 Run backend build/lint/tests and frontend typecheck/lint/tests/build/browser checks before promotion. Verify `/api/health/ready`, `/api/botchain/networks`, `/api/health/mainnet`, and `node tools/check-deployment.mjs` after release. A provider failure must not be reported as successful activation of that network.
 
 To stop BOT submissions, set `BOTCHAIN_TRANSFERS_ENABLED=false` in Vercel production and redeploy. Keep reads and reconciliation available. For a code regression, promote the previous known-good Vercel deployment, preserving the network flags intended for that deployment. Do not change factories, delete pending records or automatically resend uncertain payments during rollback.
+
+### Production asset visibility (2026-10-24)
+
+BOT Chain mainnet activation disables BOT testnet access, even if old testnet
+flags remain set. Production explicitly sets `BOTCHAIN_TESTNET_ENABLED=false`
+and `BOTCHAIN_TESTNET_TRANSFERS_ENABLED=false`. Combined wallet balances exclude
+testnet, and the balance cache version was changed to retire cached test balances.
+Consumer wallet selectors expose mainnet only; historical receipts remain stored.
+
+BOT Chain's supported wallet assets are native BOT (18 decimals, user-paid gas)
+and USDT (6 decimals, `0xaBabc7Ddc03e501d190C676BF3d92ef0e6e87a3C`). WBOT is wrapped
+BOT, not Bitcoin, and has been removed from the active asset list. Bitcoin remains
+blocked pending a verified BOT mainnet wrapped-BTC contract and bridge/issuer
+source; no speculative BTC address or Bitcoin receive instruction is exposed.

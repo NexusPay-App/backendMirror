@@ -1,6 +1,6 @@
 import { defineChain } from 'thirdweb';
 export type BotNetwork = 'botchain' | 'botchain-testnet';
-export type BotToken = 'BOT' | 'WBOT' | 'USDT';
+export type BotToken = 'BOT' | 'USDT';
 export const BOT_ENTRY_POINT = '0x0000000071727De22E5E9d8BAf0edAc6f37da032' as const;
 export const BOT_FACTORY = '0xBC88d6012b3bf8426C2851d3798cEB5257658332' as const;
 export const BOT_SALT = 0n;
@@ -13,7 +13,9 @@ export function getBotConfig(network: string) {
   if (!isBotNetwork(network)) throw new Error('Unsupported BOT network');
   const config = botNetworks[network];
   const rpc = process.env[`${config.env}_RPC_URL`] || config.rpc;
-  const enabled = process.env[`${config.env}_ENABLED`] === 'true';
+  // Mainnet activation also retires testnet access, even with stale deployment flags.
+  const enabled = process.env[`${config.env}_ENABLED`] === 'true'
+    && !(config.testnet && process.env.BOTCHAIN_ENABLED === 'true');
   return {
     ...config, key: network, rpc, enabled,
     transfersEnabled: enabled && process.env[`${config.env}_TRANSFERS_ENABLED`] === 'true',
@@ -22,7 +24,6 @@ export function getBotConfig(network: string) {
     chain: defineChain({ id: config.id, name: config.name, rpc, testnet: config.testnet || undefined, nativeCurrency: { name: 'BOT', symbol: 'BOT', decimals: 18 }, blockExplorers: [{ name: 'BOT Explorer', url: config.explorer }] }),
     tokens: {
       BOT: { symbol: 'BOT', decimals: 18, address: null },
-      WBOT: { symbol: 'WBOT', decimals: 18, address: '0xD5452816194a3784dBa983426cCe7c122F4abd30' },
       USDT: { symbol: 'USDT', decimals: 6, address: config.usdt },
     } as const,
   };
