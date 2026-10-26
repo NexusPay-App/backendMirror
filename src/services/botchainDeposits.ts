@@ -1,14 +1,9 @@
-// BOT-06: external deposit indexer. Incoming transfers to registered BOT accounts
-// are recorded in the existing BotTransfer collection (direction: 'incoming') so no
-// second ledger is introduced. Deposits are only indexed after the configured
-// confirmation depth, so records are created 'confirmed' directly and never enter
-// the one-active-debit-per-account lock index. Re-scans are idempotent through a
-// deterministic per-log idempotency key.
 import { parseAbi, decodeEventLog, type Hex } from 'viem';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getBotConfig, type BotNetwork, type BotToken } from '../config/botchain';
 import { botRpc } from './botchainRpc';
-import { getRedisClient } from './redis';
+import { BotDepositCursor } from '../models/botDepositCursor';
+import { invalidateUserTransactionHistory } from '../utils/txHistoryCache';
 import { ChainAccount } from '../models/chainAccount';
 import { BotTransfer } from '../models/botTransfer';
 import { Business } from '../models/businessModel';
@@ -28,7 +23,7 @@ function envNumber(name: string, fallback: number): number {
   return Number.isInteger(raw) && raw > 0 ? raw : fallback;
 }
 function confirmations(): bigint {
-  return BigInt(Math.max(1, Number(process.env.BOTCHAIN_CONFIRMATIONS) || 3));
+  return BigInt(Math.max(3, Number(process.env.BOTCHAIN_CONFIRMATIONS) || 3));
 }
 function bigMin(a: bigint, b: bigint): bigint { return a < b ? a : b; }
 function bigMax(a: bigint, b: bigint): bigint { return a > b ? a : b; }
@@ -37,26 +32,13 @@ function fingerprint(value: { network: string; recipient: string; symbol: string
   return createHash('sha256').update(JSON.stringify([value.network, value.recipient.toLowerCase(), value.symbol, value.amountUnits, value.merchantId || ''])).digest('hex');
 }
 async function readCursor(network: BotNetwork, source: 'token' | 'native'): Promise<bigint | null> {
-  try {
-    const client = await getRedisClient();
-    const stored = await client.get(cursorKey(network, source));
-    if (stored && /^\d+$/.test(stored)) return BigInt(stored);
-  } catch { /* Redis unavailable: fall back to the durable database watermark below. */ }
-  const n = getBotConfig(network);
-  const match = source === 'native' ? { token: 'BOT' } : { token: { $in: ['USDT', 'WBOT'] } };
-  const latest = await BotTransfer.findOne({ network, direction: 'incoming', blockNumber: { $exists: true }, ...match }).sort({ createdAt: -1 }).select('blockNumber');
-  const indexed = latest?.blockNumber && /^\d+$/.test(String(latest.blockNumber)) ? BigInt(String(latest.blockNumber)) : null;
-  const configured = process.env[`${n.env}_DEPOSIT_START_BLOCK`];
-  const floor = configured && /^\d+$/.test(configured) ? BigInt(configured) : null;
-  if (indexed !== null && floor !== null) return bigMax(indexed + 1n, floor);
-  if (indexed !== null) return indexed + 1n;
-  return floor;
+  const cursor = await BotDepositCursor.findById(cursorKey(network, source));
+  if (cursor?.block !== undefined) return BigInt(cursor.block);
+  const configured = process.env[`${getBotConfig(network).env}_DEPOSIT_START_BLOCK`];
+  return configured && /^\d+$/.test(configured) ? BigInt(configured) - 1n : null;
 }
 async function writeCursor(network: BotNetwork, source: 'token' | 'native', block: bigint) {
-  try {
-    const client = await getRedisClient();
-    await client.set(cursorKey(network, source), block.toString());
-  } catch { /* The database watermark keeps a lost cursor recoverable without duplicate credit. */ }
+  await BotDepositCursor.updateOne({ _id: cursorKey(network, source) }, { $max: { block: Number(block) } }, { upsert: true });
 }
 async function watchedAccounts(chainId: number): Promise<Map<string, WatchedAccount>> {
   const accounts = await ChainAccount.find({ chainId });
@@ -96,7 +78,9 @@ async function recordDeposit(value: { network: BotNetwork; chainId: number; watc
       transactionHash: value.transactionHash,
       blockNumber: value.blockNumber.toString(),
       status: 'confirmed',
+      smsStatus: 'pending',
     });
+    if (process.env.REDIS_URL || process.env.REDIS_HOST) await invalidateUserTransactionHistory(value.watched.userId);
     return 1;
   } catch (error: any) {
     if (error?.code === 11000) return 0; // Already indexed by an earlier or concurrent scan.
@@ -114,7 +98,7 @@ async function scanTokenDeposits(network: BotNetwork, from: bigint, to: bigint, 
       try { event = decodeEventLog({ abi: transferAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] }); } catch { continue; }
       const recipient = String(event.args.to).toLowerCase();
       const account = watched.get(recipient);
-      if (!account) continue;
+      if (!account || BigInt(event.args.value) <= 0n) continue;
       recorded += await recordDeposit({
         network, chainId: n.id, watched: account,
         sender: String(event.args.from), recipient,
@@ -138,7 +122,8 @@ async function scanNativeDeposits(network: BotNetwork, from: bigint, to: bigint,
     const batch = await Promise.all(blocks.slice(i, i + concurrency).map(async block => {
       const hex = `0x${block.toString(16)}`;
       const full = await botRpc<{ transactions: BlockTx[] } | null>(n.rpc, 'eth_getBlockByNumber', [hex, true]);
-      return { block, transactions: full?.transactions || [] };
+      if (!full || !Array.isArray(full.transactions)) throw new Error('Confirmed BOT block is unavailable');
+      return { block, transactions: full.transactions };
     }));
     for (const { block, transactions } of batch) {
       for (const tx of transactions) {
@@ -146,6 +131,9 @@ async function scanNativeDeposits(network: BotNetwork, from: bigint, to: bigint,
         const account = watched.get(tx.to.toLowerCase());
         const units = BigInt(tx.value);
         if (!account || units <= 0n) continue;
+        const receipt = await botRpc<{ status: Hex; blockNumber: Hex } | null>(n.rpc, 'eth_getTransactionReceipt', [tx.hash]);
+        if (!receipt || BigInt(receipt.blockNumber) !== block) throw new Error('BOT deposit receipt is unavailable');
+        if (receipt.status !== '0x1') continue;
         recorded += await recordDeposit({
           network, chainId: n.id, watched: account,
           sender: tx.from, recipient: tx.to,
@@ -164,7 +152,7 @@ async function scanNativeDeposits(network: BotNetwork, from: bigint, to: bigint,
  * Returns null when the network or its deposit indexer is disabled, and otherwise
  * reports the scanned range plus how many new (non-duplicate) deposits were recorded.
  */
-export async function scanBotDeposits(network: BotNetwork) {
+async function scanConfirmedDeposits(network: BotNetwork) {
   const n = getBotConfig(network);
   if (!n.depositIndexingEnabled) return null;
   const head = BigInt(await botRpc<Hex>(n.rpc, 'eth_blockNumber'));
@@ -172,7 +160,7 @@ export async function scanBotDeposits(network: BotNetwork) {
   if (safeHead < 0n) return { from: 0n, to: 0n, tokens: 0, native: 0 };
   const lookback = (source: 'token' | 'native') => BigInt(envNumber(`${n.env}_DEPOSIT_${source.toUpperCase()}_LOOKBACK`, source === 'token' ? 5000 : 200));
   const scanSource = async (source: 'token' | 'native'): Promise<{ to: bigint; recorded: number }> => {
-    const range = BigInt(envNumber(`${n.env}_DEPOSIT_${source.toUpperCase()}_RANGE`, source === 'token' ? 1000 : 50));
+    const range = BigInt(envNumber(`${n.env}_DEPOSIT_${source.toUpperCase()}_RANGE`, source === 'token' ? 1000 : 100));
     let cursor = await readCursor(network, source);
     if (cursor === null) cursor = bigMax(safeHead - lookback(source), 0n);
     if (cursor >= safeHead) return { to: cursor, recorded: 0 };
@@ -191,4 +179,28 @@ export async function scanBotDeposits(network: BotNetwork) {
   const token = await scanSource('token');
   const native = await scanSource('native');
   return { from: start === null ? bigMax(safeHead - lookback('token'), 0n) + 1n : start + 1n, to: bigMax(token.to, native.to), tokens: token.recorded, native: native.recorded };
+}
+
+export async function scanBotDeposits(network: BotNetwork) {
+  if (!getBotConfig(network).depositIndexingEnabled) return null;
+  const id = `botchain:deposit-lock:${network}`;
+  const lease = randomUUID();
+  try {
+    const lock = await BotDepositCursor.findOneAndUpdate({ _id: id, $or: [{ leaseUntil: { $lte: new Date() } }, { leaseUntil: { $exists: false } }] },
+      { $set: { lease, leaseUntil: new Date(Date.now() + 5 * 60_000) } }, { upsert: true, returnDocument: 'after' });
+    if (!lock) return null;
+  } catch (error: any) {
+    if (error?.code === 11000) return null;
+    throw error;
+  }
+  try { return await scanConfirmedDeposits(network); }
+  finally { await BotDepositCursor.updateOne({ _id: id, lease }, { $unset: { lease: 1, leaseUntil: 1 } }); }
+}
+
+export async function recordNativeBotReceipt(payment: { network: BotNetwork; token: string; recipient: string; sender: string; amountUnits: string; transactionHash: string; userOpHash: string; blockNumber: string }) {
+  if (payment.token !== 'BOT' || !getBotConfig(payment.network).depositIndexingEnabled) return;
+  const n = getBotConfig(payment.network);
+  const watched = (await watchedAccounts(n.id)).get(payment.recipient.toLowerCase());
+  if (!watched) return;
+  await recordDeposit({ network: payment.network, chainId: n.id, watched, sender: payment.sender, recipient: payment.recipient, symbol: 'BOT', units: BigInt(payment.amountUnits), transactionHash: payment.transactionHash, blockNumber: BigInt(payment.blockNumber), logKey: `userop:${payment.userOpHash}` });
 }

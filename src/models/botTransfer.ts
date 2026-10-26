@@ -20,6 +20,12 @@ const schema = new Schema({
   status: { type: String, enum: ['preparing', 'submitted', 'pending', 'confirmed', 'failed', 'review'], default: 'preparing' },
   failureReason: String,
   failureCode: String,
+  smsStatus: { type: String, enum: ['pending', 'processing', 'accepted', 'skipped', 'failed', 'unknown'] },
+  smsMessageId: String,
+  smsFailureCode: String,
+  smsAttempts: { type: Number, default: 0 },
+  smsClaimedAt: Date,
+  smsNextAttemptAt: Date,
 }, { timestamps: true });
 schema.index({ userId: 1, idempotencyKey: 1 }, { unique: true });
 // Nonce key 0 is sequential. Keep a durable single active debit per account,
@@ -29,4 +35,5 @@ schema.index({ userOpHash: 1 }, { unique: true, sparse: true });
 schema.index({ userId: 1, createdAt: -1 });
 // Deposit cursor recovery and direction-filtered history.
 schema.index({ network: 1, direction: 1, createdAt: -1 });
+schema.index({ smsStatus: 1, smsNextAttemptAt: 1, createdAt: 1 });
 export const BotTransfer = models.BotTransfer || model('BotTransfer', schema);

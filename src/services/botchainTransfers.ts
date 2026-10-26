@@ -9,6 +9,7 @@ import { readBotTransferStatus } from './botchainReceipts';
 import { parseAmount, formatAmount } from '../utils/amounts';
 import { invalidateUserTransactionHistory } from '../utils/txHistoryCache';
 import { botPaymentError } from './botchainErrors';
+import { recordNativeBotReceipt } from './botchainDeposits';
 
 /** Normalize phone-like identifiers to E.164 for recipient lookup. */
 export function normalizeBotRecipientPhone(raw: string): string {
@@ -106,6 +107,7 @@ export async function reconcileBotTransfer(record: any) {
   const previousStatus = record.status;
   try {
     const result = await readBotTransferStatus(record);
+    if (result.status === 'confirmed' && record.token === 'BOT') await recordNativeBotReceipt({ ...record.toObject(), ...result });
     Object.assign(record, result);
     await record.save();
     if (record.status !== previousStatus) {

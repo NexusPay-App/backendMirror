@@ -29,6 +29,7 @@ export interface TransactionSMSData {
     recipientAddress?: string;
     senderAddress?: string;
     explorerUrl?: string;
+    networkName?: string;
 }
 
 export interface OverdraftSMSData {
@@ -39,6 +40,7 @@ export interface OverdraftSMSData {
     newCreditBalance: string;
     availableCredit: string;
     explorerUrl?: string;
+    networkName?: string;
 }
 
 export interface BusinessSMSData {
@@ -75,28 +77,27 @@ export class SMSService {
     /**
      * Send transaction notification
      */
-    static async sendTransactionNotification(data: TransactionSMSData): Promise<boolean> {
+    static async submitTransactionNotification(data: TransactionSMSData): Promise<{ status: 'accepted' | 'rejected' | 'unknown'; messageId?: string; code?: string }> {
+        if (!config.AFRICAS_TALKING_API_KEY) return { status: 'rejected', code: 'SMS_NOT_CONFIGURED' };
+        const phone = this.formatPhoneNumber(data.phoneNumber);
+        if (!this.validatePhoneNumber(phone)) return { status: 'rejected', code: 'INVALID_PHONE' };
         try {
-            // Format phone number for Africa's Talking
-            const formattedPhone = this.formatPhoneNumber(data.phoneNumber);
-            
-            const message = this.formatTransactionMessage(data);
-            
-            await africastalking.SMS.send({
-                to: [formattedPhone],
-                message: message,
-                from: 'NEXUSPAY'
-            });
-            
-            console.log(`✅ Transaction SMS sent to ${formattedPhone} for ${data.transactionType}`);
-            return true;
-            
-        } catch (error) {
-            console.error(`❌ Failed to send transaction SMS to ${data.phoneNumber}:`, error);
-            return false;
+            const response = await africastalking.SMS.send({ to: [phone], message: this.formatTransactionMessage(data), from: process.env.AFRICAS_TALKING_SENDER_ID || 'NEXUSPAY' });
+            const recipient = response.SMSMessageData?.Recipients?.find(item => item.number === phone);
+            if (recipient?.status === 'Success' && recipient.messageId) return { status: 'accepted', messageId: recipient.messageId };
+            return recipient ? { status: 'rejected', code: String(recipient.statusCode || 'PROVIDER_REJECTED') } : { status: 'unknown', code: 'PROVIDER_RESPONSE_INCOMPLETE' };
+        } catch (error: any) {
+            const status = error?.response?.status;
+            return [400, 401, 403, 422, 429].includes(status)
+                ? { status: 'rejected', code: `PROVIDER_HTTP_${status}` }
+                : { status: 'unknown', code: 'PROVIDER_OUTCOME_UNKNOWN' };
         }
     }
-    
+
+    static async sendTransactionNotification(data: TransactionSMSData): Promise<boolean> {
+        return (await this.submitTransactionNotification(data)).status === 'accepted';
+    }
+
     /**
      * Send overdraft notification
      */
@@ -188,40 +189,13 @@ export class SMSService {
      * Format transaction message
      */
     private static formatTransactionMessage(data: TransactionSMSData): string {
-        const statusEmoji = data.status === 'success' ? '✅' : data.status === 'failed' ? '❌' : '⏳';
-        const statusText = data.status === 'success' ? 'SUCCESSFUL' : data.status === 'failed' ? 'FAILED' : 'PENDING';
-        
-        let message = `${statusEmoji} NEXUSPAY TRANSACTION ${statusText}\n\n`;
-        
-        switch (data.transactionType) {
-            case 'send':
-                message += `💰 Sent: ${data.amount} ${data.tokenType}\n`;
-                message += `📤 To: ${data.recipientAddress?.slice(0, 8)}...${data.recipientAddress?.slice(-6)}\n`;
-                break;
-            case 'receive':
-                message += `💰 Received: ${data.amount} ${data.tokenType}\n`;
-                message += `📥 From: ${data.senderAddress?.slice(0, 8)}...${data.senderAddress?.slice(-6)}\n`;
-                break;
-            case 'buy':
-                message += `💳 Crypto Purchase: ${data.amount} ${data.tokenType}\n`;
-                break;
-            case 'sell':
-                message += `💳 Crypto Sale: ${data.amount} ${data.tokenType}\n`;
-                break;
-            case 'overdraft_borrow':
-                message += `🏦 Overdraft Borrowed: ${data.amount} ${data.tokenType}\n`;
-                break;
-            case 'overdraft_repay':
-                message += `🏦 Overdraft Repaid: ${data.amount} ${data.tokenType}\n`;
-                break;
-        }
-        
-        message += `🔗 TX: ${data.transactionHash?.slice(0, 8)}...${data.transactionHash?.slice(-6)}\n`;
-        message += `⏰ ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Nairobi' })}\n\nNEXUSPAY Team`;
-        
-        return message;
+        const action = data.transactionType === 'receive' ? 'Received' : data.transactionType === 'send' ? 'Sent' : data.transactionType.replaceAll('_', ' ');
+        const status = data.status === 'success' ? '' : ` (${data.status})`;
+        const network = data.networkName ? ` on ${data.networkName}` : '';
+        const hash = `${data.transactionHash.slice(0, 10)}...${data.transactionHash.slice(-6)}`;
+        return `NexusPay: ${action} ${data.amount} ${data.tokenType}${network}${status}. Tx: ${hash}. Open your wallet: https://app.nexuspayapp.xyz`;
     }
-    
+
     /**
      * Format overdraft message
      */

@@ -2,6 +2,7 @@ import { BotTransfer } from '../models/botTransfer';
 import { MpesaCallback } from '../models/mpesaCallback';
 import { reconcileBotTransfer } from './botchainTransfers';
 import { scanBotDeposits } from './botchainDeposits';
+import { deliverBotDepositNotifications } from './botDepositNotifications';
 import { botCapabilities } from '../config/botchain';
 import { processPaymentInbox } from './paymentInbox';
 import { mpesaSTKPushWebhook, mpesaB2CWebhook, mpesaB2BWebhook, mpesaQueueWebhook, stkPushCallback } from '../controllers/mpesaController';
@@ -14,6 +15,7 @@ export function startBotDepositIndexing() {
         if (!capability.enabled || !capability.deposits) continue;
         await scanBotDeposits(capability.id as 'botchain' | 'botchain-testnet');
       }
+      await deliverBotDepositNotifications();
     } catch (error) { console.error('BOT deposit indexing cycle failed; cursors retained', error instanceof Error ? error.message : error); } finally { running = false; }
   }, 30000);
   return timer;

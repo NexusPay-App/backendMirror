@@ -1,14 +1,15 @@
 jest.mock('../src/services/botchainRpc', () => ({ botRpc: jest.fn() }));
-jest.mock('../src/services/redis', () => ({ getRedisClient: jest.fn() }));
+jest.mock('../src/models/botDepositCursor', () => ({ BotDepositCursor: { findById: jest.fn(), findOneAndUpdate: jest.fn(), updateOne: jest.fn() } }));
+jest.mock('../src/utils/txHistoryCache', () => ({ invalidateUserTransactionHistory: jest.fn() }));
 jest.mock('../src/models/chainAccount', () => ({ ChainAccount: { find: jest.fn() } }));
 jest.mock('../src/models/businessModel', () => ({ Business: { find: jest.fn() } }));
 jest.mock('../src/models/botTransfer', () => ({ BotTransfer: { findOne: jest.fn(), create: jest.fn() } }));
 import { botRpc } from '../src/services/botchainRpc';
-import { getRedisClient } from '../src/services/redis';
+import { BotDepositCursor } from '../src/models/botDepositCursor';
 import { ChainAccount } from '../src/models/chainAccount';
 import { Business } from '../src/models/businessModel';
 import { BotTransfer } from '../src/models/botTransfer';
-import { scanBotDeposits } from '../src/services/botchainDeposits';
+import { scanBotDeposits, recordNativeBotReceipt } from '../src/services/botchainDeposits';
 import { encodeEventTopics, encodeAbiParameters, parseAbi, type Hex } from 'viem';
 
 const transferAbi = parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
@@ -38,9 +39,10 @@ beforeEach(() => {
   stored = {};
   records = [];
   rpc = botRpc as jest.Mock;
-  (getRedisClient as jest.Mock).mockResolvedValue({
-    get: jest.fn(async (key: string) => stored[key] ?? null),
-    set: jest.fn(async (key: string, value: string) => { stored[key] = value; return 'OK'; }),
+  (BotDepositCursor.findById as jest.Mock).mockImplementation(async (key: string) => stored[key] ? { block: Number(stored[key]) } : null);
+  (BotDepositCursor.findOneAndUpdate as jest.Mock).mockResolvedValue({ lease: 'fixture' });
+  (BotDepositCursor.updateOne as jest.Mock).mockImplementation(async (query, update) => {
+    if (update.$max) stored[query._id] = String(Math.max(Number(stored[query._id] || 0), update.$max.block));
   });
   (ChainAccount.find as jest.Mock).mockResolvedValue([{ ownerId: 'owner-1', ownerType: 'user', address: watchedAddress }]);
   (Business.find as jest.Mock).mockResolvedValue([]);
@@ -56,6 +58,7 @@ beforeEach(() => {
   rpc.mockImplementation(async (_url: string, method: string, params: any[]) => {
     if (method === 'eth_blockNumber') return '0x64'; // head 100, confirmations 3 → safe head 97
     if (method === 'eth_getLogs') return [];
+    if (method === 'eth_getTransactionReceipt') return { status: '0x1', blockNumber: '0x5f' };
     if (method === 'eth_getBlockByNumber') return { transactions: [] };
     throw new Error(`unexpected ${method}`);
   });
@@ -127,6 +130,7 @@ test('indexes a native BOT transfer and ignores value-less or unknown recipients
   rpc.mockImplementation(async (_url: string, method: string, params: any[]) => {
     if (method === 'eth_blockNumber') return '0x64';
     if (method === 'eth_getLogs') return [];
+    if (method === 'eth_getTransactionReceipt') return { status: '0x1', blockNumber: '0x5f' };
     if (method === 'eth_getBlockByNumber') {
       const block = BigInt(params[0]);
       if (block === 95n) return { transactions: [
@@ -185,4 +189,39 @@ test('mainnet deposit indexing stays off by default', async () => {
   process.env.BOTCHAIN_DEPOSIT_INDEXING_ENABLED = 'true'; // enabled flag alone is insufficient without BOTCHAIN_ENABLED
   expect(await scanBotDeposits('botchain')).toBeNull();
   delete process.env.BOTCHAIN_DEPOSIT_INDEXING_ENABLED;
+});
+
+test('a failed native transaction never creates a received-funds record', async () => {
+  rpc.mockImplementation(async (_url, method, params) => {
+    if (method === 'eth_blockNumber') return '0x64';
+    if (method === 'eth_getLogs') return [];
+    if (method === 'eth_getBlockByNumber') return { transactions: BigInt(params[0]) === 95n ? [{ hash: `0x${'a'.repeat(64)}`, from: outsider, to: watchedAddress, value: '0x1' }] : [] };
+    if (method === 'eth_getTransactionReceipt') return { status: '0x0', blockNumber: '0x5f' };
+  });
+  await scanBotDeposits('botchain-testnet');
+  expect(records).toHaveLength(0);
+});
+test('a missing confirmed block retains the native cursor for a retry', async () => {
+  rpc.mockImplementation(async (_url, method) => method === 'eth_blockNumber' ? '0x64' : method === 'eth_getLogs' ? [] : null);
+  await expect(scanBotDeposits('botchain-testnet')).rejects.toThrow('Confirmed BOT block');
+  expect(stored['botchain:deposit-cursor:botchain-testnet:native']).toBeUndefined();
+});
+test('a competing scanner leaves the cursor and ledger untouched', async () => {
+  (BotDepositCursor.findOneAndUpdate as jest.Mock).mockRejectedValueOnce({ code: 11000 });
+  expect(await scanBotDeposits('botchain-testnet')).toBeNull();
+  expect(rpc).not.toHaveBeenCalled();
+});
+
+test('a zero-value token event does not queue an SMS', async () => {
+  rpc.mockImplementation(async (_url, method) => method === 'eth_blockNumber' ? '0x64' : method === 'eth_getLogs' ? [transferLog(outsider, watchedAddress, 0n, 90n, `0x${'a'.repeat(64)}`, 1)] : { transactions: [] });
+  await scanBotDeposits('botchain-testnet');
+  expect(records).toHaveLength(0);
+});
+
+test('confirmed native NexusPay smart-wallet receipts queue one incoming notification', async () => {
+  const receipt = { network: 'botchain-testnet' as const, token: 'BOT', recipient: watchedAddress, sender: outsider, amountUnits: '1000000000000000000', transactionHash: `0x${'a'.repeat(64)}`, userOpHash: `0x${'b'.repeat(64)}`, blockNumber: '90' };
+  await recordNativeBotReceipt(receipt);
+  await recordNativeBotReceipt(receipt);
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({ direction: 'incoming', token: 'BOT', amount: '1', smsStatus: 'pending' });
 });

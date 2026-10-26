@@ -1,4 +1,4 @@
-name: Payment reconciliation
+name: Payment monitoring
 on:
   workflow_dispatch:
   schedule:
@@ -11,7 +11,7 @@ concurrency:
 jobs:
   reconcile:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 10
     steps:
       - name: Reconcile submitted payments
         env:
@@ -22,3 +22,23 @@ jobs:
             -X POST \
             -H "Authorization: Bearer $PAYMENT_MAINTENANCE_SECRET" \
             https://nexuspay-backend-test.vercel.app/api/internal/payments/reconcile
+      - name: Index confirmed BOT deposits
+        if: ${{ !cancelled() }}
+        env:
+          PAYMENT_MAINTENANCE_SECRET: ${{ secrets.PAYMENT_MAINTENANCE_SECRET }}
+        run: |
+          for batch in 1 2 3 4; do
+            curl --fail-with-body --silent --show-error --max-time 90 \
+              -X POST \
+              -H "Authorization: Bearer $PAYMENT_MAINTENANCE_SECRET" \
+              https://nexuspay-backend-test.vercel.app/api/internal/payments/deposits
+          done
+      - name: Deliver deposit notifications
+        if: ${{ !cancelled() }}
+        env:
+          PAYMENT_MAINTENANCE_SECRET: ${{ secrets.PAYMENT_MAINTENANCE_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer $PAYMENT_MAINTENANCE_SECRET" \
+            https://nexuspay-backend-test.vercel.app/api/internal/payments/notifications

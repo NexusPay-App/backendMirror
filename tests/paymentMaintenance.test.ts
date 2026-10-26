@@ -1,9 +1,13 @@
+jest.mock('../src/services/botchainDeposits', () => ({ scanBotDeposits: jest.fn() }));
+jest.mock('../src/services/botDepositNotifications', () => ({ deliverBotDepositNotifications: jest.fn() }));
 jest.mock('../src/models/botTransfer', () => ({ BotTransfer: { find: jest.fn(), countDocuments: jest.fn() } }));
 jest.mock('../src/services/botchainTransfers', () => ({ reconcileBotTransfer: jest.fn() }));
 import express from 'express';
 import request from 'supertest';
 import routes from '../src/routes/paymentMaintenance';
 import { BotTransfer } from '../src/models/botTransfer';
+import { scanBotDeposits } from '../src/services/botchainDeposits';
+import { deliverBotDepositNotifications } from '../src/services/botDepositNotifications';
 import { reconcileBotTransfer } from '../src/services/botchainTransfers';
 const app = express().use(routes);
 beforeEach(() => { jest.clearAllMocks(); process.env.PAYMENT_MAINTENANCE_SECRET = 'fixture-maintenance-secret'; });
@@ -25,4 +29,16 @@ test('reconciles a bounded batch and returns no wallet or transaction identities
   expect(response.body).toEqual({ success: true, data: { checked: 1, unresolved: 0 } });
   expect(limit).toHaveBeenCalledWith(5);
   expect(reconcileBotTransfer).toHaveBeenCalledTimes(1);
+});
+
+test.each(['/deposits', '/notifications'])('rejects unauthenticated monitoring at %s', async path => {
+  expect((await request(app).post(path)).status).toBe(401);
+  expect(scanBotDeposits).not.toHaveBeenCalled();
+  expect(deliverBotDepositNotifications).not.toHaveBeenCalled();
+});
+test('returns a JSON-safe scan summary without wallet identities', async () => {
+  (scanBotDeposits as jest.Mock).mockResolvedValue({ from: 100n, to: 110n, tokens: 1, native: 1 });
+  const response = await request(app).post('/deposits').set('Authorization', 'Bearer fixture-maintenance-secret');
+  expect(response.status).toBe(200);
+  expect(response.body.data).toEqual({ from: '100', to: '110', tokens: 1, native: 1 });
 });
