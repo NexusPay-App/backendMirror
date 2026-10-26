@@ -160,7 +160,7 @@ async function scanConfirmedDeposits(network: BotNetwork) {
   if (safeHead < 0n) return { from: 0n, to: 0n, tokens: 0, native: 0 };
   const lookback = (source: 'token' | 'native') => BigInt(envNumber(`${n.env}_DEPOSIT_${source.toUpperCase()}_LOOKBACK`, source === 'token' ? 5000 : 200));
   const scanSource = async (source: 'token' | 'native'): Promise<{ to: bigint; recorded: number }> => {
-    const range = BigInt(envNumber(`${n.env}_DEPOSIT_${source.toUpperCase()}_RANGE`, source === 'token' ? 1000 : 100));
+    const range = BigInt(envNumber(`${n.env}_DEPOSIT_${source.toUpperCase()}_RANGE`, source === 'token' ? 1000 : 500));
     let cursor = await readCursor(network, source);
     if (cursor === null) cursor = bigMax(safeHead - lookback(source), 0n);
     if (cursor >= safeHead) return { to: cursor, recorded: 0 };
@@ -178,7 +178,16 @@ async function scanConfirmedDeposits(network: BotNetwork) {
   const start = await readCursor(network, 'token');
   const token = await scanSource('token');
   const native = await scanSource('native');
-  return { from: start === null ? bigMax(safeHead - lookback('token'), 0n) + 1n : start + 1n, to: bigMax(token.to, native.to), tokens: token.recorded, native: native.recorded };
+  return {
+    from: start === null ? bigMax(safeHead - lookback('token'), 0n) + 1n : start + 1n,
+    to: bigMax(token.to, native.to), tokens: token.recorded, native: native.recorded,
+    progress: {
+      confirmedHead: safeHead.toString(),
+      tokenThrough: token.to.toString(),
+      nativeThrough: native.to.toString(),
+      remainingBlocks: bigMax(safeHead - bigMin(token.to, native.to), 0n).toString(),
+    },
+  };
 }
 
 export async function scanBotDeposits(network: BotNetwork) {

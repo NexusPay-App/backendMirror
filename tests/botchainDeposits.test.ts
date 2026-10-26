@@ -212,6 +212,19 @@ test('a competing scanner leaves the cursor and ledger untouched', async () => {
   expect(rpc).not.toHaveBeenCalled();
 });
 
+test('reports native backlog separately when token indexing has caught up', async () => {
+  stored['botchain:deposit-cursor:botchain-testnet:token'] = '98';
+  stored['botchain:deposit-cursor:botchain-testnet:native'] = '1';
+  process.env.BOTCHAIN_TESTNET_DEPOSIT_NATIVE_RANGE = '20';
+  try {
+    const first = await scanBotDeposits('botchain-testnet');
+    expect(first?.progress).toEqual({ confirmedHead: '98', tokenThrough: '98', nativeThrough: '21', remainingBlocks: '77' });
+    const second = await scanBotDeposits('botchain-testnet');
+    expect(second?.progress?.nativeThrough).toBe('41');
+    expect(second?.progress?.remainingBlocks).toBe('57');
+  } finally { delete process.env.BOTCHAIN_TESTNET_DEPOSIT_NATIVE_RANGE; }
+});
+
 test('a zero-value token event does not queue an SMS', async () => {
   rpc.mockImplementation(async (_url, method) => method === 'eth_blockNumber' ? '0x64' : method === 'eth_getLogs' ? [transferLog(outsider, watchedAddress, 0n, 90n, `0x${'a'.repeat(64)}`, 1)] : { transactions: [] });
   await scanBotDeposits('botchain-testnet');

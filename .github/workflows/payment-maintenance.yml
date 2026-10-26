@@ -27,11 +27,15 @@ jobs:
         env:
           PAYMENT_MAINTENANCE_SECRET: ${{ secrets.PAYMENT_MAINTENANCE_SECRET }}
         run: |
-          for batch in 1 2 3 4; do
-            curl --fail-with-body --silent --show-error --max-time 90 \
+          for batch in $(seq 1 12); do
+            result=$(curl --fail-with-body --silent --show-error --max-time 90 \
               -X POST \
               -H "Authorization: Bearer $PAYMENT_MAINTENANCE_SECRET" \
-              https://nexuspay-backend-test.vercel.app/api/internal/payments/deposits
+              https://nexuspay-backend-test.vercel.app/api/internal/payments/deposits)
+            echo "$result"
+            if jq -e '.data.progress.remainingBlocks == "0"' <<< "$result" > /dev/null; then
+              break
+            fi
           done
       - name: Deliver deposit notifications
         if: ${{ !cancelled() }}
