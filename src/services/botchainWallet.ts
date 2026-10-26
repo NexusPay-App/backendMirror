@@ -90,13 +90,17 @@ export async function prepareBotTransfer(network: BotNetwork, privateKey: string
   const data = token.address ? encodeFunctionData({ abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']), functionName: 'transfer', args: [recipient as Hex, units] }) : '0x';
   const fees = await botRpc<{ maxFeePerGas: Hex; maxPriorityFeePerGas: Hex }>(n.bundler, 'skandha_getGasPrice');
   const transaction = prepareContractCall({ contract, method: 'function execute(address dest, uint256 value, bytes func)', params: [token.address || recipient, token.address ? 0n : units, data], maxFeePerGas: BigInt(fees.maxFeePerGas), maxPriorityFeePerGas: BigInt(fees.maxPriorityFeePerGas) });
-  const unsigned = await createUnsignedUserOp({ transaction, factoryContract: factory, accountContract: contract, adminAddress: admin.address, sponsorGas: false, overrides });
+  const unsigned = await createUnsignedUserOp({ transaction, factoryContract: factory, accountContract: contract, adminAddress: admin.address, sponsorGas: false, waitForDeployment: false, overrides });
   // Non-deploying ops: thirdweb estimates are tight for validateUserOp (AA26)
   // and bundleUserOp ships an empty factoryData that skandha rejects. Sign a
   // 3× verificationGasLimit and submit a clean v0.7 payload ourselves.
   const isDeploy = Boolean((unsigned as { factory?: unknown }).factory);
   const verificationGasLimit = BigInt(unsigned.verificationGasLimit as bigint | string) * (isDeploy ? 1n : 3n);
   const unsignedWithHeadroom = { ...unsigned, verificationGasLimit };
+  const maxGasCost = (BigInt(unsigned.callGasLimit) + verificationGasLimit + BigInt(unsigned.preVerificationGas)) * BigInt(unsigned.maxFeePerGas);
+  const deposit = await readContract({ contract: getContract({ client, chain: n.chain, address: BOT_ENTRY_POINT }), method: 'function balanceOf(address account) view returns (uint256)', params: [sender] });
+  const requiredFromWallet = (maxGasCost > deposit ? maxGasCost - deposit : 0n) + (token.address ? 0n : units);
+  if (nativeBalance < requiredFromWallet) throw new BotPaymentError('INSUFFICIENT_GAS', `Keep at least ${formatAmount(requiredFromWallet, 18)} BOT in this wallet to cover this payment and its maximum network fee.`);
   const signed = await signUserOp({ client, chain: n.chain, entrypointAddress: BOT_ENTRY_POINT, adminAccount: admin, userOp: unsignedWithHeadroom });
   if (!('factoryData' in signed)) throw new Error('Expected an EntryPoint v0.7 operation');
   const userOpHash = getUserOperationHash({ chainId: n.id, entryPointAddress: BOT_ENTRY_POINT, entryPointVersion: '0.7', userOperation: { ...signed, sender: signed.sender as Hex, factory: signed.factory as Hex | undefined, paymaster: signed.paymaster as Hex | undefined } });
