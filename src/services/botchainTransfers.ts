@@ -123,6 +123,7 @@ export async function reconcileBotTransfer(record: any) {
     // Preserve ambiguous records and account locks for the next poll/operator review.
     // Log unexpected errors so a stuck pending state is diagnosable.
     console.warn(`BOT reconcile ${record.userOpHash}: ${error instanceof Error ? error.message : String(error)}`);
+    await BotTransfer.updateOne({ _id: record._id, status: { $in: ['submitted', 'pending', 'review'] } }, { $set: { updatedAt: new Date() } });
   }
   if (record.status === 'confirmed') {
     try { await deliverBotDepositNotifications(2, { transactionHash: record.transactionHash }); }

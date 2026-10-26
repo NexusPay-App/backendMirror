@@ -26,8 +26,10 @@ export async function runBotMonitorTick(tickId: string) {
     }
     const pending = await BotTransfer.find({ network: 'botchain', status: { $in: ['submitted', 'pending', 'review'] }, userOpHash: { $exists: true } }).sort({ updatedAt: 1 }).limit(5);
     await Promise.all(pending.map(record => reconcileBotTransfer(record)));
-    const scan = await scanBotDeposits('botchain');
-    const notifications = await deliverBotDepositNotifications(25);
+    let scan;
+    let notifications;
+    try { scan = await scanBotDeposits('botchain'); }
+    finally { notifications = await deliverBotDepositNotifications(25); }
     const nextTickId = randomUUID();
     const completed = await BotMonitor.updateOne({ _id: 'botchain', tickId }, { $set: { tickId: nextTickId, previousTickId: tickId, lastSuccessAt: new Date(), ...(scan?.progress ? { progress: scan.progress } : {}) }, $unset: { leaseUntil: 1 } });
     if (!completed.modifiedCount) throw new Error('BOT monitor state changed during processing');

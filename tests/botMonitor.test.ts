@@ -50,6 +50,7 @@ test('concurrent delivery of the same cycle permits only one worker', async () =
 test('a failed scan retains the cycle and releases its lease for retry', async () => {
   (scanBotDeposits as jest.Mock).mockRejectedValueOnce(new Error('RPC unavailable'));
   await expect(runBotMonitorTick(tick)).rejects.toThrow('RPC unavailable');
+  expect(deliverBotDepositNotifications).toHaveBeenCalledTimes(1);
   expect(state.tickId).toBe(tick);
   expect(state.leaseUntil).toBeUndefined();
   await expect(runBotMonitorTick(tick)).resolves.toHaveProperty('nextTickId');
