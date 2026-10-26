@@ -27,11 +27,14 @@ export function startPaymentReconciliation() {
     try {
       const records = await BotTransfer.find({ status: { $in: ['pending', 'submitted', 'review'] }, userOpHash: { $exists: true } }).sort({ updatedAt: 1 }).limit(50);
       for (const record of records) await reconcileBotTransfer(record);
-      if (process.env.ENABLE_MPESA === 'true') {
-        await MpesaCallback.updateMany({ status: 'processing', claimedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }, { $set: { status: 'review' } });
-        await processPaymentInbox({ 'stk-callback': mpesaSTKPushWebhook, 'b2c-callback': mpesaB2CWebhook, 'b2b-callback': mpesaB2BWebhook, 'queue-timeout': mpesaQueueWebhook, callback: stkPushCallback });
-      }
+      await processMpesaCallbacks();
     } catch { console.error('Payment reconciliation cycle failed; pending records retained'); } finally { running = false; }
   }, 5000);
   return timer;
+}
+
+export async function processMpesaCallbacks() {
+  if (process.env.ENABLE_MPESA !== 'true' || process.env.MPESA_SETTLEMENT_READY !== 'true') return;
+  await MpesaCallback.updateMany({ status: 'processing', claimedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }, { $set: { status: 'review' } });
+  await processPaymentInbox({ 'stk-callback': mpesaSTKPushWebhook, 'b2c-callback': mpesaB2CWebhook, 'b2b-callback': mpesaB2BWebhook, 'queue-timeout': mpesaQueueWebhook, callback: stkPushCallback });
 }

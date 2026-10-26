@@ -1,7 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth';
 import {
-    createRampTransaction,
     getUserTransactions,
     getTransactionStats,
     calculateSavings
@@ -13,7 +12,9 @@ const router = express.Router();
 router.use(authenticate);
 
 // Create a new ramp transaction
-router.post('/transaction', createRampTransaction);
+router.post('/transaction', (_req, res) => {
+    res.status(503).json({ success: false, message: 'Use the M-Pesa Buy or Pay flow to make a payment.' });
+});
 
 // Get user's transactions
 router.get('/transactions', getUserTransactions);

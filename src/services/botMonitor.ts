@@ -1,3 +1,4 @@
+import { processMpesaCallbacks } from './paymentWorkers';
 import { randomUUID } from 'node:crypto';
 import { BotMonitor } from '../models/botMonitor';
 import { BotTransfer } from '../models/botTransfer';
@@ -30,6 +31,7 @@ export async function runBotMonitorTick(tickId: string) {
     let notifications;
     try { scan = await scanBotDeposits('botchain'); }
     finally { notifications = await deliverBotDepositNotifications(25); }
+    await processMpesaCallbacks();
     const nextTickId = randomUUID();
     const completed = await BotMonitor.updateOne({ _id: 'botchain', tickId }, { $set: { tickId: nextTickId, previousTickId: tickId, lastSuccessAt: new Date(), ...(scan?.progress ? { progress: scan.progress } : {}) }, $unset: { leaseUntil: 1 } });
     if (!completed.modifiedCount) throw new Error('BOT monitor state changed during processing');

@@ -1,3 +1,5 @@
+import { getRampRequest } from './middleware/rampRequest';
+import { mpesaCapabilities } from './services/mpesaReadiness';
 import paymentMaintenance from './routes/paymentMaintenance';
 import { mainnetReadiness } from './services/mainnetReadiness';
 import express, { type ErrorRequestHandler } from 'express';
@@ -56,6 +58,8 @@ export function createApp() {
     if ([req.body?.chain, req.body?.chainName, req.query.chain].some(x => typeof x === 'string' && x.startsWith('botchain'))) return void res.status(503).json({ success: false, message: 'BOT Chain M-Pesa settlement is not enabled' });
     next();
   };
+  app.get('/api/mpesa/requests/:key', authenticate, getRampRequest);
+  app.get('/api/mpesa/capabilities', authenticate, (_req, res) => res.json({success: true, data: mpesaCapabilities()}));
   app.use('/api/mpesa', fiatGate, mpesaRoutes);
   app.use('/api/ramp', fiatGate, rampRoutes);
   app.use('/api/liquidity', liquidityRoutes);

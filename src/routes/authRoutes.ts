@@ -1,3 +1,4 @@
+import rateLimit from 'express-rate-limit';
 import { issueChallenge, consumeChallenge } from '../services/verificationChallenges';
 import express from 'express';
 import { 
@@ -44,6 +45,8 @@ import { registerVerifiedSession } from '../middleware/strictAuthMiddleware';
 import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 
 const router = express.Router();
+const signInLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { success: false, message: 'Too many sign-in attempts. Wait a few minutes before trying again.' } });
+router.use(['/login', '/login/verify'], signInLimit);
 
 // Login routes
 router.post('/login', validate(loginValidation), login);

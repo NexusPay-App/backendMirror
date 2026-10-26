@@ -299,128 +299,24 @@ export const verifyPhone = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
     const { email, phoneNumber, password } = req.body;
-
-    // Log the login attempt
-    console.log('\n======================================');
-    console.log('🔒 LOGIN ATTEMPT');
-    console.log(`📧 Email: ${email || 'Not provided'}`);
-    console.log(`📱 Phone: ${phoneNumber || 'Not provided'}`);
-    console.log('======================================\n');
-
-    // At least one identifier (email or phone) is required
-    if ((!email && !phoneNumber) || !password) {
-        console.log("❌ Missing credentials: No email/phone or password");
-        return res.status(400).json(createErrorResponse('INVALID_CREDENTIALS', 'Either email or phone number, and password are required!'));
-    }
-
+    if ((!email && !phoneNumber) || typeof password !== 'string' || !password) return res.status(400).json(createErrorResponse('INVALID_CREDENTIALS', 'Enter your phone number or email and password.'));
     try {
-        // Find user by either email or phone number
-        const query = email ? { email } : { phoneNumber };
-        console.log("Operation diagnostic");
-        
-        const user = await User.findOne(query);
-        
-        if (!user) {
-            console.log("❌ User not found");
-            return res.status(404).json(createErrorResponse('USER_NOT_FOUND', 'No account found with this information'));
-        }
-
-        // Log found user details
-        console.log('\n======================================');
-        console.log("✅ USER FOUND");
-        console.log("Operation diagnostic");
-        console.log("Operation diagnostic");
-        console.log("Operation diagnostic");
-        console.log("Operation diagnostic");
-        console.log('======================================\n');
-
-        // Check if user has a password (Google OAuth users might not have one)
-        if (!user.password) {
-            console.log("❌ User has no password (Google OAuth account)");
-            return res.status(401).json(createErrorResponse('INVALID_CREDENTIALS', 'This account was created with Google. Please sign in with Google or add a password first.'));
-        }
-
-        // Verify password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        console.log("Operation diagnostic");
-        
-        if (!isValidPassword) {
-            console.log("❌ Invalid password");
-            return res.status(401).json(createErrorResponse('WRONG_PASSWORD', 'Incorrect password provided'));
-        }
-
-        // Verify email or phone is verified
-        if (email && !user.isEmailVerified) {
-            console.log('❌ Email not verified');
-            return res.status(401).json(createErrorResponse('EMAIL_NOT_VERIFIED', 'Please verify your email first.'));
-        }
-        
-        if (phoneNumber && !user.isPhoneVerified) {
-            console.log("❌ Phone not verified - suggesting password reset");
-            return res.status(401).json(createErrorResponse('PHONE_NOT_VERIFIED', 'Phone number not verified. Please use password reset to verify your phone number and set a new password.'));
-        }
-
-        console.log("✅ All validation passed, sending OTP");
-
-        // Send OTP based on login method
+        const user = await User.findOne(email ? { email } : { phoneNumber });
+        if (!user?.password || !await bcrypt.compare(password, user.password)) return res.status(401).json(createErrorResponse('INVALID_CREDENTIALS', 'Check your phone number and password, or continue with Google if you signed up with Google.'));
+        if (user.status === 'suspended') return res.status(403).json(createErrorResponse('ACCOUNT_SUSPENDED', 'This account is suspended. Contact support.'));
+        if (email && !user.isEmailVerified) return res.status(401).json(createErrorResponse('EMAIL_NOT_VERIFIED', 'Verify your email before signing in.'));
+        if (phoneNumber && !user.isPhoneVerified) return res.status(401).json(createErrorResponse('PHONE_NOT_VERIFIED', 'Verify this phone number from your account settings. You can sign in with Google if it is linked to your account.'));
         if (email) {
-            // Send email OTP
-            const emailSent = await sendEmail(email, 'login');
-            if (!emailSent) {
-                return res.status(500).json(standardResponse(
-                    false, 
-                    "Failed to send login verification code."
-                ));
-            }
-
-            return res.json(standardResponse(
-                true, 
-                "Please verify your login with the code sent to your email.",
-                { email }
-            ));
-        } else {
-            // Send SMS OTP for phone login
-            const otp = generateOTP();
-            await issueChallenge(phoneNumber, 'phone-login', otp);
-            
-            // Log OTP for testing purposes
-            console.log('\n======================================');
-            console.log("Operation diagnostic");
-            console.log('======================================\n');
-            
-            try {
-                // Send OTP via SMS using the new SMS service
-                const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'login');
-                
-                if (!smsSent) {
-                    console.log("Operation diagnostic");
-                    return res.status(200).json(standardResponse(
-                        true,
-                        "OTP generated successfully. SMS failed, but check server logs for OTP code.",
-                        { phoneNumber, smsFailure: true }
-                    ));
-                }
-                
-                return res.json(standardResponse(
-                    true, 
-                    "Please verify your login with the code sent to your phone number.",
-                    { phoneNumber }
-                ));
-            } catch (error) {
-        if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
-                console.error("❌ Error sending SMS OTP:");
-                console.log("Operation diagnostic");
-                return res.status(200).json(standardResponse(
-                    true,
-                    "OTP generated successfully. SMS service error, but check server logs for OTP code.",
-                    { phoneNumber, smsFailure: true }
-                ));
-            }
+            if (!await sendEmail(email, 'login')) return res.status(503).json(standardResponse(false, 'We couldn’t send your sign-in code. Wait a minute and try again.'));
+            return res.json(standardResponse(true, 'Verification code sent.', { email }));
         }
+        const otp = generateOTP();
+        await issueChallenge(phoneNumber, 'phone-login', otp);
+        if (!await SMSService.sendOTP(phoneNumber, otp, 'login')) return res.status(503).json(standardResponse(false, 'We couldn’t send your sign-in code. Wait a minute and try again.'));
+        return res.json(standardResponse(true, 'Verification code sent.', { phoneNumber }));
     } catch (error) {
         if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
-        console.error('Error in login:', error);
-        return handleError(error, res, "Error during login");
+        return res.status(503).json(standardResponse(false, 'Sign-in is temporarily unavailable. Please try again shortly.'));
     }
 };
 
@@ -436,34 +332,11 @@ export const verifyLogin = async (req: Request, res: Response) => {
     }
 
     try {
-        let user;
-        let isValidOtp = false;
-        
-        // Log OTP verification attempt
-        console.log('\n======================================');
-        console.log("Operation diagnostic");
-        console.log(`📱 Identifier: ${email || phoneNumber}`);
-        console.log("Operation diagnostic");
-
-        if (email) {
-            // Log for email verification
-            console.log("Operation diagnostic");
-            // Verify email OTP
-            isValidOtp = await verifyOTP(email, otp, 'login');
-            user = await User.findOne({ email });
-        } else {
-            // Log for phone verification
-            console.log("Operation diagnostic");
-            // Verify phone OTP
-            isValidOtp = !!await consumeChallenge(phoneNumber, 'phone-login', otp);
-            if (isValidOtp) {
-                // Code consumed atomically in MongoDB. // Clear OTP after successful verification
-            }
-            user = await User.findOne({ phoneNumber });
-        }
-        
-        console.log("Operation diagnostic");
-        console.log('======================================\n');
+        const user = await User.findOne(email ? { email } : { phoneNumber });
+        if (!user || user.status === 'suspended') return res.status(401).json(standardResponse(false, 'Unable to verify this sign-in. Please start again.'));
+        const isValidOtp = email
+            ? await verifyOTP(email, otp, 'login')
+            : !!await consumeChallenge(phoneNumber, 'phone-login', otp);
 
         if (!isValidOtp) {
             return res.status(400).json(standardResponse(
@@ -511,8 +384,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
         ));
     } catch (error) {
         if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
-        console.error("Error in verifyLogin:", error);
-        return handleError(error, res, "Error verifying login");
+        return res.status(503).json(standardResponse(false, 'Sign-in is temporarily unavailable. Please try again shortly.'));
     }
 };
 

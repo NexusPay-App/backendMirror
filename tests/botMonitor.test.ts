@@ -1,3 +1,4 @@
+jest.mock('../src/services/paymentWorkers', () => ({ processMpesaCallbacks: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../src/models/botMonitor', () => ({ BotMonitor: { findById: jest.fn(), findOneAndUpdate: jest.fn(), updateOne: jest.fn() } }));
 jest.mock('../src/models/botTransfer', () => ({ BotTransfer: { find: jest.fn(), updateMany: jest.fn() } }));
 jest.mock('../src/services/botchainTransfers', () => ({ reconcileBotTransfer: jest.fn() }));

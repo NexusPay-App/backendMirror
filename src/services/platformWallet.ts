@@ -536,12 +536,17 @@ function ensure0xAddress(address: string): `0x${string}` {
  * This creates or loads both the main platform wallet and the fees wallet
  */
 export async function initializePlatformWallets(): Promise<PlatformWallets> {
+  const production = process.env.NODE_ENV === 'production';
+  const address = production ? process.env.PROD_PLATFORM_WALLET_ADDRESS : process.env.DEV_PLATFORM_WALLET_ADDRESS;
+  const privateKey = production ? process.env.PROD_PLATFORM_WALLET_PRIVATE_KEY : process.env.DEV_PLATFORM_WALLET_PRIVATE_KEY;
+  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address) || !privateKey) throw new Error('Settlement treasury is not configured');
   // Try to get from cache first
   const cachedWallets = await redis.get(PLATFORM_WALLETS_CACHE_KEY);
   
   if (cachedWallets) {
     try {
-      return JSON.parse(cachedWallets);
+      const cached = JSON.parse(cachedWallets);
+      if (cached.main?.address === address && cached.main?.privateKey === privateKey) return cached;
     } catch (error) {
       console.error('Error parsing cached wallets:', error);
       // Continue to create new wallets if parsing fails
@@ -551,8 +556,8 @@ export async function initializePlatformWallets(): Promise<PlatformWallets> {
   // Main wallet is configured in env variables
   // For smart wallets, we need the controlling EOA private key
   const mainWallet = {
-    address: '0x2b0B97EA7922E9CF5ef689A211F75B1E67A261Bf', // Correct wallet address with 6.43 USDC funds
-    privateKey: process.env.DEV_PLATFORM_WALLET_PRIVATE_KEY || null // The EOA that controls the smart wallet
+    address,
+    privateKey
   };
   
   // Check if we have the fees wallet stored in the database
@@ -818,7 +823,7 @@ export async function collectTransactionFee(
  * Calculate transaction fee based on transaction amount
  * This implements a tiered fee structure
  */
-function calculateTransactionFee(amount: number): number {
+export function calculateTransactionFee(amount: number): number {
   if (amount <= 1) return 0;
   if (amount <= 5) return 0.05;
   if (amount <= 10) return 0.1;

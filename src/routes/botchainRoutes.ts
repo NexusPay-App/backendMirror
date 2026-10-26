@@ -36,11 +36,11 @@ router.post('/:network/max', rateLimit({ windowMs: 60_000, limit: 10, keyGenerat
   }
 });
 router.post('/:network/quote', rateLimit({ windowMs: 60_000, limit: 15, keyGenerator: req => String(req.user._id) }), async (req, res) => {
-  if (typeof req.body.recipientIdentifier !== 'string' || req.body.recipientIdentifier.length > 254 || typeof req.body.amount !== 'string' || !['BOT', 'USDT'].includes(req.body.tokenSymbol)) return res.status(400).json({ success: false, message: 'Supply a recipient, amount and supported token.' });
+  if ((!req.body.merchantId && (typeof req.body.recipientIdentifier !== 'string' || req.body.recipientIdentifier.length > 254)) || (req.body.merchantId !== undefined && (typeof req.body.merchantId !== 'string' || req.body.merchantId.length > 100 || req.body.tokenSymbol !== 'USDT')) || typeof req.body.amount !== 'string' || !['BOT', 'USDT'].includes(req.body.tokenSymbol)) return res.status(400).json({ success: false, message: 'Supply a recipient, amount and supported token.' });
   try {
     const network = res.locals.network;
     const account = await resolveBotAccount(req.user, network);
-    const recipient = await resolveBotRecipient(network, { recipientIdentifier: req.body.recipientIdentifier });
+    const recipient = await resolveBotRecipient(network, { recipientIdentifier: req.body.recipientIdentifier, merchantId: req.body.merchantId });
     const data = await quoteBotTransfer(network, req.user.privateKey, account.address, recipient, req.body.tokenSymbol, req.body.amount);
     res.json({ success: true, data });
   } catch (error) {
