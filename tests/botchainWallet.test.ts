@@ -12,7 +12,7 @@ jest.mock('viem/account-abstraction', () => ({ getUserOperationHash: () => `0x${
 import { readContract } from 'thirdweb';
 import { createUnsignedUserOp, signUserOp } from 'thirdweb/wallets/smart';
 import { botRpc } from '../src/services/botchainRpc';
-import { prepareBotTransfer } from '../src/services/botchainWallet';
+import { prepareBotTransfer, quoteMaxBotTransfer } from '../src/services/botchainWallet';
 import { BOT_ENTRY_POINT } from '../src/config/botchain';
 
 const sender = '0x2222222222222222222222222222222222222222';
@@ -71,4 +71,29 @@ test('a preparation retry after insufficient gas can succeed once funded', async
   await expect(prepareBotTransfer('botchain', 'fixture-key', sender, recipient, 'USDT', '1')).rejects.toMatchObject({ code: 'INSUFFICIENT_GAS' });
   balance = 200n;
   await expect(prepareBotTransfer('botchain', 'fixture-key', sender, recipient, 'USDT', '1')).resolves.toHaveProperty('userOpHash');
+});
+
+
+test('native Max reserves estimated fees without signing or broadcasting', async () => {
+  balance = 1000n;
+  const quote = await quoteMaxBotTransfer('botchain', 'fixture-key', sender, recipient);
+  expect(quote.amount).toBe('0.00000000000000088');
+  expect(quote.gasReserve).toBe('0.00000000000000012');
+  expect(signUserOp).not.toHaveBeenCalled();
+  expect((botRpc as jest.Mock).mock.calls.some(call => call[1] === 'eth_sendUserOperation')).toBe(false);
+});
+
+test('native Max can spend the balance when an EntryPoint deposit covers gas', async () => {
+  balance = 1000n;
+  deposit = 200n;
+  const quote = await quoteMaxBotTransfer('botchain', 'fixture-key', sender, recipient);
+  expect(quote.amount).toBe('0.000000000000001');
+  expect(quote.gasReserve).toBe('0');
+  expect(signUserOp).not.toHaveBeenCalled();
+});
+
+test('native Max refuses a balance below the required fee reserve', async () => {
+  balance = 100n;
+  await expect(quoteMaxBotTransfer('botchain', 'fixture-key', sender, recipient)).rejects.toMatchObject({ code: 'INSUFFICIENT_GAS' });
+  expect(signUserOp).not.toHaveBeenCalled();
 });

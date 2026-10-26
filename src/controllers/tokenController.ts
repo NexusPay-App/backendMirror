@@ -1129,7 +1129,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
                 });
             }
             const botCacheKey = `balance:${user.walletAddress}:${chain}:v2`;
-            const cachedBotBalance = await getCachedData(botCacheKey);
+            const cachedBotBalance = req.query.refresh === 'true' ? null : await getCachedData(botCacheKey);
             if (cachedBotBalance) {
                 return res.json({
                     success: true,
@@ -1183,8 +1183,8 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
         }
 
         // Check cache first (3 minute cache for individual chain balance)
-        const cacheKey = `balance:${user.walletAddress}:${chain}`;
-        const cachedBalance = await getCachedData(cacheKey);
+        const cacheKey = `balance:${user.walletAddress}:${chain}:exact-v1`;
+        const cachedBalance = req.query.refresh === 'true' ? null : await getCachedData(cacheKey);
         
         if (cachedBalance) {
             console.log("Operation diagnostic");
@@ -1204,6 +1204,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
         // Get supported tokens for this specific chain
         const chainTokens = getSupportedTokens(chain as Chain);
         const balances: Record<string, number> = {};
+        const exactBalances: Record<string, string> = {};
         let totalUSDValue = 0;
 
         for (const token of chainTokens) {
@@ -1226,6 +1227,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
                     params: [user.walletAddress],
                 });
 
+                exactBalances[token] = ethers.formatUnits(balance, tokenConfig.decimals);
                 const balanceInToken = Number(balance) / 10 ** tokenConfig.decimals;
                 
                 if (balanceInToken > 0) {
@@ -1245,6 +1247,7 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
             walletAddress: user.walletAddress,
             chain,
             balances,
+            exactBalances,
             totalUSDValue: Math.round(totalUSDValue * 100) / 100,
             supportedTokens: chainTokens,
             lastUpdated: new Date().toISOString()

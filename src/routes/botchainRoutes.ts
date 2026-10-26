@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { botPaymentLimiter } from '../middleware/botPaymentLimiter';
 import { authenticate } from '../middleware/auth';
 import { botCapabilities, isBotNetwork, getBotConfig } from '../config/botchain';
-import { resolveBotAccount, getBotBalances } from '../services/botchainWallet';
-import { submitBotTransfer, reconcileBotTransfer, publicBotTransfer } from '../services/botchainTransfers';
+import { resolveBotAccount, getBotBalances, quoteMaxBotTransfer } from '../services/botchainWallet';
+import { submitBotTransfer, reconcileBotTransfer, publicBotTransfer, resolveBotRecipient } from '../services/botchainTransfers';
 import { BotTransfer } from '../models/botTransfer';
 import { botPaymentError } from '../services/botchainErrors';
 const router = Router();
@@ -20,6 +21,19 @@ router.get('/:network/account', async (req, res) => res.json({ success: true, da
 router.get('/:network/balances', async (req, res) => {
   const account = await resolveBotAccount(req.user, res.locals.network);
   res.json({ success: true, data: { ...account, balances: await getBotBalances(res.locals.network, account.address), lastUpdated: new Date().toISOString() } });
+});
+router.post('/:network/max', rateLimit({ windowMs: 60_000, limit: 10, keyGenerator: req => String(req.user._id) }), async (req, res) => {
+  if (typeof req.body.recipientIdentifier !== 'string' || req.body.recipientIdentifier.length > 254) return res.status(400).json({ success: false, message: 'Enter a valid recipient first.' });
+  try {
+    const network = res.locals.network;
+    const account = await resolveBotAccount(req.user, network);
+    const recipient = await resolveBotRecipient(network, { recipientIdentifier: req.body.recipientIdentifier });
+    const data = await quoteMaxBotTransfer(network, req.user.privateKey, account.address, recipient);
+    res.set('Cache-Control', 'no-store').json({ success: true, data });
+  } catch (error) {
+    const failure = botPaymentError(error);
+    res.status(failure.status).json({ success: false, error: { code: failure.code, message: failure.message } });
+  }
 });
 router.post('/:network/transfers', botPaymentLimiter, async (req, res) => {
   if (!req.user.password) return res.status(403).json({ success: false, error: { code: 'PASSWORD_SETUP_REQUIRED', message: 'Set up your NexusPay account password in Settings before making payments. Your Google password is not your NexusPay password.' } });

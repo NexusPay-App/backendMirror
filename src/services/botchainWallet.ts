@@ -62,16 +62,15 @@ export async function getBotBalances(network: BotNetwork, address: string) {
     return { ...token, balance: formatAmount(units, token.decimals), balanceUnits: units.toString() };
   }));
 }
-export async function prepareBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string, symbol: BotToken, amount: string) {
+async function buildBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string, symbol: BotToken, amount: string) {
   const n = getBotConfig(network);
   if (!n.transfersEnabled) throw new Error('Transfers are not enabled on this BOT network');
-  await assertBotInfrastructure(network);
   const token = n.tokens[symbol];
   if (!token) throw new Error('Unsupported BOT asset');
   const units = parseAmount(amount, token.decimals);
   const nativeBalance = BigInt(await botRpc<Hex>(n.rpc, 'eth_getBalance', [sender, 'latest']));
   if (!token.address && nativeBalance < units) throw new BotPaymentError('INSUFFICIENT_BALANCE', 'Your BOT balance is lower than the amount entered.');
-  if (nativeBalance <= (token.address ? 0n : units)) throw new BotPaymentError('INSUFFICIENT_GAS', 'Keep some native BOT in this wallet for the network fee. Fund your BOT address from Receive.');
+  if (nativeBalance <= 0n) throw new BotPaymentError('INSUFFICIENT_GAS', 'Keep some native BOT in this wallet for the network fee. Fund your BOT address from Receive.');
   const contract = getContract({ client, chain: n.chain, address: sender });
   const overrides = botAccountOverrides(network);
   const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
@@ -99,6 +98,12 @@ export async function prepareBotTransfer(network: BotNetwork, privateKey: string
   const unsignedWithHeadroom = { ...unsigned, verificationGasLimit };
   const maxGasCost = (BigInt(unsigned.callGasLimit) + verificationGasLimit + BigInt(unsigned.preVerificationGas)) * BigInt(unsigned.maxFeePerGas);
   const deposit = await readContract({ contract: getContract({ client, chain: n.chain, address: BOT_ENTRY_POINT }), method: 'function balanceOf(address account) view returns (uint256)', params: [sender] });
+  return { n, admin, unsignedWithHeadroom, maxGasCost, deposit, nativeBalance, units, token };
+}
+
+export async function prepareBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string, symbol: BotToken, amount: string) {
+  await assertBotInfrastructure(network);
+  const { n, admin, unsignedWithHeadroom, maxGasCost, deposit, nativeBalance, units, token } = await buildBotTransfer(network, privateKey, sender, recipient, symbol, amount);
   const requiredFromWallet = (maxGasCost > deposit ? maxGasCost - deposit : 0n) + (token.address ? 0n : units);
   if (nativeBalance < requiredFromWallet) throw new BotPaymentError('INSUFFICIENT_GAS', `Keep at least ${formatAmount(requiredFromWallet, 18)} BOT in this wallet to cover this payment and its maximum network fee.`);
   const signed = await signUserOp({ client, chain: n.chain, entrypointAddress: BOT_ENTRY_POINT, adminAccount: admin, userOp: unsignedWithHeadroom });
@@ -130,4 +135,21 @@ export async function prepareBotTransfer(network: BotNetwork, privateKey: string
     userOpHash,
     submit: async () => botRpc<Hex>(n.bundler, 'eth_sendUserOperation', [wireOp, BOT_ENTRY_POINT]),
   };
+}
+
+export async function quoteMaxBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string) {
+  await assertBotInfrastructure(network);
+  let amount = '0.000000000000000001';
+  let reserved = 0n;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const quote = await buildBotTransfer(network, privateKey, sender, recipient, 'BOT', amount);
+    const fee = (quote.maxGasCost * 120n + 99n) / 100n;
+    const required = fee > quote.deposit ? fee - quote.deposit : 0n;
+    reserved = required > reserved ? required : reserved;
+    if (quote.nativeBalance <= reserved) throw new BotPaymentError('INSUFFICIENT_GAS', 'Your BOT balance is too low to cover the network fee.');
+    const next = formatAmount(quote.nativeBalance - reserved, 18);
+    if (next === amount) return { amount, gasReserve: formatAmount(reserved, 18), balance: formatAmount(quote.nativeBalance, 18), recipient };
+    amount = next;
+  }
+  throw new BotPaymentError('INSUFFICIENT_GAS', 'Network fees are changing. Try Max again in a moment.');
 }

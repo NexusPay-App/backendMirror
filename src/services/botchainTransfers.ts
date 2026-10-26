@@ -25,16 +25,7 @@ export function normalizeBotRecipientPhone(raw: string): string {
 export function transferFingerprint(value: { network: string; recipient: string; symbol: string; amountUnits: string; merchantId?: string }) {
   return createHash('sha256').update(JSON.stringify([value.network, value.recipient.toLowerCase(), value.symbol, value.amountUnits, value.merchantId || ''])).digest('hex');
 }
-export async function submitBotTransfer(user: any, network: BotNetwork, input: { recipientIdentifier?: string; merchantId?: string; tokenSymbol: BotToken; amount: string; senderAddress?: string }, idempotencyKey: string) {
-  const n = getBotConfig(network);
-  if (!n.transfersEnabled) throw new Error('BOT transfers are not enabled');
-  if (!/^[A-Za-z0-9_-]{16,100}$/.test(idempotencyKey)) throw new Error('A stable Idempotency-Key of 16–100 characters is required');
-  const token = n.tokens[input.tokenSymbol];
-  if (!token || typeof input.amount !== 'string') throw new Error('Supply a supported asset and a decimal-string amount');
-  if (input.merchantId && input.tokenSymbol !== 'USDT') throw new Error('BOT merchant payments support USDT only');
-  const amountUnits = parseAmount(input.amount, token.decimals).toString();
-  const account = await resolveBotAccount(user, network);
-  if (input.senderAddress && input.senderAddress.toLowerCase() !== account.address.toLowerCase()) throw new Error('Sender address does not belong to authenticated user on this network');
+export async function resolveBotRecipient(network: BotNetwork, input: { recipientIdentifier?: string; merchantId?: string }) {
   let recipient: string;
   if (input.merchantId) {
     const business = await Business.findOne({ merchantId: input.merchantId });
@@ -50,6 +41,19 @@ export async function submitBotTransfer(user: any, network: BotNetwork, input: {
     if (!recipientUser) throw new Error('Recipient is not registered');
     recipient = (await resolveBotAccount(recipientUser, network)).address;
   }
+  return recipient;
+}
+export async function submitBotTransfer(user: any, network: BotNetwork, input: { recipientIdentifier?: string; merchantId?: string; tokenSymbol: BotToken; amount: string; senderAddress?: string }, idempotencyKey: string) {
+  const n = getBotConfig(network);
+  if (!n.transfersEnabled) throw new Error('BOT transfers are not enabled');
+  if (!/^[A-Za-z0-9_-]{16,100}$/.test(idempotencyKey)) throw new Error('A stable Idempotency-Key of 16–100 characters is required');
+  const token = n.tokens[input.tokenSymbol];
+  if (!token || typeof input.amount !== 'string') throw new Error('Supply a supported asset and a decimal-string amount');
+  if (input.merchantId && input.tokenSymbol !== 'USDT') throw new Error('BOT merchant payments support USDT only');
+  const amountUnits = parseAmount(input.amount, token.decimals).toString();
+  const account = await resolveBotAccount(user, network);
+  if (input.senderAddress && input.senderAddress.toLowerCase() !== account.address.toLowerCase()) throw new Error('Sender address does not belong to authenticated user on this network');
+  const recipient = await resolveBotRecipient(network, input);
   const fingerprint = transferFingerprint({ network, recipient, symbol: input.tokenSymbol, amountUnits, merchantId: input.merchantId });
   const existing = await BotTransfer.findOne({ userId: user._id, idempotencyKey });
   if (existing) {
