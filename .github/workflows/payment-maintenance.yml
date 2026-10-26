@@ -13,6 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Ensure continuous BOT monitor is running
+        env:
+          BOT_MONITOR_SECRET: ${{ secrets.BOT_MONITOR_SECRET }}
+        run: |
+          test -n "$BOT_MONITOR_SECRET"
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer $BOT_MONITOR_SECRET" \
+            https://app.nexuspayapp.xyz/api/internal/bot-monitor/start
       - name: Reconcile submitted payments
         env:
           PAYMENT_MAINTENANCE_SECRET: ${{ secrets.PAYMENT_MAINTENANCE_SECRET }}
@@ -37,7 +46,7 @@ jobs:
               break
             fi
           done
-      - name: Deliver deposit notifications
+      - name: Deliver payment notifications
         if: ${{ !cancelled() }}
         env:
           PAYMENT_MAINTENANCE_SECRET: ${{ secrets.PAYMENT_MAINTENANCE_SECRET }}

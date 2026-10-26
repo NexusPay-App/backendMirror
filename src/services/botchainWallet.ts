@@ -101,9 +101,10 @@ async function buildBotTransfer(network: BotNetwork, privateKey: string, sender:
   return { n, admin, unsignedWithHeadroom, maxGasCost, deposit, nativeBalance, units, token };
 }
 
-export async function prepareBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string, symbol: BotToken, amount: string) {
+export async function prepareBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string, symbol: BotToken, amount: string, approvedMaxFee?: string) {
   await assertBotInfrastructure(network);
   const { n, admin, unsignedWithHeadroom, maxGasCost, deposit, nativeBalance, units, token } = await buildBotTransfer(network, privateKey, sender, recipient, symbol, amount);
+  if (approvedMaxFee !== undefined && maxGasCost > parseAmount(approvedMaxFee, 18)) throw new BotPaymentError('FEE_CHANGED', 'Network fee changed. Refresh the estimate and review again.', 409);
   const requiredFromWallet = (maxGasCost > deposit ? maxGasCost - deposit : 0n) + (token.address ? 0n : units);
   if (nativeBalance < requiredFromWallet) throw new BotPaymentError('INSUFFICIENT_GAS', `Keep at least ${formatAmount(requiredFromWallet, 18)} BOT in this wallet to cover this payment and its maximum network fee.`);
   const signed = await signUserOp({ client, chain: n.chain, entrypointAddress: BOT_ENTRY_POINT, adminAccount: admin, userOp: unsignedWithHeadroom });
@@ -152,4 +153,13 @@ export async function quoteMaxBotTransfer(network: BotNetwork, privateKey: strin
     amount = next;
   }
   throw new BotPaymentError('INSUFFICIENT_GAS', 'Network fees are changing. Try Max again in a moment.');
+}
+
+export async function quoteBotTransfer(network: BotNetwork, privateKey: string, sender: string, recipient: string, symbol: BotToken, amount: string) {
+  await assertBotInfrastructure(network);
+  const { maxGasCost, deposit, nativeBalance, units, token } = await buildBotTransfer(network, privateKey, sender, recipient, symbol, amount);
+  const walletFee = maxGasCost > deposit ? maxGasCost - deposit : 0n;
+  const total = walletFee + (token.address ? 0n : units);
+  if (nativeBalance < total) throw new BotPaymentError('INSUFFICIENT_GAS', `Keep at least ${formatAmount(total, 18)} BOT in your wallet for this payment and its fee.`);
+  return { recipient, amount, tokenSymbol: symbol, feeCurrency: 'BOT', maxNetworkFee: formatAmount(maxGasCost, 18), walletFee: formatAmount(walletFee, 18), totalBotDebit: formatAmount(total, 18), expiresAt: new Date(Date.now() + 60_000).toISOString() };
 }

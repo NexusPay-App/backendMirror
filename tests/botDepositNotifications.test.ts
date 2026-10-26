@@ -66,3 +66,20 @@ test('disabled SMS preserves the queue without calling the provider', async () =
   expect(records[0].smsStatus).toBe('pending');
   expect(SMSService.submitTransactionNotification).not.toHaveBeenCalled();
 });
+
+test('sends distinct sender and recipient notifications for the same confirmed transaction', async () => {
+  records.push({ ...records[0], _id: 'outgoing-1', userId: 'sender-1', direction: 'outgoing' });
+  const result = await deliverBotDepositNotifications(2, { transactionHash: records[0].transactionHash });
+  expect(result.accepted).toBe(2);
+  expect(SMSService.submitTransactionNotification).toHaveBeenCalledWith(expect.objectContaining({ transactionType: 'send' }));
+  expect(SMSService.submitTransactionNotification).toHaveBeenCalledWith(expect.objectContaining({ transactionType: 'receive' }));
+  expect(BotTransfer.findOneAndUpdate).toHaveBeenCalledWith(expect.objectContaining({ transactionHash: records[0].transactionHash, status: 'confirmed' }), expect.anything(), expect.anything());
+  await deliverBotDepositNotifications();
+  expect(SMSService.submitTransactionNotification).toHaveBeenCalledTimes(2);
+});
+test('configuration rejection keeps notifications recoverable after six attempts', async () => {
+  records[0].smsAttempts = 6;
+  (SMSService.submitTransactionNotification as jest.Mock).mockResolvedValue({ status: 'rejected', code: 'PROVIDER_HTTP_401' });
+  await deliverBotDepositNotifications();
+  expect(records[0].smsStatus).toBe('pending');
+});

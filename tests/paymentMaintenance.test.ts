@@ -1,7 +1,9 @@
+jest.mock('../src/services/botMonitor', () => ({ startBotMonitor: jest.fn(), runBotMonitorTick: jest.fn() }));
 jest.mock('../src/services/botchainDeposits', () => ({ scanBotDeposits: jest.fn() }));
 jest.mock('../src/services/botDepositNotifications', () => ({ deliverBotDepositNotifications: jest.fn() }));
 jest.mock('../src/models/botTransfer', () => ({ BotTransfer: { find: jest.fn(), countDocuments: jest.fn() } }));
 jest.mock('../src/services/botchainTransfers', () => ({ reconcileBotTransfer: jest.fn() }));
+import { startBotMonitor, runBotMonitorTick } from '../src/services/botMonitor';
 import express from 'express';
 import request from 'supertest';
 import routes from '../src/routes/paymentMaintenance';
@@ -9,7 +11,7 @@ import { BotTransfer } from '../src/models/botTransfer';
 import { scanBotDeposits } from '../src/services/botchainDeposits';
 import { deliverBotDepositNotifications } from '../src/services/botDepositNotifications';
 import { reconcileBotTransfer } from '../src/services/botchainTransfers';
-const app = express().use(routes);
+const app = express().use(express.json()).use(routes);
 beforeEach(() => { jest.clearAllMocks(); process.env.PAYMENT_MAINTENANCE_SECRET = 'fixture-maintenance-secret'; });
 afterEach(() => { delete process.env.PAYMENT_MAINTENANCE_SECRET; });
 test('rejects unauthenticated maintenance before accessing payments', async () => {
@@ -41,4 +43,15 @@ test('returns a JSON-safe scan summary without wallet identities', async () => {
   const response = await request(app).post('/deposits').set('Authorization', 'Bearer fixture-maintenance-secret');
   expect(response.status).toBe(200);
   expect(response.body.data).toEqual({ from: '100', to: '110', tokens: 1, native: 1 });
+});
+
+test('continuous monitor requires its shared secret and validates cycle identity', async () => {
+  process.env.BOT_MONITOR_SECRET = 'fixture-monitor-secret';
+  try {
+    (startBotMonitor as jest.Mock).mockResolvedValue({ tickId: 'fixture' });
+    expect((await request(app).post('/monitor/start')).status).toBe(401);
+    expect((await request(app).post('/monitor/start').set('Authorization', 'Bearer fixture-monitor-secret')).status).toBe(200);
+    expect((await request(app).post('/monitor/tick').set('Authorization', 'Bearer fixture-monitor-secret').send({tickId: 'bad'})).status).toBe(400);
+    expect(runBotMonitorTick).not.toHaveBeenCalled();
+  } finally { delete process.env.BOT_MONITOR_SECRET; }
 });

@@ -206,10 +206,11 @@ export async function scanBotDeposits(network: BotNetwork) {
   finally { await BotDepositCursor.updateOne({ _id: id, lease }, { $unset: { lease: 1, leaseUntil: 1 } }); }
 }
 
-export async function recordNativeBotReceipt(payment: { network: BotNetwork; token: string; recipient: string; sender: string; amountUnits: string; transactionHash: string; userOpHash: string; blockNumber: string }) {
-  if (payment.token !== 'BOT' || !getBotConfig(payment.network).depositIndexingEnabled) return;
+export async function recordBotReceipt(payment: { network: BotNetwork; token: string; recipient: string; sender: string; amountUnits: string; transactionHash: string; userOpHash: string; blockNumber: string; transferLogIndex?: string }) {
+  if (!['BOT', 'USDT'].includes(payment.token) || !getBotConfig(payment.network).depositIndexingEnabled) return;
+  if (payment.token === 'USDT' && payment.transferLogIndex === undefined) throw new Error('Confirmed USDT receipt has no transfer log index');
   const n = getBotConfig(payment.network);
   const watched = (await watchedAccounts(n.id)).get(payment.recipient.toLowerCase());
   if (!watched) return;
-  await recordDeposit({ network: payment.network, chainId: n.id, watched, sender: payment.sender, recipient: payment.recipient, symbol: 'BOT', units: BigInt(payment.amountUnits), transactionHash: payment.transactionHash, blockNumber: BigInt(payment.blockNumber), logKey: `userop:${payment.userOpHash}` });
+  await recordDeposit({ network: payment.network, chainId: n.id, watched, sender: payment.sender, recipient: payment.recipient, symbol: payment.token as BotToken, units: BigInt(payment.amountUnits), transactionHash: payment.transactionHash, blockNumber: BigInt(payment.blockNumber), logKey: payment.token === 'BOT' ? `userop:${payment.userOpHash}` : payment.transferLogIndex! });
 }

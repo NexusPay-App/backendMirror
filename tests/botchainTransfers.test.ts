@@ -1,8 +1,14 @@
-jest.mock('../src/models/botTransfer', () => ({ BotTransfer: { findOne: jest.fn(), create: jest.fn() } }));
+jest.mock('../src/services/botchainReceipts', () => ({ readBotTransferStatus: jest.fn() }));
+jest.mock('../src/services/botchainDeposits', () => ({ recordBotReceipt: jest.fn() }));
+jest.mock('../src/services/botDepositNotifications', () => ({ deliverBotDepositNotifications: jest.fn() }));
+jest.mock('../src/models/botTransfer', () => ({ BotTransfer: { findOne: jest.fn(), create: jest.fn(), updateOne: jest.fn() } }));
 jest.mock('../src/services/botchainWallet', () => ({ resolveBotAccount: jest.fn(), prepareBotTransfer: jest.fn() }));
 import { BotTransfer } from '../src/models/botTransfer';
 import { resolveBotAccount, prepareBotTransfer } from '../src/services/botchainWallet';
-import { submitBotTransfer } from '../src/services/botchainTransfers';
+import { readBotTransferStatus } from '../src/services/botchainReceipts';
+import { recordBotReceipt } from '../src/services/botchainDeposits';
+import { deliverBotDepositNotifications } from '../src/services/botDepositNotifications';
+import { submitBotTransfer, reconcileBotTransfer } from '../src/services/botchainTransfers';
 const user = { _id: 'user-1', privateKey: 'fixture-not-a-key', walletAddress: '0x9999999999999999999999999999999999999999' };
 const address = '0x1111111111111111111111111111111111111111';
 const input = { recipientIdentifier: '0x2222222222222222222222222222222222222222', tokenSymbol: 'USDT' as const, amount: '1.234567' };
@@ -52,4 +58,21 @@ test('a preparation failure returns a safe reason without claiming submission', 
   expect(record.failureReason).toContain('native BOT');
   expect(record.userOpHash).toBeUndefined();
   expect(submit).not.toHaveBeenCalled();
+});
+
+test('confirmation queues SMS conditionally and delivers sender and recipient alerts immediately', async () => {
+  const record: any = { _id: 'payment-1', status: 'pending', userOpHash: '0xabc', userId: 'user-1', save: jest.fn(), toObject: () => ({token: 'USDT'}) };
+  (readBotTransferStatus as jest.Mock).mockResolvedValue({status: 'confirmed', transactionHash: '0xdef', actualFeeUnits: '123', transferLogIndex: '1'});
+  await reconcileBotTransfer(record);
+  expect(recordBotReceipt).toHaveBeenCalledWith(expect.objectContaining({status: 'confirmed', token: 'USDT', transferLogIndex: '1'}));
+  expect(BotTransfer.updateOne).toHaveBeenCalledWith({ _id: 'payment-1', status: 'confirmed', smsStatus: { $exists: false } }, { $set: { smsStatus: 'pending' } });
+  expect(record.smsStatus).toBeUndefined();
+  expect(deliverBotDepositNotifications).toHaveBeenCalledWith(2, {transactionHash: '0xdef'});
+});
+test('unconfirmed payments never trigger a financial SMS', async () => {
+  const record: any = { status: 'pending', userOpHash: '0xabc', save: jest.fn() };
+  (readBotTransferStatus as jest.Mock).mockResolvedValue({status: 'pending'});
+  await reconcileBotTransfer(record);
+  expect(recordBotReceipt).not.toHaveBeenCalled();
+  expect(deliverBotDepositNotifications).not.toHaveBeenCalled();
 });

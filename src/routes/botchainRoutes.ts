@@ -4,7 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { botPaymentLimiter } from '../middleware/botPaymentLimiter';
 import { authenticate } from '../middleware/auth';
 import { botCapabilities, isBotNetwork, getBotConfig } from '../config/botchain';
-import { resolveBotAccount, getBotBalances, quoteMaxBotTransfer } from '../services/botchainWallet';
+import { resolveBotAccount, getBotBalances, quoteMaxBotTransfer, quoteBotTransfer } from '../services/botchainWallet';
 import { submitBotTransfer, reconcileBotTransfer, publicBotTransfer, resolveBotRecipient } from '../services/botchainTransfers';
 import { BotTransfer } from '../models/botTransfer';
 import { botPaymentError } from '../services/botchainErrors';
@@ -30,6 +30,19 @@ router.post('/:network/max', rateLimit({ windowMs: 60_000, limit: 10, keyGenerat
     const recipient = await resolveBotRecipient(network, { recipientIdentifier: req.body.recipientIdentifier });
     const data = await quoteMaxBotTransfer(network, req.user.privateKey, account.address, recipient);
     res.set('Cache-Control', 'no-store').json({ success: true, data });
+  } catch (error) {
+    const failure = botPaymentError(error);
+    res.status(failure.status).json({ success: false, error: { code: failure.code, message: failure.message } });
+  }
+});
+router.post('/:network/quote', rateLimit({ windowMs: 60_000, limit: 15, keyGenerator: req => String(req.user._id) }), async (req, res) => {
+  if (typeof req.body.recipientIdentifier !== 'string' || req.body.recipientIdentifier.length > 254 || typeof req.body.amount !== 'string' || !['BOT', 'USDT'].includes(req.body.tokenSymbol)) return res.status(400).json({ success: false, message: 'Supply a recipient, amount and supported token.' });
+  try {
+    const network = res.locals.network;
+    const account = await resolveBotAccount(req.user, network);
+    const recipient = await resolveBotRecipient(network, { recipientIdentifier: req.body.recipientIdentifier });
+    const data = await quoteBotTransfer(network, req.user.privateKey, account.address, recipient, req.body.tokenSymbol, req.body.amount);
+    res.json({ success: true, data });
   } catch (error) {
     const failure = botPaymentError(error);
     res.status(failure.status).json({ success: false, error: { code: failure.code, message: failure.message } });

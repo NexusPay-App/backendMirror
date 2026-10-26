@@ -9,7 +9,7 @@ import { BotDepositCursor } from '../src/models/botDepositCursor';
 import { ChainAccount } from '../src/models/chainAccount';
 import { Business } from '../src/models/businessModel';
 import { BotTransfer } from '../src/models/botTransfer';
-import { scanBotDeposits, recordNativeBotReceipt } from '../src/services/botchainDeposits';
+import { scanBotDeposits, recordBotReceipt } from '../src/services/botchainDeposits';
 import { encodeEventTopics, encodeAbiParameters, parseAbi, type Hex } from 'viem';
 
 const transferAbi = parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)']);
@@ -233,8 +233,22 @@ test('a zero-value token event does not queue an SMS', async () => {
 
 test('confirmed native NexusPay smart-wallet receipts queue one incoming notification', async () => {
   const receipt = { network: 'botchain-testnet' as const, token: 'BOT', recipient: watchedAddress, sender: outsider, amountUnits: '1000000000000000000', transactionHash: `0x${'a'.repeat(64)}`, userOpHash: `0x${'b'.repeat(64)}`, blockNumber: '90' };
-  await recordNativeBotReceipt(receipt);
-  await recordNativeBotReceipt(receipt);
+  await recordBotReceipt(receipt);
+  await recordBotReceipt(receipt);
   expect(records).toHaveLength(1);
   expect(records[0]).toMatchObject({ direction: 'incoming', token: 'BOT', amount: '1', smsStatus: 'pending' });
+});
+
+test('immediate USDT receipt and later log scan produce only one recipient notification', async () => {
+  const hash = '0x' + 'ab'.repeat(32);
+  await recordBotReceipt({ network: 'botchain-testnet', token: 'USDT', recipient: watchedAddress, sender: outsider, amountUnits: '1000000', transactionHash: hash, userOpHash: '0xoperation', blockNumber: '92', transferLogIndex: '3' });
+  rpc.mockImplementation(async (_url, method) => {
+    if (method === 'eth_blockNumber') return '0x64';
+    if (method === 'eth_getLogs') return [transferLog(outsider, watchedAddress, 1000000n, 92n, hash, 3)];
+    if (method === 'eth_getBlockByNumber') return {transactions: []};
+    throw new Error('Unexpected method');
+  });
+  await scanBotDeposits('botchain-testnet');
+  expect(records).toHaveLength(1);
+  expect(records[0].smsStatus).toBe('pending');
 });

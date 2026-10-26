@@ -1,5 +1,5 @@
 import { encodeEventTopics, encodeAbiParameters, parseAbi, type Hex } from 'viem';
-import { verifyBotExecution, type RpcLog } from '../src/services/botchainReceipts';
+import { verifyBotExecution, verifyBotExecutionDetails, type RpcLog } from '../src/services/botchainReceipts';
 import { BOT_ENTRY_POINT, getBotConfig } from '../src/config/botchain';
 const sender = '0x1111111111111111111111111111111111111111';
 const recipient = '0x2222222222222222222222222222222222222222';
@@ -33,4 +33,8 @@ test('does not crash when decoded args are positional or missing', () => {
   // Named-arg decode failure path: empty topics still hits the catch/continue.
   const empty: RpcLog = { address: BOT_ENTRY_POINT, logIndex: '0x0', topics: [], data: '0x' };
   expect(() => verifyBotExecution([empty], expected)).toThrow('Canonical receipt has no matching UserOperation event');
+});
+
+test('extracts the actual operation fee and token log index from canonical events', () => {
+  expect(verifyBotExecutionDetails([transfer(), operation()], expected)).toEqual({ status: 'confirmed', actualGasCost: '123', transferLogIndex: '1' });
 });

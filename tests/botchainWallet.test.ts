@@ -12,7 +12,7 @@ jest.mock('viem/account-abstraction', () => ({ getUserOperationHash: () => `0x${
 import { readContract } from 'thirdweb';
 import { createUnsignedUserOp, signUserOp } from 'thirdweb/wallets/smart';
 import { botRpc } from '../src/services/botchainRpc';
-import { prepareBotTransfer, quoteMaxBotTransfer } from '../src/services/botchainWallet';
+import { prepareBotTransfer, quoteMaxBotTransfer, quoteBotTransfer } from '../src/services/botchainWallet';
 import { BOT_ENTRY_POINT } from '../src/config/botchain';
 
 const sender = '0x2222222222222222222222222222222222222222';
@@ -96,4 +96,20 @@ test('native Max refuses a balance below the required fee reserve', async () => 
   balance = 100n;
   await expect(quoteMaxBotTransfer('botchain', 'fixture-key', sender, recipient)).rejects.toMatchObject({ code: 'INSUFFICIENT_GAS' });
   expect(signUserOp).not.toHaveBeenCalled();
+});
+
+test('quotes the complete maximum fee without signing and separates an EntryPoint deposit', async () => {
+  deposit = 20n;
+  const quote = await quoteBotTransfer('botchain', 'fixture-key', sender, recipient, 'BOT', '0.00000000000000001');
+  expect(quote).toMatchObject({ maxNetworkFee: '0.0000000000000001', walletFee: '0.00000000000000008', totalBotDebit: '0.00000000000000009' });
+  expect(Date.parse(quote.expiresAt)).toBeGreaterThan(Date.now());
+  expect(signUserOp).not.toHaveBeenCalled();
+  expect((botRpc as jest.Mock).mock.calls.some(call => call[1] === 'eth_sendUserOperation')).toBe(false);
+});
+test('a fee above the approved maximum is rejected before signing', async () => {
+  await expect(prepareBotTransfer('botchain', 'fixture-key', sender, recipient, 'USDT', '1', '0.000000000000000099')).rejects.toMatchObject({ code: 'FEE_CHANGED' });
+  expect(signUserOp).not.toHaveBeenCalled();
+});
+test('a fee equal to the approved maximum may be signed without broadcasting', async () => {
+  await expect(prepareBotTransfer('botchain', 'fixture-key', sender, recipient, 'USDT', '1', '0.0000000000000001')).resolves.toHaveProperty('userOpHash');
 });

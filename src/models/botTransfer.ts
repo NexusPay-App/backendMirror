@@ -17,6 +17,8 @@ const schema = new Schema({
   userOpHash: String,
   transactionHash: String,
   blockNumber: String,
+  actualFeeUnits: String,
+  transferLogIndex: String,
   status: { type: String, enum: ['preparing', 'submitted', 'pending', 'confirmed', 'failed', 'review'], default: 'preparing' },
   failureReason: String,
   failureCode: String,

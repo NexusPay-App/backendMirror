@@ -9,7 +9,8 @@ import { readBotTransferStatus } from './botchainReceipts';
 import { parseAmount, formatAmount } from '../utils/amounts';
 import { invalidateUserTransactionHistory } from '../utils/txHistoryCache';
 import { botPaymentError } from './botchainErrors';
-import { recordNativeBotReceipt } from './botchainDeposits';
+import { deliverBotDepositNotifications } from './botDepositNotifications';
+import { recordBotReceipt } from './botchainDeposits';
 
 /** Normalize phone-like identifiers to E.164 for recipient lookup. */
 export function normalizeBotRecipientPhone(raw: string): string {
@@ -43,7 +44,7 @@ export async function resolveBotRecipient(network: BotNetwork, input: { recipien
   }
   return recipient;
 }
-export async function submitBotTransfer(user: any, network: BotNetwork, input: { recipientIdentifier?: string; merchantId?: string; tokenSymbol: BotToken; amount: string; senderAddress?: string }, idempotencyKey: string) {
+export async function submitBotTransfer(user: any, network: BotNetwork, input: { recipientIdentifier?: string; merchantId?: string; tokenSymbol: BotToken; amount: string; senderAddress?: string; maxNetworkFee?: string }, idempotencyKey: string) {
   const n = getBotConfig(network);
   if (!n.transfersEnabled) throw new Error('BOT transfers are not enabled');
   if (!/^[A-Za-z0-9_-]{16,100}$/.test(idempotencyKey)) throw new Error('A stable Idempotency-Key of 16–100 characters is required');
@@ -72,7 +73,7 @@ export async function submitBotTransfer(user: any, network: BotNetwork, input: {
     throw new Error('Another payment from this BOT account requires reconciliation');
   }
   try {
-    const prepared = await prepareBotTransfer(network, user.privateKey, account.address, recipient, input.tokenSymbol, record.amount);
+    const prepared = await prepareBotTransfer(network, user.privateKey, account.address, recipient, input.tokenSymbol, record.amount, input.maxNetworkFee);
     // Persist the deterministic operation hash BEFORE submission. A timeout never
     // creates a replacement payment or switches the signing account.
     record.userOpHash = prepared.userOpHash;
@@ -111,9 +112,10 @@ export async function reconcileBotTransfer(record: any) {
   const previousStatus = record.status;
   try {
     const result = await readBotTransferStatus(record);
-    if (result.status === 'confirmed' && record.token === 'BOT') await recordNativeBotReceipt({ ...record.toObject(), ...result });
+    if (result.status === 'confirmed') await recordBotReceipt({ ...record.toObject(), ...result });
     Object.assign(record, result);
     await record.save();
+    if (result.status === 'confirmed') await BotTransfer.updateOne({ _id: record._id, status: 'confirmed', smsStatus: { $exists: false } }, { $set: { smsStatus: 'pending' } });
     if (record.status !== previousStatus) {
       await invalidateUserTransactionHistory(record.userId);
     }
@@ -122,9 +124,13 @@ export async function reconcileBotTransfer(record: any) {
     // Log unexpected errors so a stuck pending state is diagnosable.
     console.warn(`BOT reconcile ${record.userOpHash}: ${error instanceof Error ? error.message : String(error)}`);
   }
+  if (record.status === 'confirmed') {
+    try { await deliverBotDepositNotifications(2, { transactionHash: record.transactionHash }); }
+    catch { console.warn('Confirmed payment SMS remains queued'); }
+  }
   return record;
 }
 export function publicBotTransfer(record: any) {
   const n = getBotConfig(record.network);
-  return { id: String(record._id), network: record.network, chainId: record.chainId, direction: record.direction || 'outgoing', sender: record.sender, recipient: record.recipient, amount: record.amount, amountUnits: record.amountUnits, tokenSymbol: record.token, status: record.status, userOpHash: record.userOpHash, transactionHash: record.transactionHash, explorerUrl: record.transactionHash ? `${n.explorer}/tx/${record.transactionHash}` : undefined, failureReason: record.failureReason, failureCode: record.failureCode, createdAt: record.createdAt };
+  return { id: String(record._id), network: record.network, chainId: record.chainId, direction: record.direction || 'outgoing', sender: record.sender, recipient: record.recipient, amount: record.amount, amountUnits: record.amountUnits, tokenSymbol: record.token, status: record.status, actualNetworkFee: record.actualFeeUnits ? formatAmount(BigInt(record.actualFeeUnits), 18) : undefined, userOpHash: record.userOpHash, transactionHash: record.transactionHash, explorerUrl: record.transactionHash ? `${n.explorer}/tx/${record.transactionHash}` : undefined, failureReason: record.failureReason, failureCode: record.failureCode, createdAt: record.createdAt };
 }
