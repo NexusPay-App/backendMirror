@@ -1,16 +1,13 @@
-import { issueChallenge, consumeChallenge } from '../services/verificationChallenges';
 import { Request, Response } from 'express';
 
 import { Business } from '../models/businessModel';
 import { User } from '../models/models';
-import { createAccount, generateOTP, otpStore } from '../services/auth';
+import { otpStore } from '../services/auth';
 import { handleError, standardResponse } from '../services/utils';
 import config from '../config/env';
-import * as bcrypt from 'bcrypt';
 import { getTokenConfig } from '../services/token';
 import { sendToken, getAllTokenTransferEvents } from '../services/token';
 import { BusinessCreditService } from '../services/businessCreditService';
-import { SMSService } from '../services/smsService';
 import { UserOptimizationService } from '../services/userOptimizationService';
 
 interface TokenTransferEvent {
@@ -23,169 +20,6 @@ interface TokenTransferEvent {
   timeStamp: string;
   confirmations: string;
 }
-
-function generateMerchantId(): string {
-  const timestamp = Date.now().toString().slice(-5);
-  const randomDigits = Math.floor(10000 + Math.random() * 90000).toString();
-  return `NX-${timestamp}${randomDigits}`;
-}
-
-export const requestBusinessCreation = async (req: Request, res: Response): Promise<Response> => {
-  const { userId, phoneNumber, businessName, ownerName, location, businessType } = req.body;
-
-  if (String(userId) !== String(req.user?._id)) return res.status(403).json({ success: false, message: 'Business owner must match the signed-in account' });
-  if (!userId || !phoneNumber || !businessName || !ownerName || !location || !businessType) {
-    return res.status(400).send({ message: 'All fields are required!' });
-  }
-
-  try {
-    const validation = await UserOptimizationService.validateBusinessCreation(userId, phoneNumber, businessName);
-    
-    if (!validation.canCreate) {
-      return res.status(400).send({ message: validation.message });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).send({ message: 'User not found. Please create a personal account first.' });
-    }
-
-    const existingBusiness = await Business.findOne({ businessName });
-    if (existingBusiness) {
-      return res.status(409).send({ message: 'A business with this name already exists.' });
-    }
-
-    const otp = generateOTP();
-    await issueChallenge(phoneNumber, 'business-creation', otp, { userId: String(req.user._id) });
-
-    console.log("Operation diagnostic");
-
-    try {
-      console.log("Operation diagnostic");
-      const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'business_creation');
-      
-      if (!smsSent) {
-        console.error("Operation diagnostic");
-        return res.status(500).send({ message: 'Failed to send OTP. Please try again.' });
-      }
-      
-      console.log("Operation diagnostic");
-    } catch (smsError) {
-      console.error("Operation diagnostic");
-      return res.status(500).send({ message: 'Failed to send OTP. Please try again.' });
-    }
-
-    return res.send({ 
-      message: 'OTP sent successfully. Please verify to complete business creation.',
-      existingBusinesses: validation.existingBusinesses?.length || 0
-    });
-
-  } catch (error) {
-    console.error("❌ Error in business creation request:");
-    return handleError(error, res, 'Failed to process business creation request.');
-  }
-};
-
-export const completeBusinessCreation = async (req: Request, res: Response): Promise<Response> => {
-  const { userId, phoneNumber, otp, businessName, ownerName, location, businessType } = req.body;
-
-  if (String(userId) !== String(req.user?._id)) return res.status(403).json({ success: false, message: 'Business owner must match the signed-in account' });
-  if (!userId || !phoneNumber || !otp || !businessName || !ownerName || !location || !businessType) {
-    return res.status(400).send({ message: 'All fields are required!' });
-  }
-
-  if (!await consumeChallenge(phoneNumber, 'business-creation', otp, String(req.user._id))) {
-    return res.status(400).send({ message: 'Invalid or expired OTP.' });
-  }
-  // Code consumed atomically.
-
-  try {
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).send({ message: 'User not found. Please create a personal account first.' });
-    }
-
-    const existingBusiness = await Business.findOne({ businessName });
-    if (existingBusiness) {
-      return res.status(409).send({ message: 'A business with this name already exists.' });
-    }
-
-    const { pk, walletAddress } = await createAccount();
-    
-    let merchantId;
-    let isUnique = false;
-    let attempts = 0;
-    const maxAttempts = 5;
-
-    while (!isUnique && attempts < maxAttempts) {
-      merchantId = generateMerchantId();
-      const existingMerchantId = await Business.findOne({ merchantId });
-      if (!existingMerchantId) {
-        isUnique = true;
-      }
-      attempts++;
-    }
-
-    if (!isUnique) {
-      throw new Error('Failed to generate unique merchant ID after multiple attempts');
-    }
-
-    const business = new Business({
-      businessName,
-      ownerName,
-      location,
-      businessType,
-      phoneNumber,
-      merchantId,
-      walletAddress,
-      privateKey: pk,
-      userId: user._id,
-      creditLimit: 100.0,
-      availableCredit: 100.0,
-      overdraftEnabled: false
-    });
-
-    await business.save();
-
-    try {
-      console.log(`📱 Attempting to send business creation notification to: ${phoneNumber}`);
-      const smsSent = await SMSService.sendBusinessNotification({
-        phoneNumber,
-        businessName,
-        merchantId: merchantId!,
-        walletAddress,
-        creditLimit: '100.0',
-        availableCredit: '100.0',
-        action: 'created'
-      });
-      
-      if (!smsSent) {
-        console.error(`❌ Failed to send business creation SMS to ${phoneNumber}`);
-      } else {
-        console.log(`✅ Business creation SMS sent successfully to ${phoneNumber}`);
-      }
-    } catch (smsError) {
-      console.error(`❌ Error sending business creation SMS to ${phoneNumber}:`, smsError);
-    }
-
-    return res.send({
-      message: 'Business created successfully!',
-      data: {
-        businessId: business._id,
-        businessName: business.businessName,
-        merchantId: business.merchantId,
-        walletAddress: business.walletAddress,
-        creditLimit: business.creditLimit,
-        availableCredit: business.availableCredit,
-        overdraftEnabled: business.overdraftEnabled
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Error in completing business creation:', error);
-    return res.status(500).send({ message: 'Failed to create business.' });
-  }
-};
 
 export const getMyBusinesses = async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -206,7 +40,7 @@ export const getMyBusinesses = async (req: Request, res: Response): Promise<Resp
       overdraftEnabled: business.overdraftEnabled ?? false,
       status: business.status || 'active',
       isVerified: business.isVerified ?? false,
-      pinSet: false,
+      pinSet: Boolean(business.pinSetAt),
       createdAt: business.createdAt,
       updatedAt: business.updatedAt,
     }));

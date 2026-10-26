@@ -2,6 +2,10 @@ import { protectWalletKey, revealWalletKey, redactAccount } from '../utils/walle
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IBusiness extends Document {
+  pinHash?: string;
+  pinSetAt?: Date;
+  pinAttempts?: number;
+  pinAttemptResetAt?: Date;
   businessName: string;
   ownerName: string;
   location: string;
@@ -66,6 +70,10 @@ export interface IBusiness extends Document {
 }
 
 const businessSchema: Schema = new Schema({
+  pinHash: { type: String, select: false },
+  pinSetAt: Date,
+  pinAttempts: { type: Number, default: 0, select: false },
+  pinAttemptResetAt: { type: Date, select: false },
   businessName: {
     type: String,
     required: true,
@@ -268,8 +276,6 @@ const businessSchema: Schema = new Schema({
 });
 
 // Create indexes
-businessSchema.index({ merchantId: 1 }, { unique: true });
-businessSchema.index({ walletAddress: 1 }, { unique: true });
 businessSchema.index({ phoneNumber: 1 });
 businessSchema.index({ userId: 1 });
 businessSchema.index({ creditScore: 1 });

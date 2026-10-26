@@ -1,18 +1,7 @@
-// import express from 'express';
-// import { registerBusiness } from '../controllers/businessController';
-
-// const router = express.Router();
-
-// router.post('/', registerBusiness);
-
-// export default router;
-
-// src/routes/businessRoutes.ts
-
 import express from 'express';
+import rateLimit from 'express-rate-limit';
+import { requestBusinessCreation, completeBusinessCreation, verifyBusinessPin, requestBusinessPin, setBusinessPin, requestBusinessPinReset, resetBusinessPin, updateBusinessPin } from '../controllers/businessSetupController';
 import {
-  requestBusinessCreation,
-  completeBusinessCreation,
   getBusinessDetails,
   getMyBusinesses,
   verifyExternalTransfer,
@@ -35,9 +24,15 @@ const router = express.Router();
 
 // Listing businesses is a normal authenticated read; creation/management stay strict.
 router.get('/my-businesses', authenticate, getMyBusinesses);
-// All business operations require strict authentication with OTP verification
-router.post('/request-upgrade', enforceStrictAuth, requestBusinessCreation);
-router.post('/complete-upgrade', enforceStrictAuth, completeBusinessCreation);
+const setupLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, keyGenerator: req => String(req.user._id), message: { success: false, message: 'Too many attempts. Try again in 15 minutes.' } });
+router.post('/request-upgrade', authenticate, setupLimit, requestBusinessCreation);
+router.post('/complete-upgrade', authenticate, setupLimit, completeBusinessCreation);
+router.post('/pin/verify', authenticate, setupLimit, verifyBusinessPin);
+router.post('/pin/request-otp', authenticate, setupLimit, requestBusinessPin);
+router.post('/pin/set', authenticate, setupLimit, setBusinessPin);
+router.post('/pin/forgot', authenticate, setupLimit, requestBusinessPinReset);
+router.post('/pin/confirm-forgot', authenticate, setupLimit, resetBusinessPin);
+router.post('/pin/update', authenticate, setupLimit, updateBusinessPin);
 router.post('/verify-external-transfer', enforceStrictAuth, verifyExternalTransfer);
 router.get('/details', enforceStrictAuth, getBusinessDetails);
 router.get('/status', enforceStrictAuth, checkBusinessStatus);

@@ -58,35 +58,20 @@ export class SMSService {
      */
     static async sendOTP(phoneNumber: string, otp: string, purpose: string = 'verification'): Promise<boolean> {
         try {
-            console.log("Operation diagnostic");
-            
-            // Format phone number for Africa's Talking
             const formattedPhone = this.formatPhoneNumber(phoneNumber);
-            console.log(`📱 Formatted phone number: ${formattedPhone}`);
-            
-            const message = this.formatOTPMessage(otp, purpose);
-            
-            await africastalking.SMS.send({
+            const response = await africastalking.SMS.send({
                 to: [formattedPhone],
-                message: message,
+                message: this.formatOTPMessage(otp, purpose),
                 from: 'NEXUSPAY'
             });
-            
-            console.log("Operation diagnostic");
-            return true;
-            
-        } catch (error: any) {
-            console.error("Operation diagnostic");
-            console.error(`❌ Error details:`, {
-                phoneNumber,
-                phoneNumberType: typeof phoneNumber,
-                error: error.message,
-                stack: error.stack
-            });
+            return response.SMSMessageData?.Recipients?.some(recipient =>
+                recipient.number === formattedPhone && recipient.status === 'Success'
+            ) ?? false;
+        } catch {
             return false;
         }
     }
-    
+
     /**
      * Send transaction notification
      */

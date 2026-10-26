@@ -28,6 +28,6 @@ export function revealWalletKey(value: string): string {
   return Buffer.concat([decipher.update(data.subarray(28)), decipher.final()]).toString('utf8');
 }
 export function redactAccount(_document: unknown, value: Record<string, unknown>) {
-  for (const field of ['privateKey', 'password', 'tempOtp', 'otpExpires', 'googleId']) delete value[field];
+  for (const field of ['privateKey', 'password', 'pinHash', 'pinAttempts', 'pinAttemptResetAt', 'tempOtp', 'otpExpires', 'googleId']) delete value[field];
   return value;
 }
