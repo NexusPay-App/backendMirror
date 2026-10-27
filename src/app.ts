@@ -1,6 +1,7 @@
 import { getRampRequest } from './middleware/rampRequest';
 import { mpesaCapabilities } from './services/mpesaReadiness';
 import paymentMaintenance from './routes/paymentMaintenance';
+import publicRoutes from './routes/publicRoutes';
 import { mainnetReadiness } from './services/mainnetReadiness';
 import express, { type ErrorRequestHandler } from 'express';
 import cors from 'cors';
@@ -43,6 +44,8 @@ export function createApp() {
     res.status(ready ? 200 : 503).json({ success: ready, data: { status: ready ? 'ready' : 'unavailable', database: ready ? 'connected' : 'unavailable', timestamp: new Date().toISOString() } });
   });
   app.get('/api/health/mainnet', async (_req, res) => { const data = await mainnetReadiness(); res.json({ success: true, data }); });
+  // Password-free read-only feed for tx-dashboard.nexuspayapp.xyz (public-safe fields only).
+  app.use('/api/public', publicRoutes);
   app.use('/api/internal/payments', paymentMaintenance);
   app.use('/api/auth', authRoutes);
   app.use('/api/token', tokenRoutes);

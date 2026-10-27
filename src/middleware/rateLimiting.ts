@@ -176,6 +176,26 @@ export const transactionHistoryLimiter = rateLimit({
 });
 
 /**
+ * 📈 Public tx dashboard limiter (tx-dashboard.nexuspayapp.xyz)
+ * Password-free read-only feed, so it is limited per IP and never keyed by user.
+ */
+export const publicDashboardLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 60, // 60 feed requests per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => ipKeyGenerator(req.ip || 'unknown'),
+    message: {
+        success: false,
+        message: "Too many dashboard requests, please wait a moment",
+        error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit: 60 dashboard requests per minute"
+        }
+    }
+});
+
+/**
  * 🔧 Intelligent Rate Limiting Stack
  * Combines all rate limiting strategies for optimal performance
  */

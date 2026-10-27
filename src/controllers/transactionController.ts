@@ -6,6 +6,7 @@ import { reconcileBotTransfer } from '../services/botchainTransfers';
 import { getBotConfig } from '../config/botchain';
 import { standardResponse, handleError } from '../services/utils';
 import { getConversionRateWithCaching } from '../services/rates';
+import { getTransactionDirection } from '../services/transactionDirection';
 import { getWalletBalance } from '../services/platformWallet';
 import { redis } from '../utils/redis';
 
@@ -135,6 +136,7 @@ async function mapBotTransaction(record: any) {
     id: String(record._id),
     type,
     status,
+    direction: getTransactionDirection(type, record.direction),
     token: { symbol, name: getTokenName(symbol), amount, decimals },
     values: {
       fiat: { amount: 0, currency: 'KES', formatted: '—' },
@@ -322,6 +324,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
           id: validatedTx.transactionId,
           type: validatedTx.type,
           status: validatedTx.status,
+          direction: getTransactionDirection(validatedTx.type),
           
           // Token and amount details
           token: {

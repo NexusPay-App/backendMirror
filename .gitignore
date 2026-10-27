@@ -3,6 +3,9 @@
 .AppleDouble
 .LSOverride
 
+# Local application notes — never push
+BOTCHAIN_APPLICATION*.md
+
 # Icon must end with two \r
 Icon
 
