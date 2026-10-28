@@ -1,17 +1,18 @@
 import type { Request, Response } from 'express';
 import { BotTransfer } from '../models/botTransfer';
-import { Escrow } from '../models/escrowModel';
-import { getBotConfig, isBotNetwork } from '../config/botchain';
-import { generateExplorerUrl } from '../utils/explorer';
-import type { Chain } from '../types/token';
+import { getBotConfig, isBotNetwork, type BotNetwork } from '../config/botchain';
 import { getTransactionDirection } from '../services/transactionDirection';
 
 /**
  * Public transaction feed behind tx-dashboard.nexuspayapp.xyz.
  *
+ * Scoped to BOT Chain mainnet + testnet only. Other-chain ledgers (Escrow / Arbitrum /
+ * Base / etc.) stay available on authenticated history routes — this endpoint does not
+ * query them.
+ *
  * NexusPay has no payment contract to watch: every user and business holds its own
  * ERC-4337 smart account, so there is no single address to index. The only complete
- * record of platform activity is our own ledger, and this endpoint publishes a
+ * record of BOT activity is our own BotTransfer ledger, and this endpoint publishes a
  * deliberately narrowed view of it.
  *
  * Never returned here: user ids, wallet/smart-account addresses, phone numbers,
@@ -23,6 +24,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 // Bound the scan window so an unauthenticated caller cannot page the whole ledger.
 const SCAN_WINDOW = 500;
+const BOT_DASHBOARD_NETWORKS: BotNetwork[] = ['botchain', 'botchain-testnet'];
 
 export interface PublicTransaction {
   id: string;
@@ -35,14 +37,6 @@ export interface PublicTransaction {
   txHash: string | null;
   explorerUrl: string | null;
   createdAt: string;
-}
-
-function explorerUrlFor(chain: string, txHash: string): string | null {
-  try {
-    return generateExplorerUrl(chain as Chain, txHash);
-  } catch {
-    return null;
-  }
 }
 
 function mapBotRecord(record: any): PublicTransaction {
@@ -62,21 +56,15 @@ function mapBotRecord(record: any): PublicTransaction {
   };
 }
 
-function mapLegacyRecord(record: any): PublicTransaction {
-  const metadata = record.metadata || {};
-  const txHash = record.cryptoTransactionHash || null;
-  return {
-    id: String(record.transactionId || record._id),
-    network: metadata.chain || 'arbitrum',
-    token: metadata.tokenType || 'USDT',
-    amount: String(record.cryptoAmount ?? 0),
-    direction: getTransactionDirection(record.type),
-    status: record.status,
-    type: record.type,
-    txHash,
-    explorerUrl: txHash ? explorerUrlFor(metadata.chain || 'arbitrum', txHash) : null,
-    createdAt: new Date(record.createdAt).toISOString(),
-  };
+function resolveNetworkFilter(raw: string): { filter: Record<string, unknown>; summaryNetwork: string } {
+  if (!raw) {
+    return { filter: { network: { $in: BOT_DASHBOARD_NETWORKS } }, summaryNetwork: 'all' };
+  }
+  if (isBotNetwork(raw)) {
+    return { filter: { network: raw }, summaryNetwork: raw };
+  }
+  // Non-BOT filters are ignored for this public surface — return an empty match.
+  return { filter: { network: { $in: [] } }, summaryNetwork: raw };
 }
 
 export const getPublicTransactions = async (req: Request, res: Response) => {
@@ -84,25 +72,16 @@ export const getPublicTransactions = async (req: Request, res: Response) => {
     const requested = Number.parseInt(String(req.query.limit ?? ''), 10);
     const limit = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), MAX_LIMIT) : DEFAULT_LIMIT;
     const network = typeof req.query.network === 'string' ? req.query.network.trim().slice(0, 32) : '';
+    const { filter, summaryNetwork } = resolveNetworkFilter(network);
 
-    const botFilter = network ? { network } : {};
-    const legacyFilter = network ? { 'metadata.chain': network } : {};
-
-    const [botRecords, legacyRecords, botTotal, legacyTotal] = await Promise.all([
-      BotTransfer.find(botFilter).sort({ createdAt: -1 }).limit(SCAN_WINDOW),
-      Escrow.find(legacyFilter).sort({ createdAt: -1 }).limit(SCAN_WINDOW),
-      BotTransfer.countDocuments(botFilter),
-      Escrow.countDocuments(legacyFilter),
+    const [botRecords, botTotal] = await Promise.all([
+      BotTransfer.find(filter).sort({ createdAt: -1 }).limit(SCAN_WINDOW),
+      BotTransfer.countDocuments(filter),
     ]);
 
     const rows: PublicTransaction[] = [];
     for (const record of botRecords) {
       try { rows.push(mapBotRecord(record)); } catch {
-        // One malformed historical row must not blank the whole public list.
-      }
-    }
-    for (const record of legacyRecords) {
-      try { rows.push(mapLegacyRecord(record)); } catch {
         // One malformed historical row must not blank the whole public list.
       }
     }
@@ -112,7 +91,7 @@ export const getPublicTransactions = async (req: Request, res: Response) => {
       success: true,
       data: {
         transactions: rows.slice(0, limit),
-        summary: { total: botTotal + legacyTotal, returned: Math.min(limit, rows.length), network: network || 'all' },
+        summary: { total: botTotal, returned: Math.min(limit, rows.length), network: summaryNetwork },
       },
     });
   } catch (error: any) {
