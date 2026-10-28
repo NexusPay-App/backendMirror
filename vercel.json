@@ -15,5 +15,15 @@
       "src": "/(.*)",
       "dest": "src/serverless.ts"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "feat/modernize-botchain": true
+    }
+  },
+  "github": {
+    "autoAlias": true,
+    "silent": true
+  }
 }
