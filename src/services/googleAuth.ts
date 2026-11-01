@@ -14,6 +14,8 @@ export interface GoogleUserInfo {
     name: string;
     picture?: string;
     verified_email: boolean;
+    issuedAt: number;
+    nonce?: string;
 }
 
 /**
@@ -21,6 +23,7 @@ export interface GoogleUserInfo {
  */
 export async function verifyGoogleToken(idToken: string): Promise<GoogleUserInfo> {
     try {
+        if (!process.env.GOOGLE_CLIENT_ID) throw new Error('Google sign-in is not configured');
         const ticket = await client.verifyIdToken({
             idToken,
             audience: process.env.GOOGLE_CLIENT_ID
@@ -32,7 +35,7 @@ export async function verifyGoogleToken(idToken: string): Promise<GoogleUserInfo
             throw new Error('Invalid Google token payload');
         }
 
-        if (!payload.sub || !payload.email) {
+        if (!payload.sub || !payload.email || !payload.email_verified) {
             throw new Error('Missing required user information from Google');
         }
 
@@ -41,7 +44,9 @@ export async function verifyGoogleToken(idToken: string): Promise<GoogleUserInfo
             email: payload.email,
             name: payload.name || payload.email.split('@')[0],
             picture: payload.picture,
-            verified_email: payload.email_verified || false
+            verified_email: payload.email_verified || false,
+            issuedAt: payload.iat,
+            nonce: payload.nonce
         };
     } catch (error) {
         console.error("Google token verification failed:");

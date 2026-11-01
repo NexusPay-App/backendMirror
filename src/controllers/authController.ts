@@ -1,10 +1,12 @@
+import { queueSecurityNotice } from '../services/securityAlerts';
+import { randomUUID } from 'node:crypto';
+import { issueSession, revokeUserSessions, requestToken, clearSessionCookie } from '../services/sessions';
 import { issueChallenge, consumeChallenge, isChallengeCooldown } from '../services/verificationChallenges';
 // src/controllers/authController.ts
 import { User } from '../models/models';
 import bcrypt from 'bcrypt';
 import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import { createAccount, generateOTP, SALT_ROUNDS } from "../services/auth";
+import { generateOTP, SALT_ROUNDS } from "../services/auth";
 import { handleError, standardResponse } from "../services/utils";
 import config from '../config/env';
 import { sendEmail, verifyOTP } from '../services/email';
@@ -149,28 +151,22 @@ export const registerUser = async (req: Request, res: Response) => {
             return res.status(400).json(createErrorResponse('INVALID_OTP', 'Invalid or expired OTP. Please try again.'));
         }
 
-        // Create unified account only after OTP verification
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-        const userSmartAccount = await createAccount();
-        const { pk, walletAddress } = userSmartAccount;
-
-        // Create new user with unified wallet
         const newUser = new User({
             phoneNumber: phoneVerified ? phoneNumber : undefined,
             email: emailVerified ? email : undefined,
-            walletAddress,
+            walletStatus: 'pending',
             password: hashedPassword,
-            privateKey: pk,
             isEmailVerified: emailVerified,
             isPhoneVerified: phoneVerified,
-            isUnified: true // Mark as unified wallet
+            authMethods: [phoneVerified ? 'phone' : 'email']
         });
         await newUser.save();
 
-        const token = jwt.sign({ id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email }, config.JWT_SECRET, { expiresIn: '24h' });
+        const token = await issueSession(req, res, newUser, 'registration');
         await registerVerifiedSession(token, String(newUser._id));
         return res.status(201).json(standardResponse(true, 'Account created and verified', {
-            token,
+            sessionActive: true,
             walletAddress: newUser.walletAddress,
             phoneNumber: newUser.phoneNumber,
             email: newUser.email,
@@ -193,9 +189,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
     }
 
     try {
-        // Special bypass for testing - OTP "123456" always works in non-production
-        const isProduction = process.env.NODE_ENV === 'production';
-        const isValid = otp === "123456" && !isProduction ? true : await verifyOTP(email, otp, 'registration');
+        const isValid = await verifyOTP(email, otp, 'registration');
         
         if (!isValid) {
             return res.status(400).json(standardResponse(false, "Invalid or expired OTP."));
@@ -209,22 +203,13 @@ export const verifyEmail = async (req: Request, res: Response) => {
         user.isEmailVerified = true;
         await user.save();
 
-        const token = jwt.sign(
-            { 
-                id: user._id,
-                email: user.email,
-                phoneNumber: user.phoneNumber,
-                walletAddress: user.walletAddress 
-            },
-            config.JWT_SECRET!,
-            { expiresIn: '1h' }
-        );
+        const token = await issueSession(req, res, user);
 
         res.json(standardResponse(
             true,
             "Email verified successfully!",
             {
-                token,
+                sessionActive: true,
                 walletAddress: user.walletAddress,
                 email: user.email,
                 phoneNumber: user.phoneNumber
@@ -268,24 +253,11 @@ export const verifyPhone = async (req: Request, res: Response) => {
         user.isPhoneVerified = true;
         await user.save();
 
-        const token = jwt.sign(
-            { 
-                id: user._id,
-                email: user.email,
-                phoneNumber: user.phoneNumber,
-                walletAddress: user.walletAddress 
-            },
-            config.JWT_SECRET!,
-            { expiresIn: '1h' }
-        );
+        const token = await issueSession(req, res, user);
 
-        res.send({
-            token,
-            message: "Phone number verified successfully!",
-            walletAddress: user.walletAddress,
-            email: user.email,
-            phoneNumber: user.phoneNumber
-        });
+        res.json(standardResponse(true, 'Phone number verified successfully', {
+            sessionActive: true, walletAddress: user.walletAddress, email: user.email, phoneNumber: user.phoneNumber
+        }));
 
     } catch (error: any) {
         if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
@@ -303,17 +275,17 @@ export const login = async (req: Request, res: Response) => {
     try {
         const user = await User.findOne(email ? { email } : { phoneNumber });
         if (!user?.password || !await bcrypt.compare(password, user.password)) return res.status(401).json(createErrorResponse('INVALID_CREDENTIALS', 'Check your phone number and password, or continue with Google if you signed up with Google.'));
-        if (user.status === 'suspended') return res.status(403).json(createErrorResponse('ACCOUNT_SUSPENDED', 'This account is suspended. Contact support.'));
+        if (user.status && user.status !== 'active') return res.status(403).json(createErrorResponse('ACCOUNT_SUSPENDED', 'This account is suspended. Contact support.'));
         if (email && !user.isEmailVerified) return res.status(401).json(createErrorResponse('EMAIL_NOT_VERIFIED', 'Verify your email before signing in.'));
         if (phoneNumber && !user.isPhoneVerified) return res.status(401).json(createErrorResponse('PHONE_NOT_VERIFIED', 'Verify this phone number from your account settings. You can sign in with Google if it is linked to your account.'));
         if (email) {
             if (!await sendEmail(email, 'login')) return res.status(503).json(standardResponse(false, 'We couldn’t send your sign-in code. Wait a minute and try again.'));
             return res.json(standardResponse(true, 'Verification code sent.', { email }));
         }
-        const otp = generateOTP();
-        await issueChallenge(phoneNumber, 'phone-login', otp);
-        if (!await SMSService.sendOTP(phoneNumber, otp, 'login')) return res.status(503).json(standardResponse(false, 'We couldn’t send your sign-in code. Wait a minute and try again.'));
-        return res.json(standardResponse(true, 'Verification code sent.', { phoneNumber }));
+        user.lastLoginAt = new Date();
+        await user.save();
+        await issueSession(req, res, user, 'password');
+        return res.json(standardResponse(true, 'Signed in.', { sessionActive: true }));
     } catch (error) {
         if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
         return res.status(503).json(standardResponse(false, 'Sign-in is temporarily unavailable. Please try again shortly.'));
@@ -357,16 +329,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
         await user.save();
 
         // Generate token for authentication
-        const token = jwt.sign(
-            {
-                id: user._id,
-                phoneNumber: user.phoneNumber,
-                email: user.email,
-                walletAddress: user.walletAddress
-            },
-            config.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
+        const token = await issueSession(req, res, user);
 
         // Register this as a verified session
         await registerVerifiedSession(token, user._id.toString());
@@ -376,7 +339,7 @@ export const verifyLogin = async (req: Request, res: Response) => {
             true, 
             "Login successful.",
             {
-                token,
+                sessionActive: true,
                 walletAddress: user.walletAddress,
                 email: user.email,
                 phoneNumber: user.phoneNumber
@@ -440,7 +403,12 @@ export const resetPassword = async (req: Request, res: Response) => {
         }
 
         user.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
+        user.set('securityVersion', (user.get('securityVersion') || 0) + 1);
+        user.set('recoveryRestrictedUntil', new Date(Date.now() + 24 * 3600_000));
         await user.save();
+        await queueSecurityNotice(user, 'password-reset', randomUUID());
+        await revokeUserSessions(String(user._id));
+        clearSessionCookie(res);
 
         res.send({ message: "Password reset successful. You can now login with your new password." });
 
@@ -595,7 +563,12 @@ export const resetPhonePassword = async (req: Request, res: Response) => {
         // Update password and verify phone number
         user.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
         user.isPhoneVerified = true; // Verify phone number during password reset
+        user.set('securityVersion', (user.get('securityVersion') || 0) + 1);
+        user.set('recoveryRestrictedUntil', new Date(Date.now() + 24 * 3600_000));
         await user.save();
+        await queueSecurityNotice(user, 'password-reset', randomUUID());
+        await revokeUserSessions(String(user._id));
+        clearSessionCookie(res);
 
         return res.status(200).json({
             success: true,
@@ -696,12 +669,12 @@ export const confirmAccountDeletion = async (req: Request, res: Response) => {
 export const logout = async (req: Request, res: Response) => {
     try {
         // Get token from authorization header
-        const authHeader = req.headers['authorization'];
-        const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+        const token = requestToken(req);
         
         if (token) {
             // Invalidate the session
             await invalidateSession(token);
+            clearSessionCookie(res);
             
             console.log("Operation diagnostic");
         }
@@ -755,24 +728,20 @@ export const googleAuth = async (req: Request, res: Response) => {
             const existingUser = user.user;
             
             // If user exists but doesn't have Google ID, link it
-            if (!existingUser.googleId) {
-                await UserOptimizationService.linkGoogleToExistingUser(existingUser._id, googleUser.id);
+            if (existingUser.googleId !== googleUser.id) {
+                return res.status(403).json(standardResponse(false, 'Sign in with your existing method, then link Google in account settings.'));
             }
             
             existingUser.lastLogin = new Date();
             await existingUser.save();
 
-            const token = jwt.sign(
-                { id: existingUser._id, phoneNumber: existingUser.phoneNumber, email: existingUser.email },
-                config.JWT_SECRET,
-                { expiresIn: '7d' }
-            );
+            const token = await issueSession(req, res, existingUser, 'google');
 
             return res.json(standardResponse(
                 true,
                 "Google sign in successful",
                 {
-                    token,
+                    sessionActive: true,
                     user: {
                         id: existingUser._id,
                         email: existingUser.email,
@@ -797,17 +766,13 @@ export const googleAuth = async (req: Request, res: Response) => {
             authMethods: ['google']
         });
 
-        const token = jwt.sign(
-            { id: newUser._id, phoneNumber: newUser.phoneNumber, email: newUser.email },
-            config.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        const token = await issueSession(req, res, newUser, 'google');
 
         return res.status(201).json(standardResponse(
             true,
             "Google sign up successful",
             {
-                token,
+                sessionActive: true,
                 user: {
                     id: newUser._id,
                     email: newUser.email,
@@ -879,7 +844,7 @@ export const addPhoneAndPassword = async (req: Request, res: Response) => {
 
         const otp = generateOTP();
         await issueChallenge(phoneNumber, 'phone-setup', otp, {
-            userId: String(user._id), passwordHash: await bcrypt.hash(password, SALT_ROUNDS),
+            sessionId: String(req.authSession._id), userId: String(user._id), passwordHash: await bcrypt.hash(password, SALT_ROUNDS),
         });
         const smsSent = await SMSService.sendOTP(phoneNumber, otp, 'phone_verification');
         if (!smsSent) return res.status(503).json(standardResponse(false, 'Phone verification is unavailable. No password or phone number was changed.'));
@@ -910,7 +875,7 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
 
         // Verify OTP
         const challenge = await consumeChallenge(phoneNumber, 'phone-setup', otp, String(req.user._id));
-        if (!challenge?.passwordHash || !challenge.userId) return res.status(400).json(standardResponse(false, 'Invalid or expired verification code'));
+        if (!challenge?.passwordHash || !challenge.userId || challenge.sessionId !== String(req.authSession._id)) return res.status(400).json(standardResponse(false, 'Invalid or expired verification code'));
         const password = challenge.passwordHash;
         const userId = challenge.userId;
 
@@ -925,6 +890,7 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
         }
 
         // Update user with phone and password
+        const previousContact = { _id: user._id, phoneNumber: user.phoneNumber, isPhoneVerified: user.isPhoneVerified };
         user.phoneNumber = phoneNumber;
         user.password = password; // Will be hashed by pre-save hook
         user.isPhoneVerified = true;
@@ -933,9 +899,13 @@ export const verifyPhoneAndPassword = async (req: Request, res: Response) => {
             user.authMethods.push('phone');
         }
 
+        user.set('securityVersion', (user.get('securityVersion') || 0) + 1);
+        user.set('recoveryRestrictedUntil', new Date(Date.now() + 24 * 3600_000));
         await user.save();
+        await queueSecurityNotice(previousContact, 'credentials-change', randomUUID());
         const token = req.headers.authorization?.split(' ')[1];
-        if (token) await registerVerifiedSession(token, String(user._id));
+        await revokeUserSessions(String(user._id));
+        await issueSession(req, res, await User.findById(user._id));
 
         // Clean up OTP store
         // Challenge has already been atomically consumed.

@@ -1,6 +1,5 @@
 import { User } from '../models/user';
 import { Business } from '../models/businessModel';
-import { createAccount } from '../services/auth';
 
 export interface UserLookupResult {
   found: boolean;
@@ -118,7 +117,7 @@ export class UserOptimizationService {
   }
   
   /**
-   * Create new personal account with wallet
+   * Create an identity independently from wallet provisioning.
    */
   static async createPersonalAccount(userData: {
     phoneNumber?: string;
@@ -128,13 +127,9 @@ export class UserOptimizationService {
     authMethods: string[];
   }): Promise<any> {
     try {
-      // Create new wallet for personal account
-      const { pk, walletAddress } = await createAccount();
-      
       const newUser = new User({
         ...userData,
-        walletAddress,
-        privateKey: pk,
+        walletStatus: 'pending',
         role: 'user',
         isVerified: userData.authMethods.includes('google') || false,
         isPhoneVerified: false,

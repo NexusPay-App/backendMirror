@@ -1,5 +1,4 @@
-import rateLimit from 'express-rate-limit';
-import { issueChallenge, consumeChallenge } from '../services/verificationChallenges';
+import { persistentLimit, requireFreshAuthentication } from '../middleware/securityControls';
 import express from 'express';
 import { 
   requestPasswordReset, 
@@ -30,8 +29,6 @@ import {
   passwordResetValidation,
   phonePasswordResetRequestValidation,
   phonePasswordResetValidation,
-  phoneOtpRequestValidation,
-  phoneOtpVerifyValidation,
   phoneLoginVerifyValidation
 } from '../middleware/validators/authValidators';
 import {
@@ -41,209 +38,15 @@ import {
   linkGoogleValidation
 } from '../middleware/validators/googleAuthValidators';
 import { authenticate } from '../middleware/auth';
-import { registerVerifiedSession } from '../middleware/strictAuthMiddleware';
-import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 
 const router = express.Router();
-const signInLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { success: false, message: 'Too many sign-in attempts. Wait a few minutes before trying again.' } });
-router.use(['/login', '/login/verify'], signInLimit);
+const authenticationLimit = persistentLimit('authentication', 30);
+router.use((req, res, next) => req.method === 'POST' ? authenticationLimit(req, res, next) : next());
 
 // Login routes
 router.post('/login', validate(loginValidation), login);
 router.post('/login/verify', validate(phoneLoginVerifyValidation), verifyLogin);
-router.post('/logout', enforceStrictAuth, logout);
-
-// Phone OTP routes (for standalone OTP authentication)
-router.post('/otp', validate(phoneOtpRequestValidation), async (req, res) => {
-  const { phone } = req.body;
-  
-  if (!phone) {
-    return res.status(400).json({
-      success: false,
-      message: "Phone number is required",
-      data: null,
-      error: {
-        code: "MISSING_PHONE",
-        message: "Phone number is required"
-      }
-    });
-  }
-  
-  try {
-    const { generateOTP, otpStore } = require('../services/auth');
-const { SMSService } = require('../services/smsService');
-    const User = require('../models/models').User;
-    
-    // Check if user exists
-    const user = await User.findOne({ phoneNumber: phone });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-        data: null,
-        error: {
-          code: "USER_NOT_FOUND",
-          message: "No user found with this phone number"
-        }
-      });
-    }
-    
-    // Generate and store OTP
-    const otp = generateOTP();
-    await issueChallenge(phone, 'phone-standalone', otp);
-    
-    // Log OTP for testing purposes
-    console.log('\n======================================');
-    console.log('======================================\n');
-    
-    // Send OTP via SMS
-    try {
-      // Send OTP via SMS using the new SMS service
-      const smsSent = await SMSService.sendOTP(phone, otp, 'verification');
-      
-      if (!smsSent) {
-        return res.status(500).json({
-          success: false,
-          message: "Unable to deliver the verification code. Try again later.",
-          data: null,
-          error: {
-            code: "SMS_FAILED",
-            message: "Unable to deliver SMS."
-          }
-        });
-      }
-      
-      return res.json({
-        success: true,
-        message: "OTP sent successfully",
-        data: {
-          phone
-        }
-      });
-    } catch (error) {
-      console.error('Error sending SMS:', error);
-      return res.status(500).json({
-        success: false,
-        message: "Unable to deliver the verification code. Try again later.",
-        data: null,
-        error: {
-          code: "SMS_ERROR",
-          message: "Unable to deliver SMS."
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error generating OTP:', error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      data: null,
-      error: {
-        code: "SERVER_ERROR",
-        message: "An unexpected error occurred"
-      }
-    });
-  }
-});
-
-router.post('/verify-otp', validate(phoneOtpVerifyValidation), async (req, res) => {
-  const { phone, otp } = req.body;
-  
-  if (!phone || !otp) {
-    return res.status(400).json({
-      success: false,
-      message: "Phone number and OTP are required",
-      data: null,
-      error: {
-        code: "MISSING_FIELDS",
-        message: "Phone number and OTP are required"
-      }
-    });
-  }
-  
-  try {
-    const { otpStore } = require('../services/auth');
-    const User = require('../models/models').User;
-    const jwt = require('jsonwebtoken');
-    const config = require('../config/env').default;
-    
-    // Log OTP verification attempt
-    console.log('\n======================================');
-    console.log(`🔍 STANDALONE VERIFYING OTP FOR ${phone}`);
-    console.log('======================================\n');
-    
-    // Verify OTP
-    if (!await consumeChallenge(phone, 'phone-standalone', otp)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired OTP",
-        data: null,
-        error: {
-          code: "INVALID_OTP",
-          message: "The provided OTP is invalid or has expired"
-        }
-      });
-    }
-    
-    // Clear OTP after verification
-    // Challenge consumed atomically.
-    
-    // Find user and generate token
-    const user = await User.findOne({ phoneNumber: phone });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-        data: null,
-        error: {
-          code: "USER_NOT_FOUND",
-          message: "No user found with this phone number"
-        }
-      });
-    }
-    
-    // Update last login timestamp
-    user.lastLoginAt = new Date();
-    await user.save();
-    
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        id: user._id,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        walletAddress: user.walletAddress 
-      },
-      config.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-    
-    // Register this as a verified session
-    await registerVerifiedSession(token, user._id.toString());
-    
-    return res.json({
-      success: true,
-      message: "Login successful",
-      data: {
-        token,
-        walletAddress: user.walletAddress,
-        email: user.email,
-        phoneNumber: user.phoneNumber
-      }
-    });
-  } catch (error) {
-    console.error('Error verifying OTP:', error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      data: null,
-      error: {
-        code: "SERVER_ERROR",
-        message: "An unexpected error occurred"
-      }
-    });
-  }
-});
+router.post('/logout', authenticate, logout);
 
 // Registration routes
 router.post('/register/initiate', initiateRegisterUser);
@@ -265,11 +68,11 @@ router.post('/account-deletion/confirm', authenticate, confirmAccountDeletion);
 
 // Google authentication routes
 router.post('/google', validate(googleAuthValidation), googleAuth);
-router.post('/google/link', authenticate, validate(linkGoogleValidation), linkGoogleAccount);
+router.post('/google/link', authenticate, requireFreshAuthentication, validate(linkGoogleValidation), linkGoogleAccount);
 
 // Account settings routes (for adding phone/password after Google signup)
-router.post('/settings/add-phone-password', authenticate, validate(addPhonePasswordValidation), addPhoneAndPassword);
-router.post('/settings/verify-phone-password', authenticate, validate(verifyPhonePasswordValidation), verifyPhoneAndPassword);
+router.post('/settings/add-phone-password', authenticate, requireFreshAuthentication, validate(addPhonePasswordValidation), addPhoneAndPassword);
+router.post('/settings/verify-phone-password', authenticate, requireFreshAuthentication, validate(verifyPhonePasswordValidation), verifyPhoneAndPassword);
 
 // Google configuration endpoint for frontend
 router.get('/google-config', (req, res) => {

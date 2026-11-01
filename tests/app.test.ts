@@ -7,7 +7,7 @@ test('app import does not require provider credentials and middleware precedes r
   const metadata = await request(app).get('/api/botchain/networks');
   expect(metadata.body.data.map((n: any) => n.chainId)).toEqual([677,968]);
   expect((await request(app).get('/api/botchain/botchain-testnet/account')).status).toBe(401);
-  expect((await request(app).post('/api/mpesa/buy-crypto').send({})).status).toBe(503);
+  expect((await request(app).post('/api/mpesa/buy-crypto').set('Origin', 'http://localhost:3000').set('X-NexusPay-Request', '1').send({})).status).toBe(503);
   expect((await request(app).get('/missing')).status).toBe(404);
 });
 test('custom app origin supports authenticated requests while retaining the existing allowlist', async () => {

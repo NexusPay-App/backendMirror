@@ -13,9 +13,10 @@ export interface IUser extends Document {
   email?: string;
   isEmailVerified: boolean;
   isPhoneVerified: boolean;
-  walletAddress: string;
+  walletAddress?: string;
   password?: string;
-  privateKey: string;
+  privateKey?: string;
+  walletStatus?: 'pending' | 'ready';
   tempOtp?: string;
   otpExpires?: number;
   failedPasswordAttempts: number;
@@ -30,6 +31,11 @@ export interface IUser extends Document {
 
 const userSchema: Schema = new Schema({
   name: String,
+  securityVersion: { type: Number, default: 0 },
+  recoveryRestrictedUntil: Date,
+  signerReference: String,
+  ownerAddress: String,
+  walletStatus: { type: String, enum: ['pending', 'ready'] },
   status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
   isVerified: { type: Boolean, default: false },
   lastLogin: Date,
@@ -60,7 +66,7 @@ const userSchema: Schema = new Schema({
   },
   walletAddress: {
     type: String,
-    required: true,
+    required: false,
   },
   password: {
     type: String,
@@ -70,7 +76,8 @@ const userSchema: Schema = new Schema({
     type: String,
     set: protectWalletKey,
     get: revealWalletKey,
-    required: true,
+    select: false,
+    required: false,
   },
   tempOtp: {
     type: String,

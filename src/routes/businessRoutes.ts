@@ -1,3 +1,4 @@
+import { persistentLimit } from '../middleware/securityControls';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { requestBusinessCreation, completeBusinessCreation, verifyBusinessPin, requestBusinessPin, setBusinessPin, requestBusinessPinReset, resetBusinessPin, updateBusinessPin } from '../controllers/businessSetupController';
@@ -24,7 +25,7 @@ const router = express.Router();
 
 // Listing businesses is a normal authenticated read; creation/management stay strict.
 router.get('/my-businesses', authenticate, getMyBusinesses);
-const setupLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, keyGenerator: req => String(req.user._id), message: { success: false, message: 'Too many attempts. Try again in 15 minutes.' } });
+const setupLimit = persistentLimit('business-setup', 20);
 router.post('/request-upgrade', authenticate, setupLimit, requestBusinessCreation);
 router.post('/complete-upgrade', authenticate, setupLimit, completeBusinessCreation);
 router.post('/pin/verify', authenticate, setupLimit, verifyBusinessPin);

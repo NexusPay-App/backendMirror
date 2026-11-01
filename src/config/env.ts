@@ -7,13 +7,18 @@ import path from 'path'
 
 // Load local environment variables during development only. Production secrets
 // must come from the deployment environment and must never be read from uploads.
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test' && process.env.LOAD_LOCAL_ENV !== 'false') {
     dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 }
 
 export function validateEnvironment() {
     const required = ['JWT_SECRET', 'THIRDWEB_SECRET_KEY'];
-    if (process.env.NODE_ENV === 'production') required.push('WALLET_KEY_ENCRYPTION_KEY');
+    if (process.env.NODE_ENV === 'production') {
+        required.push('WALLET_KEY_ENCRYPTION_KEY', 'SECURITY_STORE_URL', 'APP_ORIGIN', 'SECURITY_ORIGIN', 'WEBAUTHN_RP_ID', 'SECURITY_RP_ID', 'RATE_LIMIT_SECRET');
+        if ((process.env.JWT_SECRET || '').length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
+        if (process.env.DEV_MONGO_URL && process.env.DEV_MONGO_URL === process.env.PROD_MONGO_URL) throw new Error('Production and development databases must differ');
+        for (const name of ['APP_ORIGIN', 'SECURITY_ORIGIN']) if (!process.env[name]?.startsWith('https://')) throw new Error(`${name} must use HTTPS`);
+    }
     const prefix = process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV';
     required.push(`${prefix}_MONGO_URL`);
     if (process.env.ENABLE_MPESA === 'true') {

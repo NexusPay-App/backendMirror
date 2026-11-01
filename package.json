@@ -16,7 +16,13 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "husky",
     "typecheck": "tsc --noEmit",
-    "check:botchain": "node tools/diagnose-botchain.mjs"
+    "check:botchain": "node tools/diagnose-botchain.mjs",
+    "test:security": "node --import tsx tools/security-check.mjs",
+    "dev:security": "node --import tsx tools/security-local.mjs",
+    "security:enrollment": "node tools/security-local.mjs --enrollment",
+    "security:customer": "node tools/security-local.mjs --customer",
+    "security:otp": "node tools/security-local.mjs --otp",
+    "check:secrets": "node tools/security-scan.mjs"
   },
   "keywords": [],
   "author": "",
@@ -46,6 +52,7 @@
   },
   "dependencies": {
     "@reclaimprotocol/js-sdk": "5.8.3",
+    "@simplewebauthn/server": "14.0.3",
     "africastalking": "0.8.3",
     "axios": "1.20.0",
     "bcrypt": "6.0.0",
@@ -90,6 +97,7 @@
       "gcp-metadata": "7.0.1"
     },
     "js-yaml@>=4 <5": "4.3.2",
-    "toml": "5.0.1"
+    "toml": "5.0.1",
+    "body-parser": "2.4.0"
   }
 }

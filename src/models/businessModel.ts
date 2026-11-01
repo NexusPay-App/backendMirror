@@ -115,6 +115,7 @@ const businessSchema: Schema = new Schema({
     type: String,
     set: protectWalletKey,
     get: revealWalletKey,
+    select: false,
     required: true,
     unique: true,
   },

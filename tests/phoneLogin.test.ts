@@ -1,3 +1,4 @@
+jest.mock('../src/services/sessions', () => ({ issueSession: jest.fn().mockResolvedValue('internal-fixture-token'), revokeUserSessions: jest.fn(), requestToken: jest.fn(), clearSessionCookie: jest.fn() }));
 jest.mock("../src/services/verificationChallenges", () => ({
   consumeChallenge: jest.fn(),
   issueChallenge: jest.fn(),
@@ -31,6 +32,7 @@ import {
   consumeChallenge,
   issueChallenge,
 } from "../src/services/verificationChallenges";
+import { issueSession } from '../src/services/sessions';
 import { registerVerifiedSession } from "../src/middleware/strictAuthMiddleware";
 const phoneNumber = "+254700000001";
 function response() {
@@ -52,12 +54,28 @@ beforeEach(() => {
   (SMSService.sendOTP as jest.Mock).mockResolvedValue(true);
   (consumeChallenge as jest.Mock).mockResolvedValue({});
 });
-test("SMS delivery failure is not reported as a sent code", async () => {
+test("verified phone and password establish a session without an SMS challenge", async () => {
   (SMSService.sendOTP as jest.Mock).mockResolvedValue(false);
   const res = response();
   await login({ body: { phoneNumber, password: "fixture" } } as any, res);
-  expect(res.status).toHaveBeenCalledWith(503);
-  expect(res.json.mock.calls[0][0].success).toBe(false);
+  expect(issueSession).toHaveBeenCalledWith(expect.anything(), res, expect.objectContaining({ phoneNumber }), "password");
+  expect(res.json.mock.calls[0][0].data.sessionActive).toBe(true);
+  expect(SMSService.sendOTP).not.toHaveBeenCalled();
+  expect(issueChallenge).not.toHaveBeenCalled();
+});
+test.each(["inactive", "suspended"])("%s accounts cannot sign in with a correct password", async status => {
+  (User.findOne as jest.Mock).mockResolvedValue({ password: "hashed", status, isPhoneVerified: true });
+  const res = response();
+  await login({ body: { phoneNumber, password: "fixture" } } as any, res);
+  expect(res.status).toHaveBeenCalledWith(403);
+  expect(issueSession).not.toHaveBeenCalled();
+});
+test("a phone number must be verified before password login", async () => {
+  (User.findOne as jest.Mock).mockResolvedValue({ password: "hashed", status: "active", isPhoneVerified: false });
+  const res = response();
+  await login({ body: { phoneNumber, password: "fixture" } } as any, res);
+  expect(res.status).toHaveBeenCalledWith(401);
+  expect(issueSession).not.toHaveBeenCalled();
 });
 test("wrong password does not issue a challenge or send SMS", async () => {
   (bcrypt.compare as jest.Mock).mockResolvedValue(false);
@@ -66,6 +84,7 @@ test("wrong password does not issue a challenge or send SMS", async () => {
   expect(res.status).toHaveBeenCalledWith(401);
   expect(issueChallenge).not.toHaveBeenCalled();
   expect(SMSService.sendOTP).not.toHaveBeenCalled();
+  expect(issueSession).not.toHaveBeenCalled();
 });
 test("successful phone sign-in requires the single-use challenge before issuing a token", async () => {
   const res = response();
@@ -75,7 +94,7 @@ test("successful phone sign-in requires the single-use challenge before issuing 
     "phone-login",
     "123456",
   );
-  expect(res.json.mock.calls[0][0].data.token).toEqual(expect.any(String));
+  expect(res.json.mock.calls[0][0].data.sessionActive).toBe(true);
   expect(registerVerifiedSession).toHaveBeenCalledTimes(1);
 });
 test("a suspended account cannot finish sign-in using an older code", async () => {

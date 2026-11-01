@@ -8,9 +8,10 @@ import { Request, Response } from 'express';
 import { User } from '../models/models';
 import { Business } from '../models/businessModel';
 import { ethers } from 'ethers';
-import { client, createAccount } from '../services/auth';
+import { client } from '../services/auth';
 import { sendToken, getAllTokenTransferEvents, generateUnifiedWallet, migrateFunds, unifyWallets, Chain, TokenSymbol } from '../services/token';
-import { smartWallet, privateKeyToAccount } from "thirdweb/wallets";
+import { smartWallet } from 'thirdweb/wallets';
+import { privateKeyToAccount } from '../services/signingBoundary';
 import { defineChain, getContract, readContract } from "thirdweb";
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
@@ -880,37 +881,8 @@ export const getReceiveInfo = async (req: Request, res: Response) => {
             });
         }
 
-        // Check if user has a wallet address, if not create one
-        if (!user.walletAddress) {
-            console.log("Operation diagnostic");
-            
-            try {
-                const { walletAddress, pk: privateKey } = await createAccount();
-                
-                // Update user with new wallet
-                await User.findByIdAndUpdate(user._id, {
-                    walletAddress,
-                    privateKey
-                });
-                
-                // Update the user object for this request
-                user.walletAddress = walletAddress;
-                user.privateKey = privateKey;
-                
-                console.log("Operation diagnostic");
-            } catch (error) {
-                console.error("Error creating wallet for user:");
-                return res.status(500).json({
-                    success: false,
-                    message: "Failed to create wallet",
-                    data: null,
-                    error: {
-                        code: "WALLET_CREATION_FAILED",
-                        message: "Could not create wallet address"
-                    }
-                });
-            }
-        }
+        if (!user.walletAddress)
+            return res.status(409).json({ success: false, message: "Wallet setup is pending. Account security settings are available.", error: { code: "WALLET_PROVISIONING_PENDING" } });
 
         // Supported chains for receiving crypto
         const supportedChains = [
@@ -969,6 +941,9 @@ export const getUserBalance = async (req: Request, res: Response) => {
                 }
             });
         }
+
+        if (!user.walletAddress)
+            return res.status(409).json({ success: false, message: "Wallet setup is pending.", error: { code: "WALLET_PROVISIONING_PENDING" } });
 
         // Check cache first (5 minute cache for balance data)
         const cacheKey = `balance:${user.walletAddress}:primary-mainnet-v2`;
@@ -1116,6 +1091,9 @@ export const getUserBalanceByChain = async (req: Request, res: Response) => {
                 }
             });
         }
+
+        if (!user.walletAddress)
+            return res.status(409).json({ success: false, message: "Wallet setup is pending.", error: { code: "WALLET_PROVISIONING_PENDING" } });
 
         // BOT networks share this endpoint so one chain selector serves every network.
         if (isBotNetwork(chain)) {

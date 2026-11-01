@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
+import { smartWallet } from 'thirdweb/wallets';
+import { privateKeyToAccount } from './signingBoundary';
 import { defineChain, getContract, sendTransaction, prepareTransaction } from "thirdweb";
 import { transfer, balanceOf } from "thirdweb/extensions/erc20";
 import { client } from './auth';

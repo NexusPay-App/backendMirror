@@ -151,28 +151,28 @@ export class SMSService {
     /**
      * Send security alert
      */
-    static async sendSecurityAlert(phoneNumber: string, alertType: string, details: string): Promise<boolean> {
+    static async submitSecurityAlert(phoneNumber: string, alertType: string): Promise<{ status: 'accepted' | 'rejected' | 'unknown'; messageId?: string }> {
+        const phone = this.formatPhoneNumber(phoneNumber);
+        const types: Record<string, string> = { login: 'A new sign-in was verified.', 'password-reset': 'Your password was reset.', 'credentials-change': 'Your account credentials changed.', 'passkey-added': 'A passkey was added.' };
+        if (!types[alertType] || !this.validatePhoneNumber(phone)) return { status: 'rejected' };
         try {
-            // Format phone number for Africa's Talking
-            const formattedPhone = this.formatPhoneNumber(phoneNumber);
-            
-            const message = this.formatSecurityMessage(alertType, details);
-            
-            await africastalking.SMS.send({
-                to: [formattedPhone],
-                message: message,
-                from: 'NEXUSPAY'
-            });
-            
-            console.log(`✅ Security alert SMS sent to ${formattedPhone} for ${alertType}`);
-            return true;
-            
-        } catch (error) {
-            console.error(`❌ Failed to send security alert SMS to ${phoneNumber}:`, error);
-            return false;
+            const result = await africastalking.SMS.send({ to: [phone], message: `NexusPay security: ${types[alertType]} If this was not you, open NexusPay and secure your account.`, from: process.env.AFRICAS_TALKING_SENDER_ID || 'NEXUSPAY' });
+            const recipient = result?.SMSMessageData?.Recipients?.find((row: any) => row.number === phone);
+            if (recipient?.status === 'Success' && recipient.messageId) return { status: 'accepted', messageId: recipient.messageId };
+            return { status: recipient && recipient.status !== 'Success' ? 'rejected' : 'unknown' };
+        } catch (error: any) {
+            const code = error?.response?.status;
+            return { status: code >= 400 && code < 500 ? 'rejected' : 'unknown' };
         }
     }
-    
+    static async sendSecurityAlert(phoneNumber: string, alertType: string, _details: string): Promise<boolean> {
+        try {
+            const phone = this.formatPhoneNumber(phoneNumber);
+            const result = await africastalking.SMS.send({ to: [phone], message: this.formatSecurityMessage(alertType, _details), from: process.env.AFRICAS_TALKING_SENDER_ID || 'NEXUSPAY' });
+            return !!result?.SMSMessageData?.Recipients?.some((row: any) => row.number === phone && row.status === 'Success' && row.messageId);
+        } catch { return false; }
+    }
+
     /**
      * Format OTP message
      */

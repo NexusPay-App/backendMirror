@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { ThirdwebClient, createThirdwebClient, defineChain } from "thirdweb";
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
+import { smartWallet } from 'thirdweb/wallets';
+import { privateKeyToAccount } from './signingBoundary';
 import { Wallet } from 'ethers';
 import config from "../config/env";
 import { SMSService } from './smsService';

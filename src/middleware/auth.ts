@@ -1,135 +1,77 @@
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { User } from '../models/models';
-import config from '../config/env';
-import { standardResponse } from '../services/utils';
-
-// Extend the Request type to include user
+import type { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+import { User } from "../models/models";
+import { VerifiedSession } from "../models/verifiedSession";
+import { requestToken, sessionKey } from "../services/sessions";
 declare global {
   namespace Express {
     interface Request {
       user?: any;
+      authSession?: any;
     }
   }
 }
-
-/**
- * Middleware to authenticate requests using JWT
- */
-export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const denied = () =>
+    res
+      .status(401)
+      .json({
+        success: false,
+        error: { code: "AUTH_REQUIRED", message: "Sign in again to continue." },
+      });
+  const token = requestToken(req);
+  if (!token) return denied();
+  let decoded: jwt.JwtPayload;
   try {
-    // Get the authorization header
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader) {
-      return res.status(401).json(standardResponse(
-        false,
-        'Authentication required',
-        null,
-        { code: 'AUTH_REQUIRED', message: 'Authentication token is required' }
-      ));
-    }
-    
-    // Check header format
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json(standardResponse(
-        false,
-        'Invalid authentication format',
-        null,
-        { code: 'INVALID_AUTH_FORMAT', message: 'Authorization header must start with "Bearer "' }
-      ));
-    }
-    
-    // Extract the token
-    const token = authHeader.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json(standardResponse(
-        false,
-        'Authentication failed',
-        null,
-        { code: 'TOKEN_MISSING', message: 'Token is missing' }
-      ));
-    }
-    
-    // Verify the token
-    try {
-      // Check if JWT_SECRET is defined
-      if (!config.JWT_SECRET) {
-        console.error('❌ JWT_SECRET is not defined in the environment variables');
-        return res.status(500).json(standardResponse(
-          false,
-          'Server error',
-          null,
-          { code: 'SERVER_ERROR', message: 'Authentication service unavailable' }
-        ));
-      }
-      
-      // Verify and decode the token
-      const decoded = jwt.verify(token, config.JWT_SECRET);
-      
-      // Check if the decoded token has a valid user ID
-      if (!decoded || typeof decoded !== 'object' || !decoded.id) {
-        return res.status(401).json(standardResponse(
-          false,
-          'Invalid token',
-          null,
-          { code: 'INVALID_TOKEN', message: 'Token payload is invalid' }
-        ));
-      }
-      
-      // Find the user
-      const user = await User.findById(decoded.id);
-      
-      if (!user) {
-        return res.status(401).json(standardResponse(
-          false,
-          'User not found',
-          null,
-          { code: 'USER_NOT_FOUND', message: 'User associated with this token no longer exists' }
-        ));
-      }
-      
-      // Attach the user to the request
-      req.user = user;
-      
-      // Continue with the next middleware or route handler
-      next();
-    } catch (error: any) {
-      // Handle specific JWT errors
-      if (error.name === 'TokenExpiredError') {
-        return res.status(401).json(standardResponse(
-          false,
-          'Token expired',
-          null,
-          { code: 'TOKEN_EXPIRED', message: 'Authentication token has expired' }
-        ));
-      }
-      
-      if (error.name === 'JsonWebTokenError') {
-        return res.status(401).json(standardResponse(
-          false,
-          'Invalid token',
-          null,
-          { code: 'INVALID_TOKEN', message: 'Authentication token is invalid' }
-        ));
-      }
-      
-      // Handle other errors
-      return res.status(401).json(standardResponse(
-        false,
-        'Authentication failed',
-        null,
-        { code: 'AUTH_FAILED', message: error.message || 'Unknown authentication error' }
-      ));
-    }
-  } catch (error: any) {
-    console.error("❌ Error in authentication middleware:");
-    return res.status(500).json(standardResponse(
-      false,
-      'Server error',
-      null,
-      { code: 'SERVER_ERROR', message: 'Internal server error during authentication' }
-    ));
+    decoded = jwt.verify(token, process.env.JWT_SECRET || "", {
+      algorithms: ["HS256"],
+      issuer: "nexuspay",
+      audience: "nexuspay-customer",
+    }) as jwt.JwtPayload;
+    if (
+      typeof decoded.id !== "string" ||
+      !/^[a-f0-9]{24}$/i.test(decoded.id) ||
+      !decoded.jti
+    )
+      return denied();
+  } catch {
+    return denied();
   }
-}; 
+  try {
+    const [user, session] = await Promise.all([
+      User.findById(decoded.id),
+      VerifiedSession.findOne({
+        _id: sessionKey(token),
+        userId: decoded.id,
+        revokedAt: null,
+        expiresAt: { $gt: new Date() },
+      }),
+    ]);
+    if (
+      !user ||
+      (user.status && user.status !== "active") ||
+      !session ||
+      decoded.sv !== (user.securityVersion || 0)
+    )
+      return denied();
+    req.user = user;
+    req.authSession = session;
+    // Internal compatibility; incoming bearer headers are never authentication authority.
+    req.headers.authorization = `Bearer ${token}`;
+    next();
+  } catch {
+    res
+      .status(503)
+      .json({
+        success: false,
+        error: {
+          code: "AUTH_UNAVAILABLE",
+          message: "Sign-in verification is temporarily unavailable.",
+        },
+      });
+  }
+};

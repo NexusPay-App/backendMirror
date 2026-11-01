@@ -404,6 +404,11 @@ export const getBusinessCreditAssessment = async (req: Request, res: Response): 
       ));
     }
 
+    if (!/^[a-f0-9]{24}$/i.test(businessId))
+      return res.status(400).json({ success: false, message: 'Invalid business ID' });
+    const owned = await Business.exists({ _id: businessId, userId: req.user._id });
+    if (!owned)
+      return res.status(404).json({ success: false, message: 'Business not found' });
     const assessment = await BusinessCreditService.assessCredit(businessId);
 
     return res.status(200).json(standardResponse(
@@ -550,6 +555,7 @@ export const getBusinessOverdraftHistory = async (req: Request, res: Response): 
 
 export const getUnifiedUserProfile = async (req: Request, res: Response): Promise<Response> => {
   const userId = String(req.params.userId);
+  if (userId !== String(req.user?._id)) return res.status(403).json({ success: false, message: 'Access denied' });
 
   if (!userId) {
     return res.status(400).send({ message: 'User ID is required!' });
@@ -595,6 +601,7 @@ export const getUnifiedUserProfile = async (req: Request, res: Response): Promis
 
 export const getBusinessesByPhone = async (req: Request, res: Response): Promise<Response> => {
   const phoneNumber = String(req.params.phoneNumber);
+  if (phoneNumber !== req.user?.phoneNumber) return res.status(403).json({ success: false, message: 'Access denied' });
 
   if (!phoneNumber) {
     return res.status(400).send({ message: 'Phone number is required!' });

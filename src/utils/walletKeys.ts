@@ -10,7 +10,7 @@ export function protectWalletKey(value: string): string {
   if (!value || value.startsWith(PREFIX)) return value;
   const secret = key();
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') throw new Error('Wallet encryption is required for production writes');
+    if (process.env.NODE_ENV !== 'test') throw new Error('Wallet encryption is required outside isolated tests');
     return value;
   }
   const iv = randomBytes(12);
@@ -19,7 +19,11 @@ export function protectWalletKey(value: string): string {
   return PREFIX + Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64');
 }
 export function revealWalletKey(value: string): string {
-  if (!value || !value.startsWith(PREFIX)) return value;
+  if (!value) return value;
+  if (!value.startsWith(PREFIX)) {
+    if (process.env.NODE_ENV !== 'test') throw new Error('Legacy plaintext wallet key access is disabled pending migration');
+    return value;
+  }
   const secret = key();
   if (!secret) throw new Error('Wallet decryption key is not configured');
   const data = Buffer.from(value.slice(PREFIX.length), 'base64');

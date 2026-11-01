@@ -7,10 +7,7 @@ name: Deploy production
 # Prefer native Git: connect the Vercel project to this repo, then disable this variable.
 
 on:
-  push:
-    branches:
-      - main
-      - feat/modernize-botchain
+  workflow_dispatch:
 
 concurrency:
   group: nexuspay-backend-production-deploy
@@ -20,6 +17,7 @@ jobs:
   deploy:
     if: ${{ vars.ENABLE_VERCEL_CLI_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
+    environment: production
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

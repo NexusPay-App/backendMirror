@@ -15,8 +15,9 @@ export const addPhonePasswordValidation = [
         .matches(/^\+254[0-9]\d{8}$/)
         .withMessage('Phone number must be a valid Kenyan number (e.g., +254712345678)'),
     body('password')
-        .isLength({ min: 6 })
-        .withMessage('Password must be at least 6 characters long')
+        .isLength({ min: 12, max: 72 })
+        .custom(value => typeof value === 'string' && Buffer.byteLength(value, 'utf8') <= 72)
+        .withMessage('Password must be 12–72 characters long (maximum 72 UTF-8 bytes)')
         .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
         .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ];

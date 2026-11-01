@@ -58,22 +58,13 @@ export function paginatedResponse(items: any[], total: number, page: number, lim
  * @param defaultMessage Default message if error doesn't have one
  */
 export const handleError = (error: any, res: Response, defaultMessage: string = 'An error occurred') => {
-  console.error('Error:', error);
-  
-  // Determine appropriate status code
-  const statusCode = error.statusCode || 500;
-  
-  // Prepare error response
-  return res.status(statusCode).json(standardResponse(
-    false,
-    error.message || defaultMessage,
-    null,
-    {
-      code: error.code || 'INTERNAL_SERVER_ERROR',
-      message: error.message || defaultMessage,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    }
-  ));
+  const signingPaused = error?.code === 'SIGNING_MIGRATION_REQUIRED';
+  const statusCode = signingPaused ? 503 : 500;
+  const message = signingPaused ? 'Signing is paused pending secure wallet migration.' : defaultMessage;
+  console.error('Request failed', { code: signingPaused ? 'SIGNING_MIGRATION_REQUIRED' : 'INTERNAL_SERVER_ERROR' });
+  return res.status(statusCode).json(standardResponse(false, message, null, {
+    code: signingPaused ? 'SIGNING_MIGRATION_REQUIRED' : 'INTERNAL_SERVER_ERROR', message,
+  }));
 };
 
 export const delay = async (ms: number) => {

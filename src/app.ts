@@ -1,3 +1,9 @@
+import activityRoutes from './routes/activityRoutes';
+import paymentIntentRoutes from './routes/paymentIntentRoutes';
+import securityRoutes, { authenticateSecurity, securityRole, requireFreshSecurityMutation } from './routes/securityRoutes';
+import accountSecurityRoutes from './routes/accountSecurityRoutes';
+import { csrfProtection } from './middleware/securityControls';
+import { auditRequests } from './services/securityAudit';
 import { getRampRequest } from './middleware/rampRequest';
 import { mpesaCapabilities } from './services/mpesaReadiness';
 import paymentMaintenance from './routes/paymentMaintenance';
@@ -31,11 +37,12 @@ export function createApp() {
   if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 10) throw new Error('TRUST_PROXY_HOPS must be an integer between 0 and 10');
   app.set('trust proxy', proxyHops);
   app.use((_req, res, next) => { res.locals.requestId = randomUUID(); res.set('X-Request-ID', res.locals.requestId); next(); });
-  const origins = [process.env.ALLOWED_ORIGINS || 'http://localhost:3000', process.env.APP_ORIGIN || '']
+  const origins = [process.env.ALLOWED_ORIGINS || 'http://localhost:3000', process.env.APP_ORIGIN || '', process.env.SECURITY_ORIGIN || '']
     .flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
   app.use(helmet());
   app.use(cors({ origin: (origin, done) => done(origin && !origins.includes(origin) ? new Error('Origin not allowed') : null, true), credentials: true }));
   app.use(express.json({ limit: '256kb' }), express.urlencoded({ extended: false, limit: '64kb' }), compression());
+  app.use(auditRequests, csrfProtection);
   app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-8', legacyHeaders: false }));
   app.get('/api/health', (_req, res) => res.json({ success: true, data: { status: 'healthy', timestamp: new Date().toISOString() } }));
@@ -47,10 +54,14 @@ export function createApp() {
   // Password-free read-only feed for tx-dashboard.nexuspayapp.xyz (public-safe fields only).
   app.use('/api/public', publicRoutes);
   app.use('/api/internal/payments', paymentMaintenance);
+  app.use('/api/activity', activityRoutes);
+  app.use('/api/security', securityRoutes);
+  app.use('/api/payment-intents', paymentIntentRoutes);
   app.use('/api/auth', authRoutes);
+  app.use('/api/auth', accountSecurityRoutes);
   app.use('/api/token', tokenRoutes);
   app.use('/api/business', businessRoutes);
-  app.use('/api/admin', adminRoutes);
+  app.use('/api/admin', authenticateSecurity, securityRole('administrator'), requireFreshSecurityMutation, adminRoutes);
   app.use('/api/transactions', transactionRoutes);
   app.use('/api/usdc', usdcRoutes);
   app.use('/api/botchain', botchainRoutes);
@@ -66,7 +77,7 @@ export function createApp() {
   app.use('/api/mpesa', fiatGate, mpesaRoutes);
   app.use('/api/ramp', fiatGate, rampRoutes);
   app.use('/api/liquidity', liquidityRoutes);
-  app.use('/api/platform-wallet', platformWalletRoutes);
+  app.use('/api/platform-wallet', authenticateSecurity, securityRole('administrator'), requireFreshSecurityMutation, platformWalletRoutes);
   // Stellar is not provisioned on this backend. Return a stable envelope so the
   // shared wallet context does not spam AxiosError 404s on every auth load.
   app.get('/api/stellar/wallet', authenticate, (_req, res) => res.json({ success: false, message: 'Stellar is not enabled on this deployment' }));
@@ -75,9 +86,9 @@ export function createApp() {
   const errors: ErrorRequestHandler = (error, _req, res, next) => {
     if (res.headersSent) return next(error);
     if (isChallengeCooldown(error)) return void res.status(429).json({ success: false, message: error.message, error: { code: error.code, message: error.message } });
-    const status = error.message === 'Origin not allowed' ? 403 : error.type === 'entity.parse.failed' ? 400 : 500;
+    const status = error.message === 'Origin not allowed' ? 403 : error.type === 'entity.parse.failed' ? 400 : error.type === 'entity.too.large' ? 413 : error.code === 'SIGNING_MIGRATION_REQUIRED' ? 503 : 500;
     if (status === 500) console.error('Request failed', { requestId: res.locals.requestId, errorType: error.name || 'Error' });
-    res.status(status).json({ success: false, error: { code: 'REQUEST_FAILED', message: status === 500 ? 'Request could not be completed' : error.message, requestId: res.locals.requestId } });
+    res.status(status).json({ success: false, error: { code: 'REQUEST_FAILED', message: status >= 500 ? 'Request could not be completed' : status === 413 ? 'Request too large' : 'Invalid request', requestId: res.locals.requestId } });
   };
   app.use(errors);
   return app;

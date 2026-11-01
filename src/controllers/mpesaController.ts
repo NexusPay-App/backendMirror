@@ -28,7 +28,8 @@ import { client } from "../services/auth";
 import { recordTransaction, TransactionType, TransactionLogEntry } from '../services/transactionLogger';
 import { getRedisClient } from '../services/redis';
 import { logger } from '../config/logger';
-import { privateKeyToAccount, smartWallet } from "thirdweb/wallets";
+import { smartWallet } from 'thirdweb/wallets';
+import { privateKeyToAccount } from '../services/signingBoundary';
 import axios from "axios";
 import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'

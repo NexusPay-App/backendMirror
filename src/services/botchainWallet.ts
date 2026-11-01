@@ -1,5 +1,5 @@
 import { getContract, prepareContractCall, readContract, type ThirdwebContract } from 'thirdweb';
-import { privateKeyToAccount } from 'thirdweb/wallets';
+import { privateKeyToAccount } from './signingBoundary';
 import { createUnsignedUserOp, signUserOp } from 'thirdweb/wallets/smart';
 import { encodeFunctionData, parseAbi, type Hex } from 'viem';
 import { getUserOperationHash } from 'viem/account-abstraction';
@@ -33,6 +33,14 @@ async function withRpcRetry<T>(operation: () => Promise<T>): Promise<T> {
 export async function resolveBotAccount(owner: { _id: unknown; privateKey: string }, network: BotNetwork, ownerType: 'user' | 'business' = 'user') {
   const n = getBotConfig(network);
   if (!n.enabled) throw new Error('BOT network is not enabled');
+  const stored = await ChainAccount.findOne({ ownerId: owner._id, ownerType, chainId: n.id });
+  if (stored) {
+    if (stored.factory?.toLowerCase() !== BOT_FACTORY.toLowerCase() || stored.entryPoint?.toLowerCase() !== BOT_ENTRY_POINT.toLowerCase() || stored.salt !== BOT_SALT.toString()) throw new Error('Stored BOT account configuration requires review');
+    const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
+    const predicted = await withRpcRetry(() => botAccountOverrides(network).predictAddress(factory, stored.ownerAddress));
+    if (predicted.toLowerCase() !== stored.address.toLowerCase()) throw new Error('Stored BOT address does not match its owner');
+    return { address: stored.address, ownerAddress: stored.ownerAddress, factory: stored.factory, entryPoint: stored.entryPoint, salt: stored.salt, chainId: n.id, network, gasMode: 'self-funded' };
+  }
   const admin = privateKeyToAccount({ client, privateKey: owner.privateKey });
   const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
   const address = await withRpcRetry(() => botAccountOverrides(network).predictAddress(factory, admin.address));

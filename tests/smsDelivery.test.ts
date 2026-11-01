@@ -13,6 +13,16 @@ test('accepts only successful delivery acceptance for the requested phone', asyn
 });
 
 const deposit = { phoneNumber: '+254700000000', amount: '2.5', tokenType: 'USDT', transactionHash: `0x${'a'.repeat(64)}`, transactionType: 'receive' as const, status: 'success' as const, networkName: 'BOT Chain' };
+test('security notifications require provider acceptance for the exact destination', async () => {
+  mockSend.mockResolvedValueOnce({ SMSMessageData: { Recipients: [{ number: '+254700000000', status: 'Success', messageId: 'security-fixture' }] } });
+  expect(await SMSService.submitSecurityAlert('+254700000000', 'login')).toEqual({ status: 'accepted', messageId: 'security-fixture' });
+  mockSend.mockResolvedValueOnce({ SMSMessageData: { Recipients: [{ number: '+254700000099', status: 'Success', messageId: 'wrong' }] } });
+  expect(await SMSService.submitSecurityAlert('+254700000000', 'login')).toEqual({ status: 'unknown' });
+});
+test('an ambiguous security SMS timeout is not reported as delivered', async () => {
+  mockSend.mockRejectedValueOnce(new Error('timeout'));
+  expect(await SMSService.submitSecurityAlert('+254700000000', 'password-reset')).toEqual({ status: 'unknown' });
+});
 test('transaction notifications require a matching accepted recipient and provider message ID', async () => {
   mockSend.mockResolvedValueOnce({ SMSMessageData: { Recipients: [{ number: deposit.phoneNumber, status: 'InsufficientBalance', statusCode: 405 }] } });
   expect(await SMSService.submitTransactionNotification(deposit)).toEqual({ status: 'rejected', code: '405' });

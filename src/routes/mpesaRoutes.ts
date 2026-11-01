@@ -30,8 +30,10 @@ import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
 import { authenticateTransaction } from '../middleware/transactionAuthMiddleware';
 import { isAdmin } from '../middleware/roleMiddleware';
 import { cryptoSpendingProtection } from '../middleware/rateLimiting';
+import { authenticateSecurity, securityRole, requireFreshSecurityMutation } from './securityRoutes';
 
 const router = express.Router();
+router.use(['/platform-wallet', '/withdraw-fees', '/test-webhook-logging', '/test-b2b-callback'], authenticateSecurity, securityRole('administrator'), requireFreshSecurityMutation);
 const requireRamp = (mode: RampMode): express.RequestHandler => (req, res, next) => {
   const capabilities = mpesaCapabilities();
   if (!capabilities.modes[mode]) return void res.status(503).json({success: false, message: 'This M-Pesa payment option is not available yet.'});

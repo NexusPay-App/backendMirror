@@ -1,3 +1,4 @@
+jest.mock('../src/utils/txHistoryCache', () => ({ invalidateUserTransactionHistory: jest.fn() }));
 jest.mock('../src/services/botchainReceipts', () => ({ readBotTransferStatus: jest.fn() }));
 jest.mock('../src/services/botchainDeposits', () => ({ recordBotReceipt: jest.fn() }));
 jest.mock('../src/services/botDepositNotifications', () => ({ deliverBotDepositNotifications: jest.fn() }));
