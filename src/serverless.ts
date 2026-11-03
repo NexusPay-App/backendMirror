@@ -12,5 +12,16 @@ export default async function handler(req: Request, res: Response) {
     await (ready ??= initializeServices().then(() => { initialized = true; }).catch(error => { ready = undefined; throw error; }));
     app(req, res);
   }
-  catch { res.status(503).json({ success: false, message: 'Service initialization failed' }); }
+  catch (error) {
+    const failure = error instanceof Error ? error : new Error('Unknown initialization failure');
+    const message = failure.message
+      .replace(/(mongodb(?:\+srv)?:\/\/)[^\s@]+@/gi, '$1[redacted]@')
+      .replace(/((?:password|passwd|secret)=)[^&\s]+/gi, '$1[redacted]');
+    console.error('Service initialization failed', {
+      name: failure.name,
+      code: 'code' in failure ? failure.code : undefined,
+      message,
+    });
+    res.status(503).json({ success: false, message: 'Service initialization failed' });
+  }
 }
