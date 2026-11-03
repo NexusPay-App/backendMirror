@@ -12,15 +12,20 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test' && 
 }
 
 export function validateEnvironment() {
+    const productionMongoUrl = process.env.PROD_MONGO_URL || process.env.MONGODB_URI;
     const required = ['JWT_SECRET', 'THIRDWEB_SECRET_KEY'];
     if (process.env.NODE_ENV === 'production') {
         required.push('WALLET_KEY_ENCRYPTION_KEY', 'SECURITY_STORE_URL', 'APP_ORIGIN', 'SECURITY_ORIGIN', 'WEBAUTHN_RP_ID', 'SECURITY_RP_ID', 'RATE_LIMIT_SECRET');
         if ((process.env.JWT_SECRET || '').length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
-        if (process.env.DEV_MONGO_URL && process.env.DEV_MONGO_URL === process.env.PROD_MONGO_URL) throw new Error('Production and development databases must differ');
+        if (process.env.DEV_MONGO_URL && process.env.DEV_MONGO_URL === productionMongoUrl) throw new Error('Production and development databases must differ');
         for (const name of ['APP_ORIGIN', 'SECURITY_ORIGIN']) if (!process.env[name]?.startsWith('https://')) throw new Error(`${name} must use HTTPS`);
     }
     const prefix = process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV';
-    required.push(`${prefix}_MONGO_URL`);
+    if (prefix === 'PROD') {
+        if (!productionMongoUrl) required.push('PROD_MONGO_URL or MONGODB_URI');
+    } else {
+        required.push('DEV_MONGO_URL');
+    }
     if (process.env.ENABLE_MPESA === 'true') {
         required.push('MPESA_CALLBACK_SHARED_TOKEN', 'MPESA_STK_CALLBACK_URL', 'MPESA_B2C_RESULT_URL', 'MPESA_B2C_TIMEOUT_URL', 'MPESA_B2B_RESULT_URL', 'MPESA_B2B_TIMEOUT_URL');
         required.push(...['CONSUMER_KEY', 'CONSUMER_SECRET', 'SHORTCODE', 'PASSKEY'].map(key => `MPESA_${prefix}_${key}`));
@@ -158,7 +163,7 @@ let config: Record<string, any> = {
         JWT_SECRET: process.env.JWT_SECRET,
         THIRDWEB_SECRET_KEY: process.env.THIRDWEB_SECRET_KEY,
         AFRICAS_TALKING_API_KEY: process.env.AFRICAS_TALKING_API_KEY,
-        MONGO_URL: process.env.PROD_MONGO_URL,
+        MONGO_URL: process.env.PROD_MONGO_URL || process.env.MONGODB_URI,
         MPESA_CONSUMER_KEY: process.env.MPESA_PROD_CONSUMER_KEY,
         MPESA_CONSUMER_SECRET: process.env.MPESA_PROD_CONSUMER_SECRET,
         MPESA_SHORTCODE: process.env.MPESA_PROD_SHORTCODE,
