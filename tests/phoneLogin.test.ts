@@ -1,4 +1,4 @@
-jest.mock('../src/services/sessions', () => ({ issueSession: jest.fn().mockResolvedValue('internal-fixture-token'), revokeUserSessions: jest.fn(), requestToken: jest.fn(), clearSessionCookie: jest.fn() }));
+jest.mock('../src/services/sessions', () => ({ issueSession: jest.fn().mockResolvedValue('internal-fixture-token'), revokeUserSessions: jest.fn(), requestToken: jest.fn(), clearSessionCookie: jest.fn(), invalidateSession: jest.fn() }));
 jest.mock("../src/services/verificationChallenges", () => ({
   consumeChallenge: jest.fn(),
   issueChallenge: jest.fn(),
@@ -25,14 +25,15 @@ jest.mock("../src/config/env", () => ({
 jest.mock("../src/models/models", () => ({ User: { findOne: jest.fn() } }));
 jest.mock("bcrypt", () => ({ compare: jest.fn() }));
 import bcrypt from "bcrypt";
-import { login, verifyLogin } from "../src/controllers/authController";
+import { login, logout, verifyLogin } from "../src/controllers/authController";
 import { User } from "../src/models/models";
 import { SMSService } from "../src/services/smsService";
 import {
   consumeChallenge,
   issueChallenge,
 } from "../src/services/verificationChallenges";
-import { issueSession } from '../src/services/sessions';
+import { clearSessionCookie, issueSession, requestToken } from '../src/services/sessions';
+import { invalidateSession } from '../src/middleware/strictAuthMiddleware';
 import { registerVerifiedSession } from "../src/middleware/strictAuthMiddleware";
 const phoneNumber = "+254700000001";
 function response() {
@@ -85,6 +86,27 @@ test("wrong password does not issue a challenge or send SMS", async () => {
   expect(issueChallenge).not.toHaveBeenCalled();
   expect(SMSService.sendOTP).not.toHaveBeenCalled();
   expect(issueSession).not.toHaveBeenCalled();
+});
+test("logout revokes the current cookie session and clears the cookie", async () => {
+  const token = "fixture-session-token";
+  (requestToken as jest.Mock).mockReturnValue(token);
+  const res = response();
+
+  await logout({} as any, res);
+
+  expect(invalidateSession).toHaveBeenCalledWith(token);
+  expect(clearSessionCookie).toHaveBeenCalledWith(res);
+  expect(res.json.mock.calls[0][0].success).toBe(true);
+});
+test("logout is idempotent when the session cookie is missing", async () => {
+  (requestToken as jest.Mock).mockReturnValue(undefined);
+  const res = response();
+
+  await logout({} as any, res);
+
+  expect(invalidateSession).not.toHaveBeenCalled();
+  expect(clearSessionCookie).toHaveBeenCalledWith(res);
+  expect(res.json.mock.calls[0][0].success).toBe(true);
 });
 test("successful phone sign-in requires the single-use challenge before issuing a token", async () => {
   const res = response();

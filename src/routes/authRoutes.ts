@@ -41,12 +41,12 @@ import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
 const authenticationLimit = persistentLimit('authentication', 30);
-router.use((req, res, next) => req.method === 'POST' ? authenticationLimit(req, res, next) : next());
+router.use((req, res, next) => req.method === 'POST' && req.path !== '/logout' ? authenticationLimit(req, res, next) : next());
 
 // Login routes
 router.post('/login', validate(loginValidation), login);
 router.post('/login/verify', validate(phoneLoginVerifyValidation), verifyLogin);
-router.post('/logout', authenticate, logout);
+router.post('/logout', logout);
 
 // Registration routes
 router.post('/register/initiate', initiateRegisterUser);

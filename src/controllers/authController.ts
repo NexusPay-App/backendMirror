@@ -667,25 +667,16 @@ export const confirmAccountDeletion = async (req: Request, res: Response) => {
 };
 
 export const logout = async (req: Request, res: Response) => {
+    const token = requestToken(req);
+    clearSessionCookie(res);
     try {
-        // Get token from authorization header
-        const token = requestToken(req);
-        
         if (token) {
-            // Invalidate the session
             await invalidateSession(token);
-            clearSessionCookie(res);
-            
-            console.log("Operation diagnostic");
         }
-        
-        return res.json(standardResponse(
-            true, 
-            "Logged out successfully."
-        ));
+        return res.json(standardResponse(true, "Logged out successfully."));
     } catch (error) {
         if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
-        console.error("Error in logout:", error);
+        console.error("Error revoking logout session:");
         return handleError(error, res, "Error during logout");
     }
 };
