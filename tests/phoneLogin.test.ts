@@ -1,4 +1,4 @@
-jest.mock('../src/services/sessions', () => ({ issueSession: jest.fn().mockResolvedValue('internal-fixture-token'), revokeUserSessions: jest.fn(), requestToken: jest.fn(), clearSessionCookie: jest.fn(), invalidateSession: jest.fn() }));
+jest.mock('../src/services/sessions', () => ({ issueSession: jest.fn().mockResolvedValue('internal-fixture-token'), revokeUserSessions: jest.fn(), requestToken: jest.fn(), requestLogoutTokens: jest.fn(), clearSessionCookie: jest.fn(), invalidateSession: jest.fn() }));
 jest.mock("../src/services/verificationChallenges", () => ({
   consumeChallenge: jest.fn(),
   issueChallenge: jest.fn(),
@@ -32,7 +32,7 @@ import {
   consumeChallenge,
   issueChallenge,
 } from "../src/services/verificationChallenges";
-import { clearSessionCookie, issueSession, requestToken } from '../src/services/sessions';
+import { clearSessionCookie, issueSession, requestLogoutTokens } from '../src/services/sessions';
 import { invalidateSession } from '../src/middleware/strictAuthMiddleware';
 import { registerVerifiedSession } from "../src/middleware/strictAuthMiddleware";
 const phoneNumber = "+254700000001";
@@ -88,18 +88,19 @@ test("wrong password does not issue a challenge or send SMS", async () => {
   expect(issueSession).not.toHaveBeenCalled();
 });
 test("logout revokes the current cookie session and clears the cookie", async () => {
-  const token = "fixture-session-token";
-  (requestToken as jest.Mock).mockReturnValue(token);
+  const tokens = ["fixture-session-token", "legacy-session-token"];
+  (requestLogoutTokens as jest.Mock).mockReturnValue(tokens);
   const res = response();
 
   await logout({} as any, res);
 
-  expect(invalidateSession).toHaveBeenCalledWith(token);
+  expect(invalidateSession).toHaveBeenNthCalledWith(1, tokens[0]);
+  expect(invalidateSession).toHaveBeenNthCalledWith(2, tokens[1]);
   expect(clearSessionCookie).toHaveBeenCalledWith(res);
   expect(res.json.mock.calls[0][0].success).toBe(true);
 });
 test("logout is idempotent when the session cookie is missing", async () => {
-  (requestToken as jest.Mock).mockReturnValue(undefined);
+  (requestLogoutTokens as jest.Mock).mockReturnValue([]);
   const res = response();
 
   await logout({} as any, res);

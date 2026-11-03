@@ -1,6 +1,6 @@
 import { queueSecurityNotice } from '../services/securityAlerts';
 import { randomUUID } from 'node:crypto';
-import { issueSession, revokeUserSessions, requestToken, clearSessionCookie } from '../services/sessions';
+import { issueSession, revokeUserSessions, requestToken, requestLogoutTokens, clearSessionCookie } from '../services/sessions';
 import { issueChallenge, consumeChallenge, isChallengeCooldown } from '../services/verificationChallenges';
 // src/controllers/authController.ts
 import { User } from '../models/models';
@@ -667,12 +667,10 @@ export const confirmAccountDeletion = async (req: Request, res: Response) => {
 };
 
 export const logout = async (req: Request, res: Response) => {
-    const token = requestToken(req);
+    const tokens = requestLogoutTokens(req);
     clearSessionCookie(res);
     try {
-        if (token) {
-            await invalidateSession(token);
-        }
+        await Promise.all(tokens.map((token) => invalidateSession(token)));
         return res.json(standardResponse(true, "Logged out successfully."));
     } catch (error) {
         if (isChallengeCooldown(error)) return res.status(429).json(standardResponse(false, error.message));
