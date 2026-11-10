@@ -1,3 +1,8 @@
 .env
 .env.*
 !.env.example
+src/BotContracts/**
+mpesa-webhook-service/**
+tests/**
+tools/**
+*.md

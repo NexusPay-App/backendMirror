@@ -20,12 +20,13 @@ export type TokenTransferEvent = {
     confirmations: string;
 }
 
-export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'lisk' | 'fuse' | 'aurora';
+export type Chain = 'arbitrum' | 'celo' | 'optimism' | 'polygon' | 'base' | 'ethereum' | 'avalanche' | 'bnb' | 'scroll' | 'gnosis' | 'fantom' | 'somnia' | 'moonbeam' | 'lisk' | 'fuse' | 'aurora';
 
-export type TokenSymbol = 'USDC' | 'USDT' | 'DAI' | 'BNB' | 'WBTC' | 'WETH' | 'MATIC' | 'ARB' | 'TRX' | 'SOL' | 'OP' | 'cUSD';
+export type TokenSymbol = 'USDC' | 'USDT' | 'DAI' | 'BNB' | 'WBTC' | 'WETH' | 'MATIC' | 'ARB' | 'TRX' | 'SOL' | 'OP' | 'cUSD' | 'ETH';
 
 export interface TokenConfig {
-    address: `0x${string}`;
+    /** ERC-20 contract address, or 'native' for the chain gas token (ETH/BOT). */
+    address: `0x${string}` | 'native';
     decimals: number;
     symbol: TokenSymbol;
     name: string;

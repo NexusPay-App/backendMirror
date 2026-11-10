@@ -4,7 +4,7 @@ import { EvmPaymentError } from './evmPaymentErrors';
 
 export function isAlchemyBundler(url?: string) {
   if (!url) return false;
-  return ['base-mainnet.g.alchemy.com', 'arb-mainnet.g.alchemy.com'].includes(new URL(url).hostname);
+  return ['base-mainnet.g.alchemy.com', 'arb-mainnet.g.alchemy.com', 'eth-mainnet.g.alchemy.com'].includes(new URL(url).hostname);
 }
 
 // Provider errors can contain the credential-bearing URL. Never return or log them.

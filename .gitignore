@@ -163,3 +163,10 @@ dump.rdb
 scripts/
 .vercel
 .env*
+
+
+.env
+.env.*
+!.env.example
+
+**/opencode.json

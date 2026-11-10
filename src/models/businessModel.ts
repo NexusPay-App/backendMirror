@@ -1,5 +1,6 @@
 import { protectWalletKey, revealWalletKey, redactAccount } from '../utils/walletKeys';
 import mongoose, { Schema, Document } from 'mongoose';
+import { MIGRATION_URI, migrationTargetIsPrimary } from './models';
 
 export interface IBusiness extends Document {
   pinHash?: string;
@@ -14,6 +15,7 @@ export interface IBusiness extends Document {
   merchantId: string;
   walletAddress: string;
   privateKey: string;
+  walletAddressHistory?: { address?: string; replacedAt?: Date; reason?: string }[];
   userId: mongoose.Types.ObjectId;
   
   // Enhanced Business Features
@@ -119,6 +121,7 @@ const businessSchema: Schema = new Schema({
     required: true,
     unique: true,
   },
+  walletAddressHistory: { type: [{ address: String, replacedAt: Date, reason: String }], default: undefined },
   userId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
@@ -287,11 +290,34 @@ businessSchema.virtual('calculatedAvailableCredit').get(function() {
   return Math.max(0, Number(this.creditLimit) - Number(this.currentCredit));
 });
 
-// Pre-save middleware to update available credit
-businessSchema.pre('save', function() {
+// Pre-save middleware to update available credit and mirror to migration URI
+businessSchema.pre('save', async function() {
   this.availableCredit = this.calculatedAvailableCredit;
-
+  // Mirror business to MONGODB_MIGRATION_URI on save (best-effort)
+  if (MIGRATION_URI && !migrationTargetIsPrimary()) {
+    try {
+      const migrationConn = mongoose.createConnection(MIGRATION_URI, { autoIndex: false });
+      const migrationBusinessSchema = new mongoose.Schema({}, { strict: false });
+      // Dynamically add all business paths from original schema
+      const originalPaths = ['businessName', 'ownerName', 'location', 'businessType', 'phoneNumber', 'merchantId', 'uniqueCode', 'walletAddress', 'privateKey', 'userId', 'creditLimit', 'currentCredit', 'availableCredit', 'creditScore', 'totalVolume', 'monthlyVolume', 'lastVolumeUpdate', 'overdraftEnabled', 'overdraftHistory', 'riskLevel', 'lastRiskAssessment', 'paymentHistory', 'isVerified', 'verificationDocuments', 'autoRepayment', 'notifications', 'createdAt', 'updatedAt'];
+      originalPaths.forEach(p => {
+        migrationBusinessSchema.add({ [p]: String });
+      });
+      migrationBusinessSchema.set('toJSON', { transform: redactAccount });
+      const migrationBusinessModel = migrationConn.model('MirrorBusiness', migrationBusinessSchema, 'businesses');
+      const existing = await migrationBusinessModel.findOne({ _id: this._id });
+      if (!existing) {
+        await migrationBusinessModel.create({ ...this.toObject(), _id: this._id });
+      } else {
+        await migrationBusinessModel.updateOne({ _id: this._id }, { $set: { ...this.toObject() } });
+      }
+      await migrationConn.close();
+    } catch (e) {
+      // Non-fatal: migration mirror is best-effort
+    }
+  }
 });
+
 
 // Method to calculate credit score based on payment history
 businessSchema.methods.calculateCreditScore = function() {

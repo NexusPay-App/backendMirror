@@ -1,19 +1,19 @@
-import { Wallet } from 'ethers';
 import { getTokenConfig as lookupToken } from '../config/tokens';
 import { parseAmount } from '../utils/amounts';
 import { client } from './auth';
 import { smartWallet } from 'thirdweb/wallets';
 import { privateKeyToAccount } from './signingBoundary';
-import { defineChain, getContract, sendTransaction, waitForReceipt, readContract } from "thirdweb";
+import { defineChain, getContract, prepareTransaction, sendTransaction, waitForReceipt, readContract } from "thirdweb";
 import { transfer, balanceOf } from "thirdweb/extensions/erc20";
 import config from "../config/env";
 import { keccak256, toHex } from 'viem';
 import { eth_getBalance } from 'thirdweb/rpc';
 import { getRpcClient } from 'thirdweb';
 import { estimateUserOpGasCost } from 'thirdweb/wallets/smart';
-import { paymentChain, paymentWalletOptions, isUserFundedNetwork, isUserFundedChain } from '../config/mainnetPayments';
+import { paymentChain, paymentWalletOptions, isUserFundedNetwork } from '../config/mainnetPayments';
 import { EvmPaymentError } from './evmPaymentErrors';
 import { withBundlerFees } from './evmBundler';
+import { createVerifiedSmartWallet, deriveSmartWalletAddress } from './walletProvisioning';
 
 export type { Chain, TokenSymbol } from '../types/token';
 import type { Chain, TokenSymbol } from '../types/token';
@@ -69,6 +69,107 @@ export function calculateTransactionFee(amount: number): number {
     return 0.95;
 }
 
+const OWNER_CALL_DATA = '0x8da5cb5b'; // owner()
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Public fallbacks when the primary RPC (often a rate-limited key) fails. */
+const PUBLIC_RPC_FALLBACKS: Record<number, string[]> = {
+  42161: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum-one-rpc.publicnode.com'],
+  8453: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'],
+  1: ['https://ethereum-rpc.publicnode.com'],
+};
+
+/** RPC URLs for owner reads: Alchemy first, then configured and public fallbacks. */
+function chainRpcUrls(chain: { id: number; rpc?: unknown }): string[] {
+  const urls: string[] = [];
+  const key = process.env.ALCHEMY_API_KEY?.trim();
+  if (key) {
+    const host = chain.id === 8453 ? 'base-mainnet' : chain.id === 42161 ? 'arb-mainnet' : chain.id === 1 ? 'eth-mainnet' : null;
+    if (host) urls.push(`https://${host}.g.alchemy.com/v2/${key}`);
+  }
+  const raw = chain.rpc;
+  if (Array.isArray(raw)) urls.push(...raw.filter((entry): entry is string => typeof entry === 'string' && !!entry));
+  else if (typeof raw === 'string' && raw) urls.push(raw);
+  urls.push(...(PUBLIC_RPC_FALLBACKS[chain.id] || []));
+  return [...new Set(urls)];
+}
+
+async function rawRpc(url: string, method: string, params: unknown[]): Promise<unknown> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const body = await response.json().catch(() => null) as { result?: unknown; error?: { message?: string } } | null;
+  if (!response.ok || !body) throw new Error(`rpc http ${response.status}`);
+  if (body.error) throw new Error(body.error.message || 'rpc error');
+  return body.result;
+}
+
+async function rawRpcWithFallbacks(chain: { id: number; rpc?: unknown }, method: string, params: unknown[]): Promise<unknown> {
+  let lastError: Error | undefined;
+  for (const url of chainRpcUrls(chain)) {
+    try { return await rawRpc(url, method, params); } catch (error) { lastError = error as Error; }
+  }
+  throw lastError || new Error('No RPC endpoint available');
+}
+
+interface OwnerProbe {
+  owner: string | null;
+  hasCode: boolean | null; // null when the code check itself failed
+  source: string;
+  detail?: string;
+}
+
+/**
+ * Owner/admin of a stored smart-account address. Thirdweb reads retry transient
+ * failures; on rate limits or reverts we fall back to direct JSON-RPC
+ * (Alchemy first) so a 429 never masquerades as "owner unreadable".
+ */
+async function readAccountOwnerDetailed(chain: ReturnType<typeof paymentChain>, address: string): Promise<OwnerProbe> {
+  const contract = getContract({ client, chain, address: address as `0x${string}` });
+  let lastError = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const owner = await readContract({ contract, method: 'function owner() view returns (address)' });
+      if (owner) return { owner: String(owner), hasCode: true, source: 'thirdweb-owner' };
+    } catch (error) {
+      lastError = String((error as Error)?.message || error);
+      if (/revert|zero data/i.test(lastError)) break;
+      if (attempt < 2) await sleep(250 * (attempt + 1));
+    }
+  }
+  try {
+    const admins = await readContract({ contract, method: 'function getAdmins() view returns (address[])' });
+    if (Array.isArray(admins) && admins[0]) return { owner: String(admins[0]), hasCode: true, source: 'thirdweb-getAdmins' };
+  } catch (error) {
+    lastError = `${lastError} | getAdmins: ${String((error as Error)?.message || error)}`;
+  }
+
+  let hasCode: boolean | null = null;
+  try {
+    const code = await rawRpcWithFallbacks(chain, 'eth_getCode', [address, 'latest']);
+    hasCode = typeof code === 'string' && code.length > 2;
+  } catch (error) {
+    lastError = `${lastError} | getCode: ${String((error as Error)?.message || error)}`;
+  }
+  if (hasCode === false) {
+    return { owner: null, hasCode: false, source: 'raw-rpc', detail: 'no contract code at stored sender address' };
+  }
+
+  try {
+    const result = await rawRpcWithFallbacks(chain, 'eth_call', [{ to: address, data: OWNER_CALL_DATA }, 'latest']);
+    if (typeof result === 'string' && result.length >= 66) {
+      return { owner: `0x${result.slice(-40)}`, hasCode: true, source: 'raw-rpc-owner' };
+    }
+    return { owner: null, hasCode, source: 'raw-rpc-owner', detail: `owner() empty result${lastError ? `; ${lastError}` : ''}` };
+  } catch (error) {
+    lastError = `${lastError} | eth_call owner: ${String((error as Error)?.message || error)}`;
+  }
+  return { owner: null, hasCode, source: 'unreadable', detail: lastError || 'unknown' };
+}
+
 export async function sendToken(
     recipientAddress: string,
     amount: number | string,
@@ -82,26 +183,79 @@ export async function sendToken(
     if (!config[chainName]?.chainId) throw new Error('Unsupported chain');
     const units = parseAmount(amount, token.decimals);
     const chain = paymentChain(chainName, config[chainName].chainId);
-    const contract = getContract({ client, chain, address: token.address });
-    const [decimals, symbol] = await Promise.all([
-      readContract({ contract, method: 'function decimals() view returns (uint8)' }),
-      readContract({ contract, method: 'function symbol() view returns (string)' }),
-    ]);
-    if (decimals !== token.decimals || symbol !== tokenSymbol) throw new Error('Configured token does not match on-chain metadata');
+    const isNative = token.address === 'native';
+    let contract: ReturnType<typeof getContract> | undefined;
+    if (!isNative) {
+      contract = getContract({ client, chain, address: token.address as `0x${string}` });
+      const [decimals, symbol] = await Promise.all([
+        readContract({ contract, method: 'function decimals() view returns (uint8)' }),
+        readContract({ contract, method: 'function symbol() view returns (string)' }),
+      ]);
+      if (decimals !== token.decimals || symbol !== tokenSymbol) throw new Error('Configured token does not match on-chain metadata');
+    } else if (token.decimals !== 18) {
+      throw new Error('Native transfers require 18 decimals');
+    }
     const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-    const walletOptions = await withBundlerFees(paymentWalletOptions(chainName, chain), client);
+    // Stored walletAddress is authoritative. Thirdweb CREATE2 prediction can
+    // disagree with accounts deployed under an older factory/salt; accept the
+    // stored address only when this key is the on-chain owner, then pin
+    // overrides.accountAddress so userOps target the real account.
+    const baseOptions = paymentWalletOptions(chainName, chain);
+    // Dormant chains have no bundler: reject before any wallet connection so
+    // the call never falls through to the dead thirdweb default bundler.
+    if (!baseOptions.overrides?.bundlerUrl) throw new EvmPaymentError('TRANSFERS_UNAVAILABLE', 'Sending on this network is currently unavailable.', 503);
+    let walletOptions = await withBundlerFees(baseOptions, client);
+    if (expectedSender) {
+      const predicted = (await smartWallet(walletOptions).connect({ client, personalAccount })).address;
+      if (predicted.toLowerCase() !== expectedSender.toLowerCase()) {
+        const probe = await readAccountOwnerDetailed(chain, expectedSender);
+        console.warn('[sendToken] predicted sender mismatch', {
+          chain: chainName,
+          token: tokenSymbol,
+          expectedSender,
+          predicted,
+          personalAccount: personalAccount.address,
+          owner: probe.owner,
+          hasCode: probe.hasCode,
+          source: probe.source,
+          detail: probe.detail,
+        });
+        if (!probe.owner || probe.owner.toLowerCase() !== personalAccount.address.toLowerCase()) {
+          throw new Error('Signing account does not match the stored sender wallet');
+        }
+        console.info('[sendToken] pinning overrides.accountAddress to stored sender', { expectedSender, source: probe.source });
+        walletOptions = await withBundlerFees({
+          ...baseOptions,
+          overrides: { ...baseOptions.overrides, accountAddress: expectedSender },
+        }, client);
+      }
+    }
     const wallet = smartWallet(walletOptions);
     const account = await wallet.connect({ client, personalAccount });
     if (expectedSender && account.address.toLowerCase() !== expectedSender.toLowerCase()) throw new Error('Signing account does not match the stored sender wallet');
-    const available = await balanceOf({ contract, address: account.address });
-    if (available < units) throw new Error('Insufficient token balance');
-    const transaction = transfer({ contract, to: recipientAddress, amountWei: units });
+    const transaction = isNative
+      ? prepareTransaction({ to: recipientAddress, value: units, chain, client })
+      : transfer({ contract: contract!, to: recipientAddress, amountWei: units });
     if (isUserFundedNetwork(chainName)) {
-      const nativeBalance = await eth_getBalance(getRpcClient({ client, chain }), { address: account.address });
+      const nativeBalance = await eth_getBalance(getRpcClient({ client, chain }), { address: account.address as `0x${string}` });
       if (nativeBalance === 0n) throw new EvmPaymentError('INSUFFICIENT_GAS', `Add ETH on ${chain.name} to your NexusPay wallet to pay the network fee. USDC and USDT cannot pay this fee.`);
       // Includes the initial smart-account deployment and EntryPoint overhead.
       const fee = await estimateUserOpGasCost({ transactions: [transaction], adminAccount: personalAccount, client, smartWalletOptions: walletOptions });
-      if (nativeBalance < fee.wei) throw new EvmPaymentError('INSUFFICIENT_GAS', `Your wallet needs approximately ${fee.ether} ETH on ${chain.name} for this payment. Add ETH to the address shown on Receive.`);
+      const required = isNative ? units + fee.wei : fee.wei;
+      if (nativeBalance < required) {
+        if (isNative) throw new EvmPaymentError('INSUFFICIENT_GAS', `Your wallet needs approximately ${fee.ether} ETH on ${chain.name} for gas on top of the amount sent. Add ETH to the address shown on Receive.`);
+        throw new EvmPaymentError('INSUFFICIENT_GAS', `Your wallet needs approximately ${fee.ether} ETH on ${chain.name} for this payment. Add ETH to the address shown on Receive.`);
+      }
+      if (!isNative) {
+        const available = await balanceOf({ contract: contract!, address: account.address as `0x${string}` });
+        if (available < units) throw new Error('Insufficient token balance');
+      }
+    } else if (isNative) {
+      const nativeBalance = await eth_getBalance(getRpcClient({ client, chain }), { address: account.address as `0x${string}` });
+      if (nativeBalance < units) throw new Error('Insufficient token balance');
+    } else {
+      const available = await balanceOf({ contract: contract!, address: account.address as `0x${string}` });
+      if (available < units) throw new Error('Insufficient token balance');
     }
     const sent = await sendTransaction({ account, transaction });
     const receipt = await waitForReceipt(sent);
@@ -111,43 +265,22 @@ export async function sendToken(
 }
 
 export async function generateUnifiedWallet(phoneNumber: string): Promise<{ address: string, privateKey: string }> {
-    const privateKey = Wallet.createRandom().privateKey as `0x${string}`;
-    const newAccount = privateKeyToAccount({ client, privateKey });
-    console.log("Generated new personal account:", newAccount.address);
-
-    const chain = defineChain(42161); // Arbitrum as reference chain
-    const wallet = smartWallet({
-        chain,
-        // factoryAddress removed to use default
-        sponsorGas: !isUserFundedChain(chain.id), // User-funded on Base and Arbitrum
-    });
-
-    const smartAccount = await wallet.connect({ client, personalAccount: newAccount });
-    console.log("Generated new unified smart wallet address:", smartAccount.address);
-
-    return { address: smartAccount.address, privateKey: privateKey };
+    // Canonical derivation + write-time verification (no code at address,
+    // deterministic re-derivation) keeps new wallets spendable by sendToken.
+    const fresh = await createVerifiedSmartWallet('arbitrum');
+    console.log("Generated new personal account:", fresh.personalEoa);
+    console.log("Generated new unified smart wallet address:", fresh.walletAddress);
+    return { address: fresh.walletAddress, privateKey: fresh.privateKey };
 }
 
 export async function unifyWallets(pk: string): Promise<string> {
     try {
-        const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-        console.log("Personal account address:", personalAccount.address);
-
-        // Use Arbitrum as reference chain
-        const chain = defineChain(42161); // Arbitrum chain ID
-        console.log("Using chain ID:", chain.id);
-
-        const wallet = smartWallet({
-            chain,
-            // factoryAddress removed to use default
-            sponsorGas: !isUserFundedChain(chain.id), // User-funded on Base and Arbitrum
-        });
-        console.log("Smart wallet initialized with default factory");
-
-        const smartAccount = await wallet.connect({ client, personalAccount });
-        console.log("Unified smart wallet address for all chains:", smartAccount.address);
-
-        return smartAccount.address;
+        // Same options as sendToken (LEGACY v0.6 factory, default salt) so the
+        // stored address equals the spend-time prediction for this key.
+        const { address, personalEoa } = await deriveSmartWalletAddress(pk, 'arbitrum');
+        console.log("Personal account address:", personalEoa);
+        console.log("Unified smart wallet address for all chains:", address);
+        return address;
     } catch (error: any) {
         console.error("Error in unifyWallets:", {
             message: error.message,
@@ -174,10 +307,9 @@ export async function migrateFunds(
         console.log(`Migrating funds on ${chainName} from ${fromAddress} to ${toAddress}`);
 
         const personalAccount = privateKeyToAccount({ client, privateKey: pk });
-        const wallet = smartWallet({
-            chain,
-            sponsorGas: !isUserFundedChain(chain.id), // User-funded on Base and Arbitrum
-        });
+        const options = paymentWalletOptions(chainName, chain);
+        if (!options.overrides?.bundlerUrl) throw new EvmPaymentError('TRANSFERS_UNAVAILABLE', 'Sending on this network is currently unavailable.', 503);
+        const wallet = smartWallet(await withBundlerFees(options, client));
 
         const smartAccount = await wallet.connect({ client, personalAccount });
         console.log("Source unified smart account address:", smartAccount.address);
@@ -230,6 +362,7 @@ export async function getAllTokenTransferEvents(chain: Chain, walletAddress: str
         optimism: 'https://api-optimistic.etherscan.io/api',
         polygon: 'https://api.polygonscan.com/api',
         base: 'https://api.basescan.org/api',
+        ethereum: 'https://api.etherscan.io/api',
         avalanche: 'https://api.snowtrace.io/api',
         bnb: 'https://api.bscscan.com/api',
         scroll: 'https://api.scrollscan.com/api',
@@ -248,6 +381,7 @@ export async function getAllTokenTransferEvents(chain: Chain, walletAddress: str
         optimism: config.OPTIMISM_EXPLORER_API_KEY || '',
         polygon: config.POLYGON_EXPLORER_API_KEY || '',
         base: config.BASE_EXPLORER_API_KEY || '',
+        ethereum: config.ETHERSCAN_API_KEY || '',
         avalanche: config.AVALANCHE_API_KEY || '',
         bnb: config.BNB_API_KEY || '',
         scroll: config.SCROLL_API_KEY || '',

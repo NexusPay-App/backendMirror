@@ -16,6 +16,10 @@ import { VerifiedSession } from "../models/verifiedSession";
 import { securityStore } from "../models/security";
 import { clearSessionCookie, revokeUserSessions } from "../services/sessions";
 import { auditEvent } from "../services/securityAudit";
+import {
+  createPaymentApprovalOptions,
+  PaymentApprovalError,
+} from "../services/passkeyPaymentAuthorization";
 
 const router = Router();
 router.use(authenticate);
@@ -47,6 +51,29 @@ router.post(
   persistentLimit("reauth", 10),
   requireFreshAuthentication,
   (_req, res) => res.json({ success: true }),
+);
+router.post(
+  "/payment-approvals/options",
+  persistentLimit("payment-approval", 20),
+  async (req, res) => {
+    try {
+      const data = await createPaymentApprovalOptions(
+        req.user,
+        req.authSession,
+        req.body,
+      );
+      res.set("Cache-Control", "no-store").json({ success: true, data });
+    } catch (error) {
+      const expected = error instanceof PaymentApprovalError;
+      const message = expected
+        ? error.message
+        : "Passkey approval is temporarily unavailable.";
+      res.status(expected ? 400 : 503).json({
+        success: false,
+        error: { code: "PAYMENT_APPROVAL_UNAVAILABLE", message },
+      });
+    }
+  },
 );
 router.post(
   "/reauth/google/options",

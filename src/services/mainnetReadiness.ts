@@ -8,13 +8,14 @@ import { tokenConfigs } from '../config/tokens';
 import { LEGACY_ACCOUNT_FACTORY, paymentChain, paymentWalletOptions, userFundedNetworks, type UserFundedNetwork } from '../config/mainnetPayments';
 import { alchemyGasFees, bundlerRead, isAlchemyBundler } from './evmBundler';
 import { EvmPaymentError } from './evmPaymentErrors';
+import { legacySignerEnabled } from './signingBoundary';
 
 // No signing keys, account creation or transactions. Coalesce/cap public probes.
 let cached: { at: number; promise: ReturnType<typeof inspect> } | undefined;
 async function inspect() {
   const networks = await Promise.all((Object.keys(userFundedNetworks) as UserFundedNetwork[]).map(async id => {
     const chain = paymentChain(id, userFundedNetworks[id].id);
-    const base = { id, chainId: chain.id, gasMode: 'self-funded', gasToken: 'ETH' };
+    const base = { id, chainId: chain.id, gasMode: 'self-funded', gasToken: 'ETH', signingEnabled: legacySignerEnabled() };
     try {
       const rpc = getRpcClient({ client, chain });
       const [chainId, code] = await Promise.all([rpc({ method: 'eth_chainId' }), eth_getCode(rpc, { address: LEGACY_ACCOUNT_FACTORY })]);

@@ -5,6 +5,9 @@ export class EvmPaymentError extends Error {
 export function evmPaymentError(error: unknown, network: string) {
   if (error instanceof EvmPaymentError) return error;
   const message = error instanceof Error ? error.message : '';
+  if ((error as { code?: string } | null)?.code === 'SIGNING_MIGRATION_REQUIRED') {
+    return new EvmPaymentError('SIGNING_MIGRATION_REQUIRED', 'Payments are paused until signing is activated for this deployment.', 503);
+  }
   if (/mainnets not enabled|billing|unauthorized|invalid.*(?:key|client)|API key is not configured|401|403/i.test(message)) {
     return new EvmPaymentError('PAYMENT_PROVIDER_UNAVAILABLE', 'Payments on this network are temporarily unavailable. The payment provider needs configuration.', 503);
   }
@@ -13,5 +16,5 @@ export function evmPaymentError(error: unknown, network: string) {
   }
   if (/Insufficient token balance/i.test(message)) return new EvmPaymentError('INSUFFICIENT_TOKEN_BALANCE', 'Your token balance is too low for this payment.');
   if (/Signing account does not match/i.test(message)) return new EvmPaymentError('ACCOUNT_MISMATCH', 'This wallet needs an account configuration check before it can send payments.', 409);
-  return new EvmPaymentError('PAYMENT_STATUS_UNCERTAIN', 'The payment could not be confirmed. Check your history and explorer before retrying.', 503);
+  return new EvmPaymentError('PAYMENT_STATUS_UNCERTAIN', 'Payment not confirmed. Check your history before retrying.', 503);
 }

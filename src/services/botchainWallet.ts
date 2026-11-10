@@ -1,23 +1,26 @@
-import { getContract, prepareContractCall, readContract, type ThirdwebContract } from 'thirdweb';
+import { getContract, prepareContractCall, readContract } from 'thirdweb';
 import { privateKeyToAccount } from './signingBoundary';
 import { createUnsignedUserOp, signUserOp } from 'thirdweb/wallets/smart';
 import { encodeFunctionData, parseAbi, type Hex } from 'viem';
 import { getUserOperationHash } from 'viem/account-abstraction';
 import { client } from './auth';
-import { BOT_ENTRY_POINT, BOT_FACTORY, BOT_SALT, getBotConfig, type BotNetwork, type BotToken } from '../config/botchain';
+import { BOT_ENTRY_POINT, getBotConfig, type BotNetwork, type BotToken } from '../config/botchain';
+import { LEGACY_ACCOUNT_FACTORY } from '../config/mainnetPayments';
 import { ChainAccount } from '../models/chainAccount';
 import { botRpc } from './botchainRpc';
 import { parseAmount, formatAmount } from '../utils/amounts';
 import { BotPaymentError } from './botchainErrors';
+
+// Botchain accounts share the canonical NexusPay derivation: the same legacy
+// factory, empty salt and owner key as arbitrum/base/ethereum, so one address
+// works on every sendable chain.
+const BOT_ACCOUNT_SALT = '0x';
 
 export function botAccountOverrides(network: BotNetwork) {
   const n = getBotConfig(network);
   return {
     bundlerUrl: n.bundler,
     entrypointAddress: BOT_ENTRY_POINT,
-    predictAddress: (factory: ThirdwebContract, owner: string) => readContract({ contract: factory, method: 'function getAddress(address owner, uint256 salt) view returns (address)', params: [owner, BOT_SALT] }),
-    createAccount: (factory: ThirdwebContract, owner: string) => prepareContractCall({ contract: factory, method: 'function createAccount(address owner, uint256 salt) returns (address)', params: [owner, BOT_SALT] }),
-    getAccountNonce: (account: ThirdwebContract) => readContract({ contract: getContract({ client: account.client, chain: n.chain, address: BOT_ENTRY_POINT }), method: 'function getNonce(address sender, uint192 key) view returns (uint256)', params: [account.address, 0n] }),
   };
 }
 // The public BOT RPC drops the occasional connection (observed ETIMEDOUT bursts);
@@ -30,34 +33,65 @@ async function withRpcRetry<T>(operation: () => Promise<T>): Promise<T> {
     return operation();
   }
 }
+function legacyFactoryContract(network: BotNetwork) {
+  return getContract({ client, chain: getBotConfig(network).chain, address: LEGACY_ACCOUNT_FACTORY });
+}
+// Factory getAddress(owner, salt) is deterministic per chain, so the derived
+// address is cached for the process lifetime: balance and QR renders must not
+// pay a flaky RPC round trip on every request.
+const predictedAddressCache = new Map<string, string>();
+async function predictBotAddress(network: BotNetwork, ownerAddress: string): Promise<string> {
+  const cacheKey = `${network}:${ownerAddress.toLowerCase()}`;
+  const cached = predictedAddressCache.get(cacheKey);
+  if (cached) return cached;
+  const predicted = await withRpcRetry(() => readContract({
+    contract: legacyFactoryContract(network),
+    method: 'function getAddress(address, bytes) view returns (address)',
+    params: [ownerAddress as Hex, BOT_ACCOUNT_SALT],
+  }));
+  predictedAddressCache.set(cacheKey, predicted);
+  return predicted;
+}
 export async function resolveBotAccount(owner: { _id: unknown; privateKey: string }, network: BotNetwork, ownerType: 'user' | 'business' = 'user') {
   const n = getBotConfig(network);
   if (!n.enabled) throw new Error('BOT network is not enabled');
-  const stored = await ChainAccount.findOne({ ownerId: owner._id, ownerType, chainId: n.id });
-  if (stored) {
-    if (stored.factory?.toLowerCase() !== BOT_FACTORY.toLowerCase() || stored.entryPoint?.toLowerCase() !== BOT_ENTRY_POINT.toLowerCase() || stored.salt !== BOT_SALT.toString()) throw new Error('Stored BOT account configuration requires review');
-    const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
-    const predicted = await withRpcRetry(() => botAccountOverrides(network).predictAddress(factory, stored.ownerAddress));
-    if (predicted.toLowerCase() !== stored.address.toLowerCase()) throw new Error('Stored BOT address does not match its owner');
+  const identity = { ownerId: owner._id, ownerType, chainId: n.id };
+  const stored = await ChainAccount.findOne(identity);
+  const canonicalConfig = (record: { factory?: string; entryPoint?: string; salt?: string }) =>
+    record.factory?.toLowerCase() === LEGACY_ACCOUNT_FACTORY.toLowerCase()
+    && record.entryPoint?.toLowerCase() === BOT_ENTRY_POINT.toLowerCase()
+    && record.salt === BOT_ACCOUNT_SALT;
+  if (stored && canonicalConfig(stored)) {
+    // Written (or adopted below) only after matching the factory derivation, and
+    // the send path re-verifies before moving funds, so balance and QR reads
+    // trust the stored canonical record instead of re-deriving over the flaky
+    // public RPC on every call.
     return { address: stored.address, ownerAddress: stored.ownerAddress, factory: stored.factory, entryPoint: stored.entryPoint, salt: stored.salt, chainId: n.id, network, gasMode: 'self-funded' };
   }
+  // Missing or pre-migration (BOT_FACTORY) record: derive the canonical
+  // address from the owner key and adopt it in place.
   const admin = privateKeyToAccount({ client, privateKey: owner.privateKey });
-  const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
-  const address = await withRpcRetry(() => botAccountOverrides(network).predictAddress(factory, admin.address));
-  const identity = { ownerId: owner._id, ownerType, chainId: n.id };
-  let record = await ChainAccount.findOne(identity);
+  const address = await predictBotAddress(network, admin.address);
+  let record = stored;
   if (!record) {
-    try { record = await ChainAccount.create({ ...identity, address, ownerAddress: admin.address, factory: BOT_FACTORY, entryPoint: BOT_ENTRY_POINT, salt: BOT_SALT.toString() }); }
+    try { record = await ChainAccount.create({ ...identity, address, ownerAddress: admin.address, factory: LEGACY_ACCOUNT_FACTORY, entryPoint: BOT_ENTRY_POINT, salt: BOT_ACCOUNT_SALT }); }
     catch (error: any) { if (error.code !== 11000) throw error; record = await ChainAccount.findOne(identity); }
+  } else {
+    record.address = address;
+    record.ownerAddress = admin.address;
+    record.factory = LEGACY_ACCOUNT_FACTORY;
+    record.entryPoint = BOT_ENTRY_POINT;
+    record.salt = BOT_ACCOUNT_SALT;
+    await record.save();
   }
-  if (!record || record.address.toLowerCase() !== address.toLowerCase() || record.factory.toLowerCase() !== BOT_FACTORY.toLowerCase() || record.salt !== BOT_SALT.toString() || record.entryPoint.toLowerCase() !== BOT_ENTRY_POINT.toLowerCase()) throw new Error('Stored BOT account differs from configured account; migration required');
-  return { address, ownerAddress: admin.address, factory: BOT_FACTORY, entryPoint: BOT_ENTRY_POINT, salt: BOT_SALT.toString(), chainId: n.id, network, gasMode: 'self-funded' };
+  if (!record || record.address.toLowerCase() !== address.toLowerCase() || !canonicalConfig(record)) throw new Error('Stored BOT account differs from configured account; migration required');
+  return { address, ownerAddress: admin.address, factory: LEGACY_ACCOUNT_FACTORY, entryPoint: BOT_ENTRY_POINT, salt: BOT_ACCOUNT_SALT, chainId: n.id, network, gasMode: 'self-funded' };
 }
 export async function assertBotInfrastructure(network: BotNetwork) {
   const n = getBotConfig(network);
   const [chainId, bundlerChain, entries, factoryCode, entryCode] = await Promise.all([
     botRpc<Hex>(n.rpc, 'eth_chainId'), botRpc<Hex>(n.bundler, 'eth_chainId'), botRpc<string[]>(n.bundler, 'eth_supportedEntryPoints'),
-    botRpc<Hex>(n.rpc, 'eth_getCode', [BOT_FACTORY, 'latest']), botRpc<Hex>(n.rpc, 'eth_getCode', [BOT_ENTRY_POINT, 'latest']),
+    botRpc<Hex>(n.rpc, 'eth_getCode', [LEGACY_ACCOUNT_FACTORY, 'latest']), botRpc<Hex>(n.rpc, 'eth_getCode', [BOT_ENTRY_POINT, 'latest']),
   ]);
   if (Number(chainId) !== n.id || Number(bundlerChain) !== n.id || !entries.some(e => e.toLowerCase() === BOT_ENTRY_POINT.toLowerCase()) || factoryCode === '0x' || entryCode === '0x') throw new Error('BOT infrastructure does not match configured chain/account contracts');
 }
@@ -81,9 +115,9 @@ async function buildBotTransfer(network: BotNetwork, privateKey: string, sender:
   if (nativeBalance <= 0n) throw new BotPaymentError('INSUFFICIENT_GAS', 'Keep some native BOT in this wallet for the network fee. Fund your BOT address from Receive.');
   const contract = getContract({ client, chain: n.chain, address: sender });
   const overrides = botAccountOverrides(network);
-  const factory = getContract({ client, chain: n.chain, address: BOT_FACTORY });
+  const factory = legacyFactoryContract(network);
   const admin = privateKeyToAccount({ client, privateKey });
-  const predicted = await overrides.predictAddress(factory, admin.address);
+  const predicted = await predictBotAddress(network, admin.address);
   if (predicted.toLowerCase() !== sender.toLowerCase()) throw new Error('BOT sender does not match signing account');
   if (token.address) {
     const asset = getContract({ client, chain: n.chain, address: token.address });

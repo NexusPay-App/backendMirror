@@ -1,4 +1,4 @@
-import { isUserFundedChain } from '../config/mainnetPayments';
+import { paymentWalletOptions } from '../config/mainnetPayments';
 import { getTokenConfig } from '../config/tokens';
 import { formatAmount } from '../utils/amounts';
 import { ethers } from 'ethers';
@@ -7,6 +7,7 @@ import { privateKeyToAccount } from './signingBoundary';
 import { defineChain, getContract, sendTransaction } from "thirdweb";
 import { transfer, balanceOf } from "thirdweb/extensions/erc20";
 import { client } from './auth';
+import { withBundlerFees } from './evmBundler';
 import config from "../config/env";
 
 /**
@@ -70,6 +71,10 @@ export async function transferTokens(
     const chain = defineChain(chainConfig.chainId);
     const tokenAddress = chainConfig.tokenAddress;
     
+    // Users pay their own gas; dormant chains (no bundler) cannot send.
+    const options = paymentWalletOptions(chainName, chain);
+    if (!options.overrides?.bundlerUrl) throw new Error('Sending on this network is currently unavailable');
+
     // Create wallet from private key
     const personalAccount = privateKeyToAccount({
       client,
@@ -77,10 +82,7 @@ export async function transferTokens(
     });
     
     // Connect the smart wallet
-    const wallet = smartWallet({
-      chain,
-      sponsorGas: !isUserFundedChain(chain.id),
-    });
+    const wallet = smartWallet(await withBundlerFees(options, client));
     
     const smartAccount = await wallet.connect({
       client,

@@ -91,6 +91,9 @@ const schemas = {
     scope: String,
     purpose: String,
     challenge: String,
+    transactionDigest: String,
+    transactionKind: String,
+    transactionRecipient: String,
     expiresAt: Date,
     sessionRef: String,
     intentId: String,
@@ -120,7 +123,18 @@ export async function securityStore() {
       serverSelectionTimeoutMS: 3000,
       maxPoolSize: 5,
     });
-  await connection.asPromise();
+  try {
+    await connection.asPromise();
+  } catch (error) {
+    // A failed initial server selection rejects asPromise for the lifetime of
+    // the cached connection, which would fail every audited write until restart.
+    // Drop it so the next request rebuilds a fresh connection and the retry the
+    // error message promises can actually succeed.
+    const failed = connection;
+    connection = undefined;
+    void failed.close().catch(() => undefined);
+    throw error;
+  }
   return Object.fromEntries(
     Object.entries(schemas).map(([name, schema]) => [
       name,

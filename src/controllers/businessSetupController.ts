@@ -5,6 +5,7 @@ import { isValidObjectId } from "mongoose";
 import { Business } from "../models/businessModel";
 import { VerifiedSession } from "../models/verifiedSession";
 import { createAccount, generateOTP } from "../services/auth";
+import { verifyWalletBinding } from "../services/walletProvisioning";
 import { SMSService } from "../services/smsService";
 import {
   consumeChallenge,
@@ -237,6 +238,8 @@ export async function completeBusinessCreation(req: Request, res: Response) {
       createAccount(),
       bcrypt.hash(pin, 12),
     ]);
+    const binding = await verifyWalletBinding(pk, walletAddress);
+    if (!binding.ok) throw new Error(`Wallet binding verification failed: ${binding.reason}`);
     const business = await Business.create({
       _id,
       userId: owner,

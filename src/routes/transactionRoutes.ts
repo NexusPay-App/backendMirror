@@ -39,12 +39,12 @@ const transactionHistoryValidation = [
   
   query('chain')
     .optional()
-    .isIn(['celo', 'polygon', 'arbitrum', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia'])
+    .isIn(['celo', 'polygon', 'arbitrum', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia', 'botchain', 'botchain-testnet'])
     .withMessage('Invalid blockchain filter'),
   
   query('tokenType')
     .optional()
-    .isIn(['USDC', 'USDT', 'BTC', 'ETH', 'WETH', 'WBTC', 'DAI', 'CELO'])
+    .isIn(['USDC', 'USDT', 'BTC', 'ETH', 'WETH', 'WBTC', 'DAI', 'CELO', 'BOT', 'WBOT', 'ARB'])
     .withMessage('Invalid token type filter'),
   
   query('dateFrom')
@@ -95,12 +95,12 @@ const comprehensiveTransactionValidation = [
   
   query('chain')
     .optional()
-    .isIn(['celo', 'polygon', 'arbitrum', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia'])
+    .isIn(['celo', 'polygon', 'arbitrum', 'base', 'optimism', 'ethereum', 'bnb', 'avalanche', 'fantom', 'gnosis', 'scroll', 'moonbeam', 'fuse', 'aurora', 'lisk', 'somnia', 'botchain', 'botchain-testnet'])
     .withMessage('Invalid blockchain filter'),
   
   query('tokenType')
     .optional()
-    .isIn(['USDC', 'USDT', 'BTC', 'ETH', 'WETH', 'WBTC', 'DAI', 'CELO'])
+    .isIn(['USDC', 'USDT', 'BTC', 'ETH', 'WETH', 'WBTC', 'DAI', 'CELO', 'BOT', 'WBOT', 'ARB'])
     .withMessage('Invalid token type filter'),
   
   query('dateFrom')

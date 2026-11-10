@@ -30,6 +30,7 @@ import { getRedisClient } from '../services/redis';
 import { logger } from '../config/logger';
 import { smartWallet } from 'thirdweb/wallets';
 import { privateKeyToAccount } from '../services/signingBoundary';
+import { bundlerUrlFor } from '../config/mainnetPayments';
 import axios from "axios";
 import { generateTimestamp, getMpesaAccessToken } from "../services/mpesaUtils";
 import { getConversionRateWithCaching as getKESRate } from '../services/rates'
@@ -2636,10 +2637,14 @@ export const submitMpesaReceiptManually = async (req: Request, res: Response) =>
       logger.info(`👤 Primary account: ${primaryAccount.address}`);
       
       // Connect to the smart wallet using the primary account
+      // (users pay their own gas; dormant chains cannot send)
+      const bundlerUrl = bundlerUrlFor(chain);
+      if (!bundlerUrl) throw new Error('Sending on this network is currently unavailable');
       const wallet = smartWallet({
         chain: thirdwebChain,
         factoryAddress: config.SMART_WALLET_FACTORY_ADDRESS || '',
-        gasless: true, // Enable gasless transactions for smart wallet
+        sponsorGas: false,
+        overrides: { bundlerUrl },
       });
       
       const smartAccount = await wallet.connect({

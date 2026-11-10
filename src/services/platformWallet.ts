@@ -5,6 +5,7 @@ import { defineChain, getContract, sendTransaction, prepareTransaction } from "t
 import { transfer, balanceOf } from "thirdweb/extensions/erc20";
 import { client } from './auth';
 import config from "../config/env";
+import { bundlerUrlFor } from '../config/mainnetPayments';
 import { randomUUID } from "crypto";
 import Redis from 'ioredis';
 import type { Account } from 'thirdweb/wallets';
@@ -189,6 +190,27 @@ export const SUPPORTED_CHAINS: { [key in Chain]: ChainConfig } = {
       default: {
         name: 'Basescan',
         url: 'https://basescan.org'
+      }
+    }
+  },
+  ethereum: {
+    id: 1,
+    name: 'Ethereum',
+    network: 'ethereum',
+    nativeCurrency: {
+      name: 'Ethereum',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    rpcUrls: {
+      default: {
+        http: ['https://ethereum-rpc.publicnode.com']
+      }
+    },
+    blockExplorers: {
+      default: {
+        name: 'Etherscan',
+        url: 'https://etherscan.io'
       }
     }
   },
@@ -736,10 +758,13 @@ export async function transferBetweenPlatformWallets(
       privateKey: sourceWallet.privateKey
     });
     
-    // Connect the smart wallet
+    // Connect the smart wallet (users pay their own gas; dormant chains cannot send)
+    const bundlerUrl = bundlerUrlFor(chainName);
+    if (!bundlerUrl) throw new Error('Sending on this network is currently unavailable');
     const wallet = smartWallet({
       chain,
-      sponsorGas: true,
+      sponsorGas: false,
+      overrides: { bundlerUrl },
     });
     
     const smartAccount = await wallet.connect({
@@ -1222,10 +1247,13 @@ async function processIndividualTransactions(
         privateKey: platformWallets.main.privateKey
     });
     
-    // Connect to the smart wallet using the controlling EOA
+    // Connect to the smart wallet using the controlling EOA (users pay their own gas; dormant chains cannot send)
+    const bundlerUrl = bundlerUrlFor(chainName);
+    if (!bundlerUrl) throw new Error('Sending on this network is currently unavailable');
     const wallet = smartWallet({
       chain: thirdwebChain,
-      sponsorGas: true,
+      sponsorGas: false,
+      overrides: { bundlerUrl },
     });
     
     account = await wallet.connect({
@@ -1788,10 +1816,13 @@ export async function sendTokenFromUser(
       privateKey: userPrivateKey
     });
     
-    // Connect the smart wallet
+    // Connect the smart wallet (users pay their own gas; dormant chains cannot send)
+    const bundlerUrl = bundlerUrlFor(chainName);
+    if (!bundlerUrl) throw new Error('Sending on this network is currently unavailable');
     const wallet = smartWallet({
       chain,
-      sponsorGas: true,
+      sponsorGas: false,
+      overrides: { bundlerUrl },
     });
     
     const smartAccount = await wallet.connect({
@@ -2153,11 +2184,14 @@ export async function sendFromPlatformWallet(
     const primaryAccount = privateKeyToAccount({ client, privateKey: primaryKey });
     const secondaryAccount = privateKeyToAccount({ client, privateKey: secondaryKey });
 
-    // Initialize smart wallet with primary account
+    // Initialize smart wallet with primary as owner (users pay their own gas; dormant chains cannot send)
+    const bundlerUrl = bundlerUrlFor(chainName);
+    if (!bundlerUrl) throw new Error('Sending on this network is currently unavailable');
     const wallet = smartWallet({
       chain,
       factoryAddress: config.SMART_WALLET_FACTORY_ADDRESS || '',
-      gasless: true,
+      sponsorGas: false,
+      overrides: { bundlerUrl },
     });
 
     // Connect wallet with primary account

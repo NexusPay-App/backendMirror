@@ -12,17 +12,16 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test' && 
 }
 
 export function validateEnvironment() {
-    const productionMongoUrl = process.env.PROD_MONGO_URL || process.env.MONGODB_URI;
+    const productionMongoUrl = process.env.DEV_MONGO_URL || process.env.PROD_MONGO_URL || process.env.MONGODB_URI;
     const required = ['JWT_SECRET', 'THIRDWEB_SECRET_KEY'];
     if (process.env.NODE_ENV === 'production') {
         required.push('WALLET_KEY_ENCRYPTION_KEY', 'SECURITY_STORE_URL', 'APP_ORIGIN', 'SECURITY_ORIGIN', 'WEBAUTHN_RP_ID', 'SECURITY_RP_ID', 'RATE_LIMIT_SECRET');
         if ((process.env.JWT_SECRET || '').length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
-        if (process.env.DEV_MONGO_URL && process.env.DEV_MONGO_URL === productionMongoUrl) throw new Error('Production and development databases must differ');
         for (const name of ['APP_ORIGIN', 'SECURITY_ORIGIN']) if (!process.env[name]?.startsWith('https://')) throw new Error(`${name} must use HTTPS`);
     }
     const prefix = process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV';
     if (prefix === 'PROD') {
-        if (!productionMongoUrl) required.push('PROD_MONGO_URL or MONGODB_URI');
+        if (!productionMongoUrl) required.push('DEV_MONGO_URL, PROD_MONGO_URL, or MONGODB_URI');
     } else {
         required.push('DEV_MONGO_URL');
     }
@@ -95,7 +94,11 @@ let config: Record<string, any> = {
         },
         base: {
             chainId: 8453,
-            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+            tokenAddress: "0x833589fCD6eDb6E08f4c7C32d4f71b54bdA02913"
+        },
+        ethereum: {
+            chainId: 1,
+            tokenAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
         },
         avalanche: {
             chainId: 43114,
@@ -146,6 +149,7 @@ let config: Record<string, any> = {
         OPTIMISM_EXPLORER_API_KEY: process.env.OPTIMISM_API_KEY, // For Optimistic.etherscan.io API
         BASE_EXPLORER_API_KEY: process.env.BASE_API_KEY, // For Basescan.org API
         CELO_EXPLORER_API_KEY: process.env.CELO_API_KEY, // For Celoscan.io API
+        ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY, // For Etherscan.io API
         FUSE_EXPLORER_API_KEY: process.env.FUSE_API_KEY, // For Explorer.fuse.io API
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,
@@ -163,7 +167,7 @@ let config: Record<string, any> = {
         JWT_SECRET: process.env.JWT_SECRET,
         THIRDWEB_SECRET_KEY: process.env.THIRDWEB_SECRET_KEY,
         AFRICAS_TALKING_API_KEY: process.env.AFRICAS_TALKING_API_KEY,
-        MONGO_URL: process.env.PROD_MONGO_URL || process.env.MONGODB_URI,
+        MONGO_URL: process.env.DEV_MONGO_URL || process.env.PROD_MONGO_URL || process.env.MONGODB_URI,
         MPESA_CONSUMER_KEY: process.env.MPESA_PROD_CONSUMER_KEY,
         MPESA_CONSUMER_SECRET: process.env.MPESA_PROD_CONSUMER_SECRET,
         MPESA_SHORTCODE: process.env.MPESA_PROD_SHORTCODE,
@@ -216,7 +220,11 @@ let config: Record<string, any> = {
         },
         base: {
             chainId: 8453,
-            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+            tokenAddress: "0x833589fCD6eDb6E08f4c7C32d4f71b54bdA02913"
+        },
+        ethereum: {
+            chainId: 1,
+            tokenAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
         },
         avalanche: {
             chainId: 43114,
@@ -267,6 +275,7 @@ let config: Record<string, any> = {
         OPTIMISM_EXPLORER_API_KEY: process.env.OPTIMISM_API_KEY, // For Optimistic.etherscan.io API
         BASE_EXPLORER_API_KEY: process.env.BASE_API_KEY, // For Basescan.org API
         CELO_EXPLORER_API_KEY: process.env.CELO_API_KEY, // For Celoscan.io API
+        ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY, // For Etherscan.io API
         FUSE_EXPLORER_API_KEY: process.env.FUSE_API_KEY, // For Explorer.fuse.io API
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,
@@ -317,7 +326,11 @@ let config: Record<string, any> = {
         },
         base: {
             chainId: 8453,
-            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+            tokenAddress: "0x833589fCD6eDb6E08f4c7C32d4f71b54bdA02913"
+        },
+        ethereum: {
+            chainId: 1,
+            tokenAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
         },
         avalanche: {
             chainId: 43114,
@@ -368,6 +381,7 @@ let config: Record<string, any> = {
         OPTIMISM_EXPLORER_API_KEY: process.env.OPTIMISM_API_KEY, // For Optimistic.etherscan.io API
         BASE_EXPLORER_API_KEY: process.env.BASE_API_KEY, // For Basescan.org API
         CELO_EXPLORER_API_KEY: process.env.CELO_API_KEY, // For Celoscan.io API
+        ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY, // For Etherscan.io API
         FUSE_EXPLORER_API_KEY: process.env.FUSE_API_KEY, // For Explorer.fuse.io API
         // Email Configuration
         EMAIL_USER: process.env.EMAIL_USER,

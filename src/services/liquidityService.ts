@@ -23,7 +23,8 @@ const BASE_YIELD_RATES: Record<TokenSymbol, number> = {
     TRX: 3,
     SOL: 6,
     OP: 5,
-    cUSD: 5
+    cUSD: 5,
+    ETH: 0 // gas token: held for fees, not liquidity yield
 };
 
 // Bonus yield based on utilization (additional percentage)

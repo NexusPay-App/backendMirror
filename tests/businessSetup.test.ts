@@ -14,6 +14,11 @@ jest.mock("../src/services/auth", () => ({
   createAccount: jest.fn(),
   generateOTP: () => "123456",
 }));
+jest.mock("../src/services/walletProvisioning", () => ({
+  verifyWalletBinding: jest.fn().mockResolvedValue({ ok: true }),
+  createVerifiedSmartWallet: jest.fn(),
+  deriveSmartWalletAddress: jest.fn(),
+}));
 jest.mock("../src/services/smsService", () => ({
   SMSService: { sendOTP: jest.fn() },
 }));
@@ -27,6 +32,7 @@ jest.mock("../src/middleware/strictAuthMiddleware", () => ({
 import bcrypt from "bcrypt";
 import { Business } from "../src/models/businessModel";
 import { createAccount } from "../src/services/auth";
+import { verifyWalletBinding } from "../src/services/walletProvisioning";
 import { SMSService } from "../src/services/smsService";
 import {
   issueChallenge,
@@ -63,6 +69,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   (Business.exists as jest.Mock).mockResolvedValue(null);
   (SMSService.sendOTP as jest.Mock).mockResolvedValue(true);
+  (verifyWalletBinding as jest.Mock).mockResolvedValue({ ok: true });
 });
 test("binds normalized business details to the authenticated owner and sends one code", async () => {
   const res = response();

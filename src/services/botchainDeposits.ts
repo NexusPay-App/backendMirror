@@ -87,6 +87,26 @@ async function recordDeposit(value: { network: BotNetwork; chainId: number; watc
     throw error;
   }
 }
+/**
+ * Record a native-BOT deposit whose value moved inside a user operation or an
+ * EntryPoint withdraw (bundler → EntryPoint top-level, value transferred in the
+ * inner call). The block-window scanner only sees top-level transactions, so
+ * explorer-sourced internal transactions are recorded through here instead.
+ * Returns 1 when a new deposit was stored and 0 when it was already indexed.
+ */
+export async function recordInternalBotDeposit(params: { network: BotNetwork; sender: string; recipient: string; amountUnits: bigint; transactionHash: string; blockNumber: bigint; logKey?: string }): Promise<number> {
+  const n = getBotConfig(params.network);
+  const recipient = params.recipient.toLowerCase();
+  const watched = (await watchedAccounts(n.id)).get(recipient);
+  if (!watched) return 0;
+  return recordDeposit({
+    network: params.network, chainId: n.id, watched,
+    sender: params.sender, recipient,
+    symbol: 'BOT', units: params.amountUnits,
+    transactionHash: params.transactionHash, blockNumber: params.blockNumber,
+    logKey: params.logKey ?? 'native',
+  });
+}
 async function scanTokenDeposits(network: BotNetwork, from: bigint, to: bigint, watched: Map<string, WatchedAccount>): Promise<number> {
   const n = getBotConfig(network);
   const tokens = Object.values(n.tokens).filter(t => t.address);

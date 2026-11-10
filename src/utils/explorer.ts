@@ -4,6 +4,7 @@ const EXPLORERS = {
     arbitrum: 'https://arbiscan.io',
     polygon: 'https://polygonscan.com',
     base: 'https://basescan.org',
+    ethereum: 'https://etherscan.io',
     optimism: 'https://optimistic.etherscan.io',
     celo: 'https://celoscan.io',
     avalanche: 'https://snowtrace.io',

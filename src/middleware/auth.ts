@@ -43,7 +43,7 @@ export const authenticate = async (
   }
   try {
     const [user, session] = await Promise.all([
-      User.findById(decoded.id),
+      User.findById(decoded.id).select("+privateKey"),
       VerifiedSession.findOne({
         _id: sessionKey(token),
         userId: decoded.id,

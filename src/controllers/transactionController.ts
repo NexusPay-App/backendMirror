@@ -5,7 +5,7 @@ import { BotTransfer } from '../models/botTransfer';
 import { reconcileBotTransfer } from '../services/botchainTransfers';
 import { getBotConfig } from '../config/botchain';
 import { standardResponse, handleError } from '../services/utils';
-import { getConversionRateWithCaching } from '../services/rates';
+import { getConversionRateWithCaching, getRateQuote, getUsdRate } from '../services/rates';
 import { getTransactionDirection } from '../services/transactionDirection';
 import { getWalletBalance } from '../services/platformWallet';
 import { redis } from '../utils/redis';
@@ -110,8 +110,9 @@ async function mapBotTransaction(record: any) {
   const amount = Number(record.amount);
   const symbol = record.token;
   const decimals = network.tokens[symbol as keyof typeof network.tokens]?.decimals ?? 18;
-  // USDT follows the same stablecoin ≈ $1 convention as legacy records. BOT/WBOT have
-  // no validated price source, so they are reported as unavailable rather than valued at $1.
+  // USDT follows the same stablecoin ≈ $1 convention as legacy records. BOT is
+  // valued from the CoinMarketCap quote; until a live quote exists both the USD
+  // and KES values stay honestly "Price unavailable" — never invented at $1.
   const isStable = symbol === 'USDT';
   let usdValue = 0;
   let kesValue = 0;
@@ -122,16 +123,29 @@ async function mapBotTransaction(record: any) {
       kesRate = await getConversionRateWithCaching('USDT');
       kesValue = amount * kesRate;
     } catch { /* Values stay zero when no rate is available; the status remains honest. */ }
+  } else if (symbol === 'BOT') {
+    try {
+      const usdRate = await getUsdRate('BOT');
+      if (usdRate > 0) usdValue = amount * usdRate;
+    } catch { /* Unpriced below when the quote provider is unavailable. */ }
+    try {
+      const quote = await getRateQuote('BOT');
+      kesRate = quote.rate;
+      kesValue = amount * kesRate;
+    } catch { /* Unpriced below when the quote provider is unavailable. */ }
   }
+  const usdPriced = isStable ? amount > 0 : usdValue > 0;
+  const kesPriced = isStable ? amount > 0 : kesValue > 0;
   const createdAt = record.createdAt;
   const completedAt = status === 'completed' ? (record.completedAt || record.updatedAt || createdAt) : null;
   const ageMinutes = Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60));
   const processingTimeSeconds = completedAt ? Math.floor((new Date(completedAt).getTime() - new Date(createdAt).getTime()) / 1000) : null;
   const txHash = record.transactionHash || null;
   const explorerUrl = txHash ? `${network.explorer}/tx/${txHash}` : null;
+  const incoming = record.direction === 'incoming';
   const summary = status === 'failed'
     ? `Failed: ${amount} ${symbol} on ${network.name}`
-    : `${record.merchantId ? 'Merchant payment' : 'Sent'} ${amount} ${symbol} on ${network.name}`;
+    : `${incoming ? 'Received' : record.merchantId ? 'Merchant payment' : 'Sent'} ${amount} ${symbol} on ${network.name}`;
   return {
     id: String(record._id),
     type,
@@ -140,8 +154,8 @@ async function mapBotTransaction(record: any) {
     token: { symbol, name: getTokenName(symbol), amount, decimals },
     values: {
       fiat: { amount: 0, currency: 'KES', formatted: '—' },
-      usd: { amount: usdValue, formatted: isStable ? `$${usdValue.toFixed(2)}` : 'Price unavailable', rate: amount ? usdValue / amount : 0 },
-      kes: { amount: kesValue, formatted: isStable ? `KES ${Math.round(kesValue).toLocaleString()}` : 'Price unavailable', rate: kesRate }
+      usd: { amount: usdValue, formatted: usdPriced ? `$${usdValue.toFixed(2)}` : 'Price unavailable', rate: amount ? usdValue / amount : 0 },
+      kes: { amount: kesValue, formatted: kesPriced ? `KES ${Math.round(kesValue).toLocaleString()}` : 'Price unavailable', rate: kesRate }
     },
     blockchain: {
       chain: record.network,
@@ -238,6 +252,19 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
     if (type) {
       query.type = type;
     }
+
+    // Chain/token filters match top-level fields or metadata (direct transfers
+    // store the symbol under metadata.tokenSymbol).
+    if (chain) {
+      query.$and = [...(query.$and || []), { $or: [{ chain }, { 'metadata.chain': chain }] }];
+    }
+    if (tokenType) {
+      const symbol = String(tokenType).toUpperCase();
+      query.$and = [
+        ...(query.$and || []),
+        { $or: [{ tokenType: symbol }, { 'metadata.tokenType': symbol }, { 'metadata.tokenSymbol': symbol }, { 'metadata.tokenSymbol': String(tokenType) }] },
+      ];
+    }
     
     if (dateFrom || dateTo) {
       query.createdAt = {};
@@ -267,7 +294,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
         const validatedTx = await validateAndCorrectTransactionStatus(tx);
         
         const metadata = validatedTx.metadata || {};
-        const tokenSymbol = metadata.tokenType || validatedTx.tokenType || 'USDC';
+        const tokenSymbol = metadata.tokenType || metadata.tokenSymbol || validatedTx.tokenType || 'USDC';
         const chainName = metadata.chain || validatedTx.chain || 'arbitrum';
         const cryptoAmount = typeof validatedTx.cryptoAmount === 'string' ? parseFloat(validatedTx.cryptoAmount) : validatedTx.cryptoAmount;
         
@@ -416,6 +443,7 @@ export const getTransactionHistory = async (req: Request, res: Response) => {
           const mapped = await mapBotTransaction(record);
           if (status && mapped.status !== status) continue;
           if (chain && mapped.blockchain.chain !== chain) continue;
+          if (tokenType && String(mapped.token?.symbol || '').toUpperCase() !== String(tokenType).toUpperCase()) continue;
           if (type && mapped.type !== type) continue;
           if (dateFrom && new Date(mapped.timing.createdAt) < new Date(dateFrom as string)) continue;
           if (dateTo && new Date(mapped.timing.createdAt) > new Date(dateTo as string)) continue;
@@ -721,7 +749,10 @@ function getTokenDecimals(symbol: string): number {
     'WETH': 18,
     'WBTC': 8,
     'DAI': 18,
-    'CELO': 18
+    'CELO': 18,
+    'BOT': 18,
+    'WBOT': 18,
+    'ARB': 18
   };
   return tokenDecimals[symbol] || 18;
 }

@@ -4,7 +4,8 @@ import type { Chain } from '../types/token';
 export const chains: Record<Chain, { id: number; name: string; rpc: string; explorer: string }> = {
   arbitrum: { id: 42161, name: 'Arbitrum', rpc: 'https://arb1.arbitrum.io/rpc', explorer: 'https://arbiscan.io' },
   celo: { id: 42220, name: 'Celo', rpc: 'https://forno.celo.org', explorer: 'https://celoscan.io' },
-  base: { id: 8453, name: 'Base', rpc: 'https://mainnet.base.org', explorer: 'https://basescan.org' },
+    base: { id: 8453, name: 'Base', rpc: 'https://mainnet.base.org', explorer: 'https://basescan.org' },
+    ethereum: { id: 1, name: 'Ethereum', rpc: 'https://ethereum-rpc.publicnode.com', explorer: 'https://etherscan.io' },
   optimism: { id: 10, name: 'Optimism', rpc: 'https://mainnet.optimism.io', explorer: 'https://optimistic.etherscan.io' },
   polygon: { id: 137, name: 'Polygon', rpc: 'https://polygon-bor-rpc.publicnode.com', explorer: 'https://polygonscan.com' },
   avalanche: { id: 43114, name: 'Avalanche', rpc: 'https://api.avax.network/ext/bc/C/rpc', explorer: 'https://snowtrace.io' },
@@ -18,7 +19,27 @@ export const chains: Record<Chain, { id: number; name: string; rpc: string; expl
   lisk: { id: 1135, name: 'Lisk', rpc: 'https://rpc.api.lisk.com', explorer: 'https://blockscout.lisk.com' },
   somnia: { id: 5031, name: 'Somnia', rpc: 'https://api.infra.mainnet.somnia.network', explorer: 'https://explorer.somnia.network' },
 };
-export const paymentChains = Object.keys(chains).filter(key => Object.values(tokenConfigs[key as Chain]).some(t => /^0x[0-9a-f]{40}$/i.test(t.address))) as Chain[];
+const isSelectableToken = (t: { address: string }) =>
+  t.address === 'native' || /^0x[0-9a-f]{40}$/i.test(t.address);
+
+export const paymentChains = Object.keys(chains).filter(key =>
+  Object.values(tokenConfigs[key as Chain]).some(isSelectableToken)
+) as Chain[];
+
 export function paymentCapabilities() {
-  return paymentChains.map(id => ({ id, name: chains[id].name, chainId: chains[id].id, testnet: false, gasMode: isUserFundedNetwork(id) ? 'self-funded' : 'sponsored', gasToken: isUserFundedNetwork(id) ? 'ETH' : undefined, explorer: chains[id].explorer, tokens: Object.values(tokenConfigs[id]).filter(t => /^0x[0-9a-f]{40}$/i.test(t.address)) }));
+  return paymentChains.map(id => ({
+    id,
+    name: chains[id].name,
+    chainId: chains[id].id,
+    testnet: false,
+    // Users pay their own gas on every network.
+    gasMode: 'self-funded',
+    gasToken: isUserFundedNetwork(id) ? 'ETH' : undefined,
+    explorer: chains[id].explorer,
+    // Only Ethereum, Base and Arbitrum have a working bundler; every other
+    // chain stays dormant (no sends, no merchant payments) until one exists.
+    transfers: isUserFundedNetwork(id),
+    // Include native gas tokens (ETH) so the send picker can offer them.
+    tokens: Object.values(tokenConfigs[id]).filter(isSelectableToken),
+  }));
 }

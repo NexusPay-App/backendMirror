@@ -101,8 +101,13 @@ export const requireFreshSecurityMutation: RequestHandler = (
 };
 router.use(persistentLimit("security", 100));
 router.post("/enroll/options", async (req, res) => {
-  const { adminId, bootstrapToken } = req.body;
-  if (typeof adminId !== "string" || typeof bootstrapToken !== "string")
+  const adminId =
+    typeof req.body.adminId === "string" ? req.body.adminId.trim() : "";
+  const bootstrapToken =
+    typeof req.body.bootstrapToken === "string"
+      ? req.body.bootstrapToken.trim()
+      : "";
+  if (!adminId || !bootstrapToken)
     return res.status(400).json({ success: false });
   const store = await securityStore();
   const admin = await store.Admin.findOne({
@@ -110,17 +115,24 @@ router.post("/enroll/options", async (req, res) => {
     disabled: { $ne: true },
     bootstrapExpiresAt: { $gt: new Date() },
   });
-  if (
-    !admin?.bootstrapHash ||
-    !timingSafeEqual(
-      Buffer.from(digest(bootstrapToken)),
-      Buffer.from(admin.bootstrapHash),
-    )
-  )
+  const tokenDigest = digest(bootstrapToken);
+  const bootstrapMatches =
+    typeof admin?.bootstrapHash === "string" &&
+    Buffer.byteLength(tokenDigest) === Buffer.byteLength(admin.bootstrapHash) &&
+    timingSafeEqual(Buffer.from(tokenDigest), Buffer.from(admin.bootstrapHash));
+  if (!bootstrapMatches) {
+    console.warn("Admin passkey enrollment authorization rejected", {
+      adminFound: Boolean(admin),
+      bootstrapHashPresent: Boolean(admin?.bootstrapHash),
+      tokenMatched: false,
+      securityDatabase: store.Admin.db.name,
+      securityHost: store.Admin.db.host,
+    });
     return res.status(403).json({
       success: false,
       message: "Enrollment authorization invalid or expired.",
     });
+  }
   const options = await generateRegistrationOptions({
     rpName: "NexusPay Security",
     rpID: rp().rpID,
@@ -151,11 +163,15 @@ router.post("/enroll/verify", async (req, res) => {
     purpose: "enroll",
     expiresAt: { $gt: new Date() },
   });
-  if (!challenge || typeof req.body.bootstrapToken !== "string")
+  const bootstrapToken =
+    typeof req.body.bootstrapToken === "string"
+      ? req.body.bootstrapToken.trim()
+      : "";
+  if (!challenge || !bootstrapToken)
     return res.status(403).json({ success: false });
   const admin = await store.Admin.findOne({
     _id: challenge.principalId,
-    bootstrapHash: digest(req.body.bootstrapToken),
+    bootstrapHash: digest(bootstrapToken),
     bootstrapExpiresAt: { $gt: new Date() },
     disabled: { $ne: true },
   });
@@ -203,7 +219,9 @@ router.post("/enroll/verify", async (req, res) => {
 router.post("/login/options", async (req, res) => {
   const store = await securityStore();
   const adminId =
-    typeof req.body.adminId === "string" ? req.body.adminId.slice(0, 80) : "";
+    typeof req.body.adminId === "string"
+      ? req.body.adminId.trim().slice(0, 80)
+      : "";
   const credentials = await store.Credential.find({
     principalId: adminId,
     scope: "admin",

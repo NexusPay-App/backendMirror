@@ -18,11 +18,24 @@ const router = Router();
 router.use(authenticate, persistentLimit("payment-intents", 20));
 const tokens: Record<number, string[]> = {
   677: ["native", "0xababc7ddc03e501d190c676bf3d92ef0e6e87a3c"],
-  8453: ["native", "0x833589fcd6edb6e08f4c7c32d4f71b54bdA02913".toLowerCase()],
+  1: [
+    "native",
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+  ],
+  8453: [
+    "native",
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bdA02913".toLowerCase(),
+    "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2".toLowerCase(),
+    "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c".toLowerCase(),
+  ],
   42161: [
     "native",
     "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
     "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+    "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
   ],
 };
 router.use((req, res, next) => {

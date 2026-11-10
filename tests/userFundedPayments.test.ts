@@ -1,5 +1,5 @@
 jest.mock('../src/services/auth', () => ({ client: { clientId: 'fixture' } }));
-jest.mock('../src/config/env', () => ({ __esModule: true, default: { base: { chainId: 8453 }, arbitrum: { chainId: 42161 } } }));
+jest.mock('../src/config/env', () => ({ __esModule: true, default: { base: { chainId: 8453 }, arbitrum: { chainId: 42161 }, celo: { chainId: 42220 } } }));
 jest.mock('thirdweb', () => ({
   defineChain: jest.fn(value => typeof value === 'number' ? { id: value } : value),
   getContract: jest.fn(value => value), getRpcClient: jest.fn(() => ({})), readContract: jest.fn(),
@@ -9,6 +9,13 @@ jest.mock('thirdweb/wallets', () => ({ privateKeyToAccount: jest.fn(() => ({ add
 jest.mock('thirdweb/wallets/smart', () => ({ estimateUserOpGasCost: jest.fn() }));
 jest.mock('thirdweb/rpc', () => ({ eth_getBalance: jest.fn() }));
 jest.mock('thirdweb/extensions/erc20', () => ({ transfer: jest.fn(() => ({ to: '0xtoken' })), balanceOf: jest.fn() }));
+// Fee enrichment would reach a real bundler URL in these tests; keep it inert.
+jest.mock('../src/services/evmBundler', () => ({
+  withBundlerFees: jest.fn((options: unknown) => options),
+  isAlchemyBundler: jest.fn(() => false),
+  alchemyGasFees: jest.fn(),
+  bundlerRead: jest.fn(),
+}));
 import { readContract, sendTransaction, waitForReceipt } from 'thirdweb';
 import { smartWallet } from 'thirdweb/wallets';
 import { estimateUserOpGasCost } from 'thirdweb/wallets/smart';
@@ -17,6 +24,23 @@ import { balanceOf } from 'thirdweb/extensions/erc20';
 import { sendToken } from '../src/services/token';
 import { LEGACY_ACCOUNT_FACTORY } from '../src/config/mainnetPayments';
 import { evmPaymentError } from '../src/services/evmPaymentErrors';
+
+// Sendable chains need a bundler URL for the dormancy guard to pass; restore
+// afterwards so other suites in the same worker see the original env.
+const savedEnv: Record<string, string | undefined> = {};
+beforeAll(() => {
+  for (const name of ['MAINNET_BUNDLER_PROVIDER', 'ALCHEMY_API_KEY']) {
+    savedEnv[name] = process.env[name];
+  }
+  process.env.MAINNET_BUNDLER_PROVIDER = 'alchemy';
+  process.env.ALCHEMY_API_KEY = 'test-key';
+});
+afterAll(() => {
+  for (const [name, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -48,6 +72,11 @@ test('checks estimated deployment and execution fees before sending', async () =
 test('rejects a different predicted sender before attempting a payment', async () => {
   await expect(sendToken('0xrecipient', '1', 'base', 'fixture-not-a-key', 'USDC', '0xother')).rejects.toThrow('Signing account does not match');
   expect(sendTransaction).not.toHaveBeenCalled();
+});
+test('dormant chains reject sends before any wallet connection', async () => {
+  await expect(sendToken('0xrecipient', '1', 'celo', 'fixture-not-a-key', 'USDC')).rejects.toMatchObject({ code: 'TRANSFERS_UNAVAILABLE', status: 503 });
+  expect(sendTransaction).not.toHaveBeenCalled();
+  expect(smartWallet).not.toHaveBeenCalled();
 });
 test('provider errors do not leak signed payloads or secrets', () => {
   const failure = evmPaymentError(new Error('401 Mainnets not enabled; secret-key=secret'), 'Base');

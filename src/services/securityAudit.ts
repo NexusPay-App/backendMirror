@@ -125,9 +125,11 @@ export const auditRequests: RequestHandler = (req, res, next) => {
         });
         return original(body);
       })
-      .catch(() => {
+      .catch((error: any) => {
         console.error("SECURITY_AUDIT_UNAVAILABLE", {
           requestId: res.locals.requestId,
+          reason: error?.name || "UnknownError",
+          code: error?.code,
         });
         if (req.method === "GET") original(body);
         else {

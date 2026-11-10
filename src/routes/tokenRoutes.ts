@@ -1,20 +1,65 @@
-import express from 'express';
-import { send, pay, tokenTransferEvents, unify, migrate, getReceiveInfo, getUserBalance, getUserBalanceByChain } from '../controllers/tokenController';
-import { validate } from '../middleware/validation';
-import { sendTokenValidation, payMerchantValidation, tokenTransferEventsValidation } from '../middleware/validators/tokenValidators';
-import { enforceStrictAuth } from '../middleware/strictAuthMiddleware';
-import { authenticate } from '../middleware/auth';
-import { authorizePayment } from '../middleware/paymentAuthorization';
-import { balanceQueryLimiter } from '../middleware/rateLimiting';
-import { paymentCapabilities } from '../config/chains';
+import express from "express";
+import {
+  send,
+  pay,
+  tokenTransferEvents,
+  unify,
+  migrate,
+  getReceiveInfo,
+  getUserBalance,
+  getUserBalanceByChain,
+} from "../controllers/tokenController";
+import { validate } from "../middleware/validation";
+import {
+  sendTokenValidation,
+  payMerchantValidation,
+  tokenTransferEventsValidation,
+} from "../middleware/validators/tokenValidators";
+import { enforceStrictAuth } from "../middleware/strictAuthMiddleware";
+import { authenticate } from "../middleware/auth";
+import { authorizePayment } from "../middleware/paymentAuthorization";
+import { balanceQueryLimiter } from "../middleware/rateLimiting";
+import { paymentCapabilities } from "../config/chains";
 const router = express.Router();
-router.get('/networks', (_req, res) => res.json({ success: true, data: paymentCapabilities() }));
-router.post('/sendToken', authenticate, validate(sendTokenValidation), authorizePayment, send);
-router.post('/pay', authenticate, validate(payMerchantValidation), authorizePayment, pay);
-router.get('/tokenTransferEvents', authenticate, validate(tokenTransferEventsValidation), tokenTransferEvents);
-router.post('/unify', enforceStrictAuth, unify);
-router.post('/migrate', enforceStrictAuth, migrate);
-router.get('/receive', authenticate, getReceiveInfo);
-router.get('/balance', authenticate, balanceQueryLimiter, getUserBalance);
-router.get('/balance/:chain', authenticate, balanceQueryLimiter, getUserBalanceByChain);
+router.get("/networks", (_req, res) =>
+  res.json({ success: true, data: paymentCapabilities() }),
+);
+router.post(
+  "/sendToken",
+  authenticate,
+  validate(sendTokenValidation),
+  (req, res, next) => {
+    res.locals.paymentKind = "send";
+    next();
+  },
+  authorizePayment,
+  send,
+);
+router.post(
+  "/pay",
+  authenticate,
+  validate(payMerchantValidation),
+  (req, res, next) => {
+    res.locals.paymentKind = "merchant";
+    next();
+  },
+  authorizePayment,
+  pay,
+);
+router.get(
+  "/tokenTransferEvents",
+  authenticate,
+  validate(tokenTransferEventsValidation),
+  tokenTransferEvents,
+);
+router.post("/unify", enforceStrictAuth, unify);
+router.post("/migrate", enforceStrictAuth, migrate);
+router.get("/receive", authenticate, getReceiveInfo);
+router.get("/balance", authenticate, balanceQueryLimiter, getUserBalance);
+router.get(
+  "/balance/:chain",
+  authenticate,
+  balanceQueryLimiter,
+  getUserBalanceByChain,
+);
 export default router;

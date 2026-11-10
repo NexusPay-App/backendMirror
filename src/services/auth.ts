@@ -1,8 +1,6 @@
 import { randomInt } from "node:crypto";
 import { ThirdwebClient, createThirdwebClient, defineChain } from "thirdweb";
-import { smartWallet } from 'thirdweb/wallets';
-import { privateKeyToAccount } from './signingBoundary';
-import { Wallet } from 'ethers';
+import { createVerifiedSmartWallet } from './walletProvisioning';
 import config from "../config/env";
 import { SMSService } from './smsService';
 
@@ -25,35 +23,11 @@ export const generateOTP = (): string => randomInt(0, 1_000_000).toString().padS
 
 // Create a unified wallet that works across all chains
 export async function createAccount() {
-    // Create a random wallet
-    const newWallet = Wallet.createRandom();
-    const pk = newWallet.privateKey;
-    const personalAccount = privateKeyToAccount({
-        client,
-        privateKey: pk as string,
-    });
-
-    // Use Ethereum mainnet as the default chain for account creation
-    const defaultChain = defineChain(1); // Ethereum mainnet
-
-    // Configure the smart wallet
-    const wallet = smartWallet({
-        chain: defaultChain,
-        sponsorGas: false,
-        factoryAddress: '0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00',
-    });
-
-    // Connect the smart wallet
-    const smartAccount = await wallet.connect({
-        client,
-        personalAccount,
-    });
-    
-    const walletAddress = smartAccount.address;
-
-    console.log(`Created unified account - Personal: ${personalAccount.address}, Smart: ${walletAddress}`);
-
-    return { pk, walletAddress };
+    // Canonical derivation + write-time verification: the returned pair is
+    // guaranteed to satisfy sendToken's prediction/owner checks.
+    const fresh = await createVerifiedSmartWallet('ethereum');
+    console.log(`Created unified account - Personal: ${fresh.personalEoa}, Smart: ${fresh.walletAddress}`);
+    return { pk: fresh.privateKey, walletAddress: fresh.walletAddress };
 }
 
 // Helper function to get chain configuration by name

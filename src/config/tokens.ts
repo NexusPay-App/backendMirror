@@ -13,6 +13,7 @@ type TokenConfigurations = {
 
 export const tokenConfigs: TokenConfigurations = {
     arbitrum: {
+        ETH: { symbol: 'ETH', decimals: 18, address: 'native', name: 'Ethereum' },
         USDC: { symbol: 'USDC', decimals: 6, address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', name: 'USD Coin' },
         USDT: { symbol: 'USDT', decimals: 6, address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', name: 'Tether USD' },
         DAI: { symbol: 'DAI', decimals: 18, address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1', name: 'Dai Stablecoin' },
@@ -36,8 +37,18 @@ export const tokenConfigs: TokenConfigurations = {
         MATIC: { symbol: 'MATIC', decimals: 18, address: '0x0000000000000000000000000000000000001010', name: 'Polygon' }
     },
     base: {
+        ETH: { symbol: 'ETH', decimals: 18, address: 'native', name: 'Ethereum' },
         USDC: { symbol: 'USDC', decimals: 6, address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', name: 'USD Coin' },
+        USDT: { symbol: 'USDT', decimals: 6, address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', name: 'Tether USD' },
+        WBTC: { symbol: 'WBTC', decimals: 8, address: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', name: 'Wrapped Bitcoin' },
         WETH: { symbol: 'WETH', decimals: 18, address: '0x4200000000000000000000000000000000000006', name: 'Wrapped Ether' }
+    },
+    ethereum: {
+        ETH: { symbol: 'ETH', decimals: 18, address: 'native', name: 'Ethereum' },
+        USDC: { symbol: 'USDC', decimals: 6, address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', name: 'USD Coin' },
+        USDT: { symbol: 'USDT', decimals: 6, address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', name: 'Tether USD' },
+        WBTC: { symbol: 'WBTC', decimals: 8, address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', name: 'Wrapped Bitcoin' },
+        WETH: { symbol: 'WETH', decimals: 18, address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', name: 'Wrapped Ether' }
     },
     bnb: {
         USDC: { symbol: 'USDC', decimals: 18, address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', name: 'USD Coin' },
@@ -102,5 +113,12 @@ export function getTokenDecimals(chain: Chain, symbol: TokenSymbol): number {
 }
 
 export function getSupportedTokens(chain: Chain): TokenSymbol[] {
+    // Payment/mpesa paths expect ERC-20 contracts; native gas tokens are
+    // balance-only (see getBalanceTokens) so they never hit getContract.
+    return (Object.keys(tokenConfigs[chain]) as TokenSymbol[])
+        .filter(symbol => tokenConfigs[chain][symbol]?.address !== 'native');
+}
+
+export function getBalanceTokens(chain: Chain): TokenSymbol[] {
     return Object.keys(tokenConfigs[chain]) as TokenSymbol[];
 }

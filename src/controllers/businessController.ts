@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { Business } from '../models/businessModel';
 import { User } from '../models/models';
 import { createAccount, generateOTP, otpStore } from '../services/auth';
+import { verifyWalletBinding } from '../services/walletProvisioning';
 import { handleError, standardResponse } from '../services/utils';
 import config from '../config/env';
 import * as bcrypt from 'bcrypt';
@@ -118,6 +119,8 @@ export const completeBusinessCreation = async (req: Request, res: Response): Pro
     }
 
     const { pk, walletAddress } = await createAccount();
+    const binding = await verifyWalletBinding(pk, walletAddress);
+    if (!binding.ok) throw new Error(`Wallet binding verification failed: ${binding.reason}`);
     
     let merchantId;
     let isUnique = false;
