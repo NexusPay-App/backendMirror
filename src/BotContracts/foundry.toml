@@ -1,0 +1,22 @@
+# Foundry config for the BotContracts folder.
+#
+# The contracts use relative imports only, so the folder is its own project root: no remappings,
+# no remappings to a library, no package manager. Build output and cache go to /tmp so the repo
+# stays clean. Run:  forge test -vv     (from this directory)
+#
+# If `solc = "0.8.28"` cannot be resolved offline, point it at a local binary, for example
+# /home/core/.local/bin/solc.
+[profile.default]
+src = "."
+test = "test"
+out = "/tmp/botcontracts-out"
+cache_path = "/tmp/botcontracts-cache"
+libs = []
+solc = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+cbor_metadata = false
+
+[fuzz]
+runs = 128

@@ -1,0 +1,207 @@
+{
+  "deployer": "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5",
+  "deployment": {
+    "hub": {
+      "address": "0xafc7fae6d192efde3f66d6a8eff1a255ce59cca0",
+      "txHash": "0xe941aef2ee61c50c83b10ec4a13a3a5b8a09d65f9b808bb4ca9c0cd51547c34c",
+      "chainId": 421614,
+      "settlementWindow": "120",
+      "botChainId": "968"
+    },
+    "escrow": {
+      "address": "0x3037df7a0c417fc9c5ecab6aaeb610ba25c798f0",
+      "txHash": "0x422abcb076da80b1429574e2316a1d28967631bb332b04bf4e7ba133a03fc3fc",
+      "chainId": 968
+    },
+    "completedAt": "2026-11-10T13:38:09.461Z",
+    "testToken": "0x8e30278fb74d49c2a0ede0590a5e5cbeb8580d8d"
+  },
+  "prepare": {
+    "mint": {
+      "0xc67b1c8187a2e513b6a41253a64257D3cA161769": "0x7db1a3ef9ca11497f1aaf6592e02870183f4272e1cee52ea1c5db67857d44937",
+      "0x9Fd6B37e56f25966fBD086a56e459D56aAE4C268": "0x56846a05da84b100454be014c5b1cc23d09da3922cd7e62095c2f4bcc4c76ff3",
+      "0xCC06c90Bc2e0C0865C2495028709a9763C6e3E5F": "0xd0a0d1fda912e1782a1455384720f4a0493b8c4ef1f50a7912c0e38f8230c7be",
+      "0x90b4f3189f55fA939C872D11d01BbE94BaB644f9": "0xe87462df7bb46b952776897af1abb3cd0c0a93c3538b1d61aae6a8255058f37b",
+      "0x146B8098A242A3467BFea665a4A736F818Ecc04b": "0xfa42619fe15186f24eee1656a9ca64a3120312960e58e33b92c75c764998e59b",
+      "0x19B813BbE48a9536CB5C01d75FBe41B67ee5744f": "0x217f8e59fc6bb90de2739386bc44c6eff63a9e6c0c1d05c7ea816f53f4d4273c"
+    },
+    "tbot": {
+      "0xc67b1c8187a2e513b6a41253a64257D3cA161769": "0x21776c943399610eb4a6347a875d6fa9797ecd83b306941ee3d9a6a3cf6b8998",
+      "0x9Fd6B37e56f25966fBD086a56e459D56aAE4C268": "0x171c475f99012c0c00b0956d192ff0b52e43655875ea09f5e61e454c20342ecd",
+      "0xCC06c90Bc2e0C0865C2495028709a9763C6e3E5F": "0xab003e0eddb58321091e10cc6d3cec00b6da720c875a203c2519b5c08f36be57",
+      "0x90b4f3189f55fA939C872D11d01BbE94BaB644f9": "0xdc670eca8d58982488f72e78b7294729820de27eabf7c5b9fa2b44fb99e90e9a",
+      "0x146B8098A242A3467BFea665a4A736F818Ecc04b": "0xd945f4e1812f316d6b12a0dbb4dd787d37efe616974e19dc658186d7a3886963",
+      "0x19B813BbE48a9536CB5C01d75FBe41B67ee5744f": "0xd60ec8184fee16d153edcdc4200ee2cc3cc3f607466669c7f35f09299506ab36"
+    },
+    "usdt": {
+      "0xc67b1c8187a2e513b6a41253a64257D3cA161769": "0x632232eae6d3762030adc22ed5768f74da62a995b4cb01c8f5279ac02d9daf82",
+      "0x9Fd6B37e56f25966fBD086a56e459D56aAE4C268": "0xec41d717b20e2524784cce7dc248c89fcf98a4c2208a6f900947f87d15b827a3",
+      "0xCC06c90Bc2e0C0865C2495028709a9763C6e3E5F": "0x10df370aa18a2f856f209e130615e8c731b6d28a6973f045f9619b26402def7e",
+      "0x90b4f3189f55fA939C872D11d01BbE94BaB644f9": "0xad0960f3d7abf48ce526eb2a0413096033ee36a1bdf788cbc09d5853f48a637d",
+      "0x146B8098A242A3467BFea665a4A736F818Ecc04b": "0xe2e2dfd26f6a98bca171ef22110da1a47487148e023b760fcb80b0692b8e2970",
+      "0x19B813BbE48a9536CB5C01d75FBe41B67ee5744f": "0xf2fd0259811628ce7563755c4f4fcb78cdbc17271345448fdc5cb0edfc88f761"
+    },
+    "inventory": {
+      "native": "0x9cfa7a859dd8e6f2b0c61c09c957eaac1f4f8bfac3315a81f9a5ac277c82df56",
+      "usdt": "0x66e2402472ccf8b534d68345430ed9212cdbb16bc7bb8cc54dbdd192b1dc10b5"
+    },
+    "completedAt": "2026-11-10T13:39:01.869Z"
+  },
+  "bridge": {
+    "wallet_0": {
+      "quoteId": "0xc2468157b7415c67886209e9830f5e240356333485b8735ed520f1783c4c5a03",
+      "digest": "0x0353c747acbaa267d3d467555f77fffba4c0a0aa2f82fd65e39ab3589aaca8e4",
+      "digestMatches": true,
+      "amountIn": "10000000",
+      "destAccount": "0xc67b1c8187a2e513b6a41253a64257D3cA161769",
+      "approveTx": "0x642a3f88773e4a636f60c4fd4f42a604191e9e1715e5fe0c57e0197b5973ede9",
+      "depositTx": "0x1858dcaa119fac8b02c7ff0d25f6b4ad441057357d1482524ccbcdb398fe40c0",
+      "escrowDepositor": "0xc67b1c8187a2e513b6a41253a64257D3cA161769",
+      "releaseDeadline": 1794318131,
+      "payoutTx": "0xab1607998a616e32b9f2738729dd51ece2949e1a5c183b29fb18606dcd27d60b",
+      "releaseTx": "0xbe55affcd8de374b88e70b6fc9e920d40e4f98e5d67ac8c85b3010544dbb49bd",
+      "released": true,
+      "botPayoutRef": "0xab1607998a616e32b9f2738729dd51ece2949e1a5c183b29fb18606dcd27d60b"
+    },
+    "wallet_1": {
+      "quoteId": "0xc0082557b8f9eedc5e98cdec0c06bfc7dcaea3e447647586a39694fdcefa8044",
+      "digest": "0xcde0282197665bedeed6ab621511268f5946f59fa0e591b372ab6d55bcc7d773",
+      "digestMatches": true,
+      "amountIn": "10000000",
+      "destAccount": "0x9Fd6B37e56f25966fBD086a56e459D56aAE4C268",
+      "approveTx": "0x210ae65597d7f15e73d4a16547694d24f98882ac99aafa74b646262239af4270",
+      "depositTx": "0x8d5fad7a4a4220e1fae4ba13e3841a008493020cd550510e56b1036d28fba5f1",
+      "escrowDepositor": "0x9Fd6B37e56f25966fBD086a56e459D56aAE4C268",
+      "releaseDeadline": 1794318145,
+      "payoutTx": "0x9411c4fffb7d10ad524b5a8628237f17b5076da032d73ab0fabe98180107a53e",
+      "releaseTx": "0x4486df2cec74e2e0b70c0f321886838e0a7d9cf04374cee4db5caf711d7cf688",
+      "released": true,
+      "botPayoutRef": "0x9411c4fffb7d10ad524b5a8628237f17b5076da032d73ab0fabe98180107a53e"
+    },
+    "wallet_2": {
+      "quoteId": "0xb0b789f6a78ec8ed5fd38b774c0e859b8275f3f37d9d83a6960e9990117cc0c0",
+      "digest": "0x112519fac970d730577b99aef95470855495f7d5a89c29ea55d36d85d37f3e6c",
+      "digestMatches": true,
+      "amountIn": "10000000",
+      "destAccount": "0xCC06c90Bc2e0C0865C2495028709a9763C6e3E5F",
+      "approveTx": "0x5c34ed3c894386836f315e6321e15ece47a03abe6461a37a56c37dfad18e2d8b",
+      "depositTx": "0xa7e4a0cef567df9adc362264644cf8ac4cb9644952bb15df03f0ebd702f63ddc",
+      "escrowDepositor": "0xCC06c90Bc2e0C0865C2495028709a9763C6e3E5F",
+      "releaseDeadline": 1794318157,
+      "payoutTx": "0x6e4f7e67702571e75b88f6bcab27367817774cadc2d9045684cab5eecd2a577e",
+      "releaseTx": "0x211f0a768f3b384e37782ea7f75016fd7f55d099e0a4ca4d45234dd143934bfe",
+      "released": true,
+      "botPayoutRef": "0x6e4f7e67702571e75b88f6bcab27367817774cadc2d9045684cab5eecd2a577e"
+    },
+    "wallet_3": {
+      "quoteId": "0x116158b244fda5d20091f33057602aed6fb6813c98324bfc43e9ba00fcea7c2b",
+      "digest": "0x4b89918a752a20cad205ed749fdf647a8d64e8ddd94f4ea87863ede6c08d07e9",
+      "digestMatches": true,
+      "amountIn": "10000000",
+      "destAccount": "0x90b4f3189f55fA939C872D11d01BbE94BaB644f9",
+      "approveTx": "0xd4bfe3e8994d3fec93b3d44348aacb76b04f5a151dae19b9adc828b2f0475ac0",
+      "depositTx": "0x852d221f2d5b6418a93f9bb831e5714fea6d90485c51ffe8e438c1e0faf3bb5b",
+      "escrowDepositor": "0x90b4f3189f55fA939C872D11d01BbE94BaB644f9",
+      "releaseDeadline": 1794318169,
+      "payoutTx": "0x752fe412a382163abd7fb42c7aa54811c771424800642f3819888bf8d427707a",
+      "releaseTx": "0x123764ccd75047efe7d5c3628eb6bd51214edf99a69bf9a99bb8ba9deead6735",
+      "released": true,
+      "botPayoutRef": "0x752fe412a382163abd7fb42c7aa54811c771424800642f3819888bf8d427707a"
+    },
+    "wallet_4": {
+      "quoteId": "0x21587b70d44051e3078c96b6aa5b5b07c00c6a45d76f6a197a058c6a2d2c211c",
+      "digest": "0x8fc9c208ad4038b797c573eb1bf64b1b6be00a33be25cdac5d4ed1bcd496ae66",
+      "digestMatches": true,
+      "amountIn": "10000000",
+      "destAccount": "0x146B8098A242A3467BFea665a4A736F818Ecc04b",
+      "approveTx": "0xc5fb00d0956f18df7e12119d896b3ef9f14cb62490c06d2455ca9df077c01603",
+      "depositTx": "0x1c4b3a7457f9c0bce3800d00e91711e462aa3152bb2f53541a81e0e2a5dda8ec",
+      "escrowDepositor": "0x146B8098A242A3467BFea665a4A736F818Ecc04b",
+      "releaseDeadline": 1794318182,
+      "payoutTx": "0xd6d334b4d71dc335961711bceac7fcf9f7ab98403ee9a942a8115c857c9c4153",
+      "releaseTx": "0x9c65ff4f0e984925595a28099d2448399ae70077bdbd30130ce353ea8b458019",
+      "released": true,
+      "botPayoutRef": "0xd6d334b4d71dc335961711bceac7fcf9f7ab98403ee9a942a8115c857c9c4153"
+    }
+  },
+  "refund": {
+    "wallet_5": {
+      "quoteId": "0x6a922e70973aae58a6465c93ae35c2bafccd1e7eb1114d5cc512f7fa3a80c5e3",
+      "digest": "0x241be6a18f6f1ffa25fec3eb33004d64f664f6d85e755919eeba7c99b7f6582a",
+      "digestMatches": true,
+      "approveTx": "0x63d56cd7cee1d859411dddd6b717ddc11156b47d118eb6cbb2ae1897eb98c763",
+      "depositTx": "0x8bbd95ca3ed63147058cc890aa4581b6c4466a4656dfb1457e337e404bc3450c",
+      "releaseDeadline": 1794318234,
+      "refundTx": "0x13506cc6a8cf7a020fedb97bed0316291a0ad8d2b48182336faf74591f4ac867",
+      "refunded": true
+    }
+  },
+  "swap": {
+    "wallet_0": {
+      "quoteId": "0x022e0e870dc4d0cd00b170327060fd78f2df17c037991182279f76d810dc10fa",
+      "digest": "0x28888f829c7a59f6da6715aea9b577f8224d2f3ad50e9f98817f360c20a51eb2",
+      "digestMatches": true,
+      "approveTx": "0x9d9b51197de9929f55bbc5a92df002591ea4b4844e869f61785574ef166aab36",
+      "swapTx": "0xa7da8eb606f7010b4f603d51293224805c25385ff897d1e257176f48335221e9",
+      "nativeDelta": "17278160000000000",
+      "tokenIn": "USDT",
+      "tokenOut": "BOT",
+      "confirmed": true
+    },
+    "wallet_1": {
+      "quoteId": "0xee5c78548d10bab6b9de683eea392ef5f81b62e0c2288675f5f3de87cb953310",
+      "digest": "0x0fe2a30befbe92cca50a71e58a41424689fb8b2fb9e56d385456e110c7cf157e",
+      "digestMatches": true,
+      "approveTx": "0xcd07707e4fb0645a9f8aafaebaa7dd1021a83ea509e3f5a1fb17d9f1b169b57a",
+      "swapTx": "0x31642e44cda62835f1016a9418632e551df60e283404f07e72dd0ac858f6b7ce",
+      "nativeDelta": "17277680000000000",
+      "tokenIn": "USDT",
+      "tokenOut": "BOT",
+      "confirmed": true
+    },
+    "wallet_2": {
+      "quoteId": "0x71922832b0f8f78a3835a5bc8eedc79403ab553e44d6eb8641f203b2d714e352",
+      "digest": "0xebdf2efecd411b9ae186c322781208e042794f0e3cfc607a6d1e4573d2663523",
+      "digestMatches": true,
+      "approveTx": "0x1661f7f992f30158a1d369f0b6b9d3e6d78e2fefbec9b10934b71c1462ab6630",
+      "swapTx": "0xca3f2ecfb9acdc18d106172ae577e1516ba67ff67d4b958b19af3d76c99ffb86",
+      "nativeDelta": "17277680000000000",
+      "tokenIn": "USDT",
+      "tokenOut": "BOT",
+      "confirmed": true
+    },
+    "wallet_3": {
+      "quoteId": "0x68d20e649863b8b815639ead72dff77aca4af66cec7f9f21eb748baa6c5c3aba",
+      "digest": "0xd2d64d18847fa6b8924fd1fd2f203b2d6ba3277bf0bf9ae04fb05ec41d26bd78",
+      "digestMatches": true,
+      "swapTx": "0x436b379dba77fbed6e22d0c8e94274815cfb3b46629997fa631d3b24d783e07f",
+      "usdtDelta": "9800000",
+      "nativeDelta": "22453220000000000",
+      "tokenIn": "BOT",
+      "tokenOut": "USDT",
+      "confirmed": true
+    },
+    "wallet_4": {
+      "quoteId": "0x436f0c8e83a9abcdbc34ce33c4c2951c98e90993d8d01462981cf32a4a37b788",
+      "digest": "0xf98e54c826bc6a7f2f743f3c62ee86433fb3c7f966c4acfb4321d4ffc7a717f8",
+      "digestMatches": true,
+      "swapTx": "0x16ac2afe56e56a7e579285433574c60f14df68d2a5b3597ca587f39ed82c9b60",
+      "usdtDelta": "9800000",
+      "nativeDelta": "22452260000000000",
+      "tokenIn": "BOT",
+      "tokenOut": "USDT",
+      "confirmed": true
+    },
+    "wallet_5": {
+      "quoteId": "0xe2a8367aa2c52c858f9af036e78b8ff44d7461903fd42df8e303bff0f88651d4",
+      "digest": "0xf2473409e73fa60a033cc560472cc9f9578bdf425c16c88edf6367740b45b792",
+      "digestMatches": true,
+      "swapTx": "0xfa7d65aa5a793f00996a3c02314f795fafd77e22708359b8e9af526f94fd8a7c",
+      "usdtDelta": "9800000",
+      "nativeDelta": "22452860000000000",
+      "tokenIn": "BOT",
+      "tokenOut": "USDT",
+      "confirmed": true
+    }
+  }
+}

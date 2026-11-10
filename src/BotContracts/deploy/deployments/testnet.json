@@ -1,0 +1,30 @@
+{
+  "network": "testnet",
+  "deployedAt": "2026-11-10T13:38:09.463Z",
+  "deployer": "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5",
+  "contracts": {
+    "BotBridgeHub": {
+      "address": "0xafc7fae6d192efde3f66d6a8eff1a255ce59cca0",
+      "chainId": 421614,
+      "txHash": "0xe941aef2ee61c50c83b10ec4a13a3a5b8a09d65f9b808bb4ca9c0cd51547c34c",
+      "gasUsed": "1826720",
+      "constructorArgs": [
+        "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5",
+        "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5",
+        "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5",
+        "968",
+        "120"
+      ]
+    },
+    "BotSwapEscrow": {
+      "address": "0x3037df7a0c417fc9c5ecab6aaeb610ba25c798f0",
+      "chainId": 968,
+      "txHash": "0x422abcb076da80b1429574e2316a1d28967631bb332b04bf4e7ba133a03fc3fc",
+      "gasUsed": "1309086",
+      "constructorArgs": [
+        "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5",
+        "0xA1E52125F3780bf3c39BDa988e231C3c9cC6A7c5"
+      ]
+    }
+  }
+}
